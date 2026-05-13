@@ -35,6 +35,7 @@ env/
 
 # Workspace
 workspace/
+playground/
 *.log
 
 # OS
