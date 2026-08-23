@@ -19,6 +19,49 @@ class LLMRequestSnapshot:
 ScriptedResult = LLMResponse | Exception
 
 
+def validate_tool_call_pairs(messages: tuple[Message, ...] | list[Message]) -> None:
+    """Check that every tool call has exactly one later result with the same ID."""
+    seen_calls: dict[str, int] = {}
+    pending_calls: dict[str, int] = {}
+
+    for message_index, message in enumerate(messages):
+        for tool_call in message.tool_calls or []:
+            call_id = tool_call.id
+            if not call_id:
+                raise AssertionError(f"tool call at message {message_index} has an empty ID")
+            if call_id in seen_calls:
+                first_index = seen_calls[call_id]
+                raise AssertionError(
+                    f"duplicate tool call ID {call_id!r} at message {message_index}; "
+                    f"first declared at message {first_index}"
+                )
+            seen_calls[call_id] = message_index
+            pending_calls[call_id] = message_index
+
+        if message.role != "tool":
+            continue
+
+        call_id = message.tool_call_id
+        if not call_id:
+            raise AssertionError(f"tool result at message {message_index} has no tool_call_id")
+        if call_id not in seen_calls:
+            raise AssertionError(
+                f"tool result at message {message_index} references unknown tool call {call_id!r}"
+            )
+        if call_id not in pending_calls:
+            raise AssertionError(
+                f"duplicate tool result for {call_id!r} at message {message_index}"
+            )
+        del pending_calls[call_id]
+
+    if pending_calls:
+        missing = ", ".join(
+            f"{call_id!r} (message {message_index})"
+            for call_id, message_index in pending_calls.items()
+        )
+        raise AssertionError(f"tool call(s) missing results: {missing}")
+
+
 class ScriptedLLM:
     """Return scripted results while recording every internal LLM request."""
 
@@ -33,12 +76,18 @@ class ScriptedLLM:
         tools: list[Any] | None = None,
     ) -> LLMResponse:
         """Record the request and consume exactly one scripted result."""
-        self.requests.append(
-            LLMRequestSnapshot(
-                messages=tuple(deepcopy(messages)),
-                tools=self._snapshot_tools(tools),
-            )
+        request = LLMRequestSnapshot(
+            messages=tuple(deepcopy(messages)),
+            tools=self._snapshot_tools(tools),
         )
+        self.requests.append(request)
+
+        try:
+            validate_tool_call_pairs(request.messages)
+        except AssertionError as error:
+            violation = f"Invalid LLM request #{len(self.requests)}: {error}"
+            self._violations.append(violation)
+            raise AssertionError(violation) from error
 
         if not self._results:
             violation = f"Unexpected LLM call #{len(self.requests)}: scripted responses exhausted"

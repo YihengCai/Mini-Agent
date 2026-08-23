@@ -1,5 +1,6 @@
 """Offline regression tests for the agent loop and its LLM test double."""
 
+import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -7,7 +8,7 @@ import pytest
 from mini_agent.agent import Agent
 from mini_agent.schema import FunctionCall, LLMResponse, Message, ToolCall
 from mini_agent.tools.base import Tool, ToolResult
-from tests.llm_test_double import ScriptedLLM
+from tests.llm_test_double import ScriptedLLM, validate_tool_call_pairs
 
 
 def response(
@@ -63,6 +64,14 @@ def build_agent(monkeypatch, tmp_path, llm, tools, *, max_steps: int = 3) -> Age
     return agent
 
 
+def tool_call(call_id: str, name: str = "echo") -> ToolCall:
+    return ToolCall(
+        id=call_id,
+        type="function",
+        function=FunctionCall(name=name, arguments={"text": call_id}),
+    )
+
+
 @pytest.mark.asyncio
 async def test_scripted_llm_records_stable_requests_and_returns_in_order():
     messages = [Message(role="user", content="before")]
@@ -107,6 +116,66 @@ async def test_scripted_exception_is_consumed_without_becoming_a_violation():
         await llm.generate([Message(role="user", content="fail")])
 
     llm.assert_complete()
+
+
+def test_tool_call_pair_check_allows_multiple_results_in_any_order():
+    messages = [
+        Message(role="assistant", content="", tool_calls=[tool_call("one"), tool_call("two")]),
+        Message(role="tool", content="second", tool_call_id="two"),
+        Message(role="tool", content="first", tool_call_id="one"),
+    ]
+
+    validate_tool_call_pairs(messages)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("messages", "error"),
+    [
+        (
+            [Message(role="tool", content="orphan", tool_call_id="missing")],
+            "references unknown tool call 'missing'",
+        ),
+        (
+            [
+                Message(
+                    role="assistant",
+                    content="",
+                    tool_calls=[tool_call("same"), tool_call("same")],
+                )
+            ],
+            "duplicate tool call ID 'same'",
+        ),
+        (
+            [
+                Message(role="assistant", content="", tool_calls=[tool_call("same")]),
+                Message(role="tool", content="first", tool_call_id="same"),
+                Message(role="tool", content="second", tool_call_id="same"),
+            ],
+            "duplicate tool result for 'same'",
+        ),
+        (
+            [
+                Message(role="assistant", content="", tool_calls=[tool_call("reused")]),
+                Message(role="tool", content="first", tool_call_id="reused"),
+                Message(role="assistant", content="", tool_calls=[tool_call("reused")]),
+            ],
+            "duplicate tool call ID 'reused'",
+        ),
+        (
+            [Message(role="assistant", content="", tool_calls=[tool_call("pending")])],
+            "tool call(s) missing results: 'pending'",
+        ),
+    ],
+)
+async def test_scripted_llm_rejects_invalid_tool_call_pairs(messages, error):
+    llm = ScriptedLLM([response("unused")])
+
+    with pytest.raises(AssertionError, match=re.escape(error)):
+        await llm.generate(messages)
+
+    with pytest.raises(AssertionError, match="Invalid LLM request #1"):
+        llm.assert_complete()
 
 
 @pytest.mark.asyncio
