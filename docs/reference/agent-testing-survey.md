@@ -1,122 +1,45 @@
-# coding agent 测试框架调查
+# 开源 coding agent 的 LLM 测试替身
 
-> 调查日期：2026-08-24。结论来自 OpenAI Codex、gemini-cli、OpenHands、DeepSeek Harness、goose、pi、aider、cline、Roo Code、SWE-agent 等项目的源码。仓库会变化，引用前应重新核实路径。
+> 调查日期：2026-08-24。这里只记录外部项目源码证据，不替 Mini-Agent 做设计决定。仓库会变化，实施前应重新核对链接。
 
-这份文档只保留会影响 Mini-Agent 设计的结论。逐项目原始笔记已经删除；路径、测试名和提交是可复查证据，不是本项目必须照抄的方案。
+## 名称并不统一
 
-## 1. 模拟模型的四种做法
+“LLM 测试替身”是本项目对这一类测试手段的统称，不是外部项目共享的类名：
 
-### 有序脚本
+- Gemini CLI 使用 [`FakeContentGenerator`](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/core/fakeContentGenerator.ts)；
+- OpenHands SDK 使用 [`TestLLM`](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands-sdk/openhands/sdk/testing/test_llm.py)；
+- Codex 主要使用 [`ResponseMock` 和本地模型服务](https://github.com/openai/codex/blob/main/codex-rs/core/tests/common/responses.rs)。
 
-每次模型调用从队列取下一条响应，不检查请求。
+因此概念文档应描述“测试替身解决什么问题”，具体标识符由本项目实现决定。
 
-- OpenHands：`openhands.sdk.testing.TestLLM` 使用 `deque.popleft()`，队列耗尽时抛出 `TestLLMExhaustedError`。
-- mini-swe-agent：`DeterministicModel`、`DeterministicToolcallModel` 和 `DeterministicResponseAPIToolcallModel` 覆盖三种工具调用协议格式。
-- gemini-cli：`packages/core/src/core/fakeContentGenerator.ts` 提供严格顺序，并为不确定的后台任务增加 `nonStrict` 模式。
-- pi：`packages/ai/src/providers/faux.ts` 把模拟模型注册成正式模型服务，并生成完整的流式事件序列。
+## 进程内脚本化响应
 
-优点是实现小、运行快、失败容易读。缺点是循环外的压缩等额外模型调用会使队列错位。
+Gemini CLI 的测试实现与正式 `ContentGenerator` 使用同一接口。默认模式按调用顺序消费预设响应，调用方法不匹配或响应耗尽时失败；`nonStrict` 模式允许后台任务以不确定顺序消费同类响应。流式响应以 async generator 逐块返回。
 
-### 请求路由
+OpenHands 的 `TestLLM` 按顺序返回 SDK `Message` 或指定异常，耗尽时抛错，并公开调用次数和剩余响应。它可以注入真实 `Agent`、`Conversation` 和工具执行器；[并行工具测试](https://github.com/OpenHands/software-agent-sdk/blob/main/tests/sdk/agent/test_parallel_execution_integration.py)通过事件轨迹断言工具调用顺序和失败隔离。
 
-根据请求结构或判断条件选择响应。
+这一层适合验证 agent loop 的状态迁移、工具调度和消息结构。它不经过真实模型服务协议，不能证明 HTTP/SSE 兼容性。
 
-- DeepSeek Harness：`packages/core/agent-loop/tests/mock-adapter.ts` 的脚本项可以是响应、请求函数、`hang` 或 `{hangAfter: n}`，并记录 `requests`。
-- goose：`dummy_api.rs` 用 enum 表达 `Reply`、`ToolCall`、`ContextLimitError`、`ReplyThenServerError` 等行为。
+## 本地协议服务
 
-这种方式能容忍调用顺序变化，但判断条件不能复制生产环境的提示词逻辑，否则模拟模型会变成第二套实现。
+Codex 的核心测试运行真实 harness 和模型客户端，只把远端 Responses API 换成本地服务。测试辅助代码构造带类型的 SSE 事件、捕获出站请求，并检查工具调用与结果的配对结构。专门的 [`StreamingSseServer`](https://github.com/openai/codex/blob/main/codex-rs/core/tests/common/streaming_sse.rs)可以逐块放行数据，用来验证流式时序和并发边界。
 
-### 以请求为键的录制文件
+OpenHands 也把 `TestLLM` 包成 [OpenAI 兼容的本地假服务](https://github.com/OpenHands/OpenHands/blob/main/tests/e2e/mock-llm/scripts/mock-llm-server.py)，再由 [Playwright 配置](https://github.com/OpenHands/OpenHands/blob/main/playwright.mock-llm.config.ts)启动完整前后端。这个服务支持脚本化工具调用、SSE、错误状态和请求记录。
 
-使用规范化后的请求作为 key，同时让请求变化直接导致测试失败。
+这一层适合验证模型客户端的协议编解码、流式分片、重试和错误分类；它比进程内替身更接近生产路径，但不应取代更小的 agent loop 测试。
 
-- goose：`crates/goose/src/providers/testprovider.rs` 以 `Sha256(serde_json(messages))` 查找 `TestRecord`，计算哈希前删除不影响模型语义的元数据；CI 禁止录制。
-- OpenHands 旧方案：`tests/integration/conftest.py` 用有序下标选择录制文件（cassette），再检查规范化后的提示词是否相等。该集成测试于 2024-10 从 CI 删除；主机名、路径、SHA256 和空白规范化展示了维护成本。
+## 录制回放与真实端点
 
-只有请求已经稳定、动态字段有明确规范化规则时，这种方案才值得使用。
+Gemini CLI 的生成器组装支持录制真实响应并在后续测试中回放，见 [`contentGenerator.ts`](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/core/contentGenerator.ts)。录制文件适合稳定的完整 CLI 场景，但提示词和动态字段变化会带来维护成本。
 
-### 本地协议服务
+真实模型测试用于验证提示词效果、模型行为和 vendor 能力，不适合证明确定性的 agent loop 不变量。代表性项目都把这类测试与默认快速回归分开：Codex 的 [live CLI 测试](https://github.com/openai/codex/blob/main/codex-rs/core/tests/suite/live_cli.rs)默认忽略，OpenHands 的[集成测试说明](https://github.com/OpenHands/software-agent-sdk/blob/main/tests/integration/README.md)将真实模型任务单独管理。
 
-启动本地 HTTP/WebSocket 服务，使用真实的模型服务协议。
+## 可迁移的测试分层
 
-- Codex：`codex-rs/core/tests/common/responses.rs` 使用 `wiremock` 和带类型的 SSE 事件构造器；`streaming_sse.rs` 可逐块放行，验证工具是否在 `response.completed` 前启动。
-- OpenHands：`tests/e2e/mock-llm/scripts/mock-llm-server.py` 提供 OpenAI 兼容端点，以及 `/admin/trajectory/*` 控制 API。
-- DeepSeek Harness：`packages/test-support/llm-mock-server` 可制造 socket 重置、部分流、停顿、格式错误的载荷和带随机种子的故障。
+外部源码共同展示了三个不同证据边界：
 
-它最适合验证协议解析、重试和流式生命周期，不应取代成本较低的进程内循环测试。
+1. 进程内测试替身证明 agent loop 的确定性行为；
+2. 本地协议服务证明模型客户端和失败生命周期；
+3. 显式启用的真实端点测试证明 vendor 能力和模型行为。
 
-## 2. 对 Mini-Agent FakeLLM 的结论
-
-Mini-Agent 的 `_summarize_messages()` 会额外调用 `llm.generate(tools=None)`，因此单个 FIFO 不可靠。第一版采用按请求路由的有序队列：
-
-- `tools is None` 进入压缩队列；
-- 其他请求进入主循环队列；
-- 每次调用前检查全局消息历史不变量；
-- 队列提前耗尽和测试结束后仍有未消费响应都会失败；
-- 记录请求供测试断言，不在第一版实现提示词哈希或本地协议服务。
-
-对应决定见 [ADR-0005](../decisions/0005-fake-llm-routed-queues.md)。
-
-## 3. 中断与消息历史不变量
-
-真实项目通常把中断看成消息历史一致性问题，而不只是捕获异常。
-
-- gemini-cli：`packages/core/src/core/geminiChat.test.ts` 覆盖中止后回滚未响应的用户轮次、包含函数响应的多轮请求、恢复 `lastPromptTokenCount` 和同步记录服务。
-- charmbracelet/crush：`internal/agent/dispatch_cancel_test.go` 与 `internal/server/agent_cancel_test.go` 检查取消/接受竞争、空闲时取消不污染下一次提示词、立即取消仍发布 `RunComplete`。
-- Roo Code：`flushPendingToolResultsToHistory.spec.ts` 覆盖已中止任务不应写入待处理结果。
-- mini-swe-agent：`tests/agents/test_interactive.py` 只检查插入一次中断消息，属于较弱的消息计数测试。
-
-Mini-Agent 需要的不变量是：每个 assistant `tool_use` ID 都有且只有一个对应的 `tool_result`，并且已经执行的工具记录不能因中断被删除。
-
-## 4. 上下文压缩测试
-
-上下文压缩测试的重点不是摘要文案，而是结构和最坏路径。
-
-- cline：`sdk/packages/core/src/extensions/context/compaction.test.ts` 覆盖切分点不落在工具调用与结果之间、token 估算、取消和降级方案。
-- Codex：`core/tests/suite/compact.rs` 与 `compact_remote.rs` 检查请求体、摘要替换和远程压缩；部分已知错误行为用带原因的 `#[ignore]` 保留。
-- pi：模拟模型服务能按 `sessionId` 估算公共前缀，允许离线检查提示词缓存统计。
-
-本项目的最低要求：随机工具调用组下消息历史始终有效；重复 `build_view()` 的输出逐字节一致；摘要失败不得让输入变大。
-
-## 5. 快照与故障注入
-
-- Codex 使用 `insta` 快照；请求快照会排序 JSON key，并移除 UUID、时间戳、临时路径等动态值。
-- DeepSeek Harness 的协议故障服务使用记录下来的 `u32 seed` 重放随机故障。
-- goose 的 VCR 录制在 CI 中直接 panic，避免测试自动修改测试样例。
-
-快照适合稳定的协议对象或 UI 输出，不适合把频繁变化的整段提示词当成唯一判据。故障注入必须记录随机种子或使用确定脚本。
-
-## 6. 沙箱与编辑测试
-
-- Codex 的 `linux-sandbox/tests` 和相关平台测试验证真实的操作系统拒绝，而不只检查策略解析器返回值。
-- aider 常用方法 monkeypatch 测试编辑循环，很少模拟协议；这证明编辑算法测试不需要模拟完整的模型服务协议。
-- coding agent 的编辑测试应覆盖有歧义匹配、空匹配、读取后文件变化、多文件预检和写入失败；成功返回值必须包含可验证信息。
-
-因此 Mini-Agent 把权限命令集测试与真实沙箱探测分开，把编辑引擎测试与模型测试分开。
-
-## 7. 任务级回归
-
-较成熟的项目会同时保留三层：
-
-1. 进程内确定性测试：验证循环不变量；
-2. 本地协议测试：验证模型服务协议与失败生命周期；
-3. 可选的真实测试与评测：验证真实模型行为。
-
-任务测试集不能只报告通过率。每次运行至少区分模型失败、API 失败、超时、预算耗尽和测试框架崩溃，并保留原始 JSONL。Mini-Agent 要在两个机制落地后才建立小型回归测试集，避免先写一套无法证明任何改进的基准测试。
-
-## 本项目采用与暂缓
-
-采用：
-
-- 按请求路由的 FakeLLM；
-- 请求记录与全局消息历史不变量；
-- 中断、上下文压缩、流式输出的确定性失败测试；
-- 沙箱的真实操作系统探测；
-- 任务结果的结构化失败分类。
-
-暂缓：
-
-- 提示词哈希录制文件：提示词还不稳定；
-- 本地模型协议服务：第一阶段不需要验证协议；
-- 大型评测集：当前没有已实现机制可比较；
-- 自己录制标准答案的基准测试：无法独立证明检索或 agent 质量。
+三层不能互相替代。选择哪一层，应由当前要证明的不变量决定。

@@ -1,8 +1,8 @@
 # 上游 baseline 审计
 
-> 这不是路线图。实现顺序以 [BUILD_LIST.md](BUILD_LIST.md) 为准，机制状态以 [mechanisms.md](mechanisms.md) 为准。
+> 这不是路线图。当前工作和待研究问题以 [BUILD_LIST.md](BUILD_LIST.md) 为准。
 >
-> 审计对象：上游提交 `953b943`。以下 `file:line` 均对该提交核实；已经复现的问题进入 [PITFALLS.md](PITFALLS.md)。
+> 审计对象：上游提交 `953b943`。以下 `file:line` 均对该提交核实。这里记录 baseline 缺陷；[`PITFALLS.md`](PITFALLS.md) 只记录后续实现过程中亲历的错误假设。
 
 ## 上游 baseline
 
@@ -28,7 +28,7 @@ cli.run_agent()
 - MCP 与 skills 加载器；
 - 交互式 CLI、非交互任务、日志和 ACP 入口。
 
-它适合学习改造：agent loop 真实存在，但关键机制仍足够小，可以逐步替换而不用引入 agent 框架。
+它适合学习改造：agent loop 真实存在，关键组件仍足够小，可以逐步替换而不用引入 agent 框架。
 
 ## 主要设计问题
 
@@ -36,25 +36,25 @@ cli.run_agent()
 
 `Agent.run()`（`mini_agent/agent.py:294-492`）直接输出步骤边框、推理内容、工具参数和结果；核心模块导入终端颜色与宽度工具。ACP 在 `mini_agent/acp/__init__.py:127-165` 复制了另一份循环，而且这份副本缺少主循环的压缩与日志路径。
 
-要研究的问题：让带类型的事件成为循环的唯一输出，CLI、ACP、日志和评测都作为接收方。
+要研究的问题：怎样让核心循环只保留控制流，并让 CLI、ACP 和测试共享同一条执行路径。具体输出接口尚未决定。
 
 ### 2. 消息历史不是可靠日志
 
 `_summarize_messages()`（`mini_agent/agent.py:153-232`）原地重写 `self.messages`；`_cleanup_incomplete_messages()`（`mini_agent/agent.py:73-94`）在取消时截断尾部。工具副作用已经发生后再删除消息，会让模型可见的消息历史与磁盘状态不一致。
 
-要研究的问题：分离原始日志与模型请求视图；中断恢复应补齐因果记录，而不是删除消息历史。
+要研究的问题：怎样区分已经发生的记录与发给模型的请求视图；取消处理不能删除已经发生副作用的工具记录。
 
 ### 3. 工具执行没有统一策略层
 
 主循环在 `mini_agent/agent.py:436` 直接调用 `tool.execute(**arguments)`；ACP 又有独立分发逻辑。Bash 接受原始 shell 字符串，文件工具不限制工作区边界，当前没有权限请求或操作系统沙箱。
 
-要研究的问题：在统一构造点包装 `GuardedTool`；权限层负责授权，操作系统沙箱负责内核强制执行。
+要研究的问题：怎样建立统一的工具策略边界；权限判断负责表达用户意图，操作系统沙箱负责内核强制执行。
 
 ### 4. 编辑 contract 与实现不一致
 
-`EditTool` 描述要求 `old_str` 唯一，`mini_agent/tools/file_tools.py:280` 却使用不限制次数的 `str.replace()`；成功结果不含替换次数、代码差异或诊断。复现见 [P-001](PITFALLS.md)。
+`EditTool` 描述要求 `old_str` 唯一，`mini_agent/tools/file_tools.py:280` 却使用不限制次数的 `str.replace()`；成功结果不含替换次数、代码差异或诊断。
 
-要研究的问题：唯一匹配、读取后文件变化检查、PatchSet 预检、原子写入和限定在代码差异范围内的诊断。
+要研究的问题：唯一匹配、读取后文件变化检查、修改块预检、受限写入和限定在代码差异范围内的诊断。
 
 ### 5. 输出与搜索没有预算语义
 
@@ -64,9 +64,9 @@ cli.run_agent()
 
 ### 6. 测试无法证明 agent loop 正确
 
-现有测试混入真实 API，部分测试以 `return True/False` 代替断言并吞掉异常；离线测试集也包含已知 ACP 故障。完整复现见 [P-004](PITFALLS.md)。
+现有测试混入真实 API，部分测试以 `return True/False` 代替断言并吞掉异常；离线测试集也包含已知 ACP 故障。
 
-要研究的问题：按请求路由的 FakeLLM、每次请求检查全局消息历史不变量、结构化结束原因和显式在线测试标记。
+要研究的问题：可编排的 LLM 测试替身、模型请求中工具调用与结果的配对检查、可区分的结束原因和显式在线测试标记。
 
 ### 7. 模型服务能力未经探测
 
@@ -76,21 +76,20 @@ cli.run_agent()
 
 | 缺陷 | 证据 | 去向 |
 |---|---|---|
-| `edit_file` 多处/空串替换 | `file_tools.py:273-281` | [P-001](PITFALLS.md) |
-| 摘要失败可使上下文变大 | `agent.py:257-292` | [P-002](PITFALLS.md) |
-| 取消操作删除已完成轮次 | `agent.py:73-94` 及三个调用点 | [P-003](PITFALLS.md) |
-| 测试返回值不会让 pytest 失败 | `tests/test_agent.py` 等 | [P-004](PITFALLS.md) |
-| Note 工具只写不读 | `cli.py:431` 的组装路径 | [P-005](PITFALLS.md) |
-| `shlex.split` 丢失 shell 结构 | 可复现 Python 命令 | [P-006](PITFALLS.md) |
+| `edit_file` 多处/空串替换 | `mini_agent/tools/file_tools.py:273-281` | `str.replace()` 没有限制替换次数 |
+| 摘要失败可使上下文变大 | `mini_agent/agent.py:257-292` | 摘要输入和异常降级都没有大小上限 |
+| 取消操作会截断已完成记录 | `mini_agent/agent.py:73-94,397-398,477-478` | 清理逻辑不检查工具调用标识符是否已经配对 |
+| 测试返回值不会让 pytest 失败 | `tests/test_agent.py:72-94,146-161` | 测试返回布尔值并吞掉异常，而不是断言 |
+| Note 读取工具未进入运行时注册表 | `mini_agent/cli.py:429-432`、`mini_agent/acp/__init__.py:100-102` | CLI 与 ACP 都经共享组装得到写入工具，但都没有注册 `RecallNoteTool` |
 
 ## 审计不直接决定实现
 
-外部项目拥有某项功能，不构成本项目实现它的理由。以下内容必须先有本仓库的失败测试：
+外部项目拥有某项功能，不构成本项目实现它的理由。以下内容必须先有本仓库能够暴露当前缺陷的回归测试：
 
-- PageRank repo map：已由 ADR-0004 取消；
+- Repo map / PageRank：没有代码定位失败案例和外部基准前不进入实现；
 - vendor 专用缓存或上下文管理：先探测；
 - 检查点：必须逐字节还原且不碰用户 Git；
 - subagent：必须证明父级上下文隔离，不以“能启动”为完成；
-- 任务基准测试：至少两个机制实现后再建。
+- 任务基准测试：出现无法由单模块回归测试覆盖的真实问题后再建。
 
 审计的作用是找到值得研究的问题，不是替代路线图或提前写完整产品架构。

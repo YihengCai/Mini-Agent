@@ -32,9 +32,9 @@ python examples/02_simple_agent.py
 
 ## 已知限制
 
-- `03_session_notes.py` 和 `04_full_agent.py` 会手工创建 `RecallNoteTool`；当前 CLI 组装路径只注册写入侧，见 [P-005](../docs/PITFALLS.md)。示例能运行不代表 CLI 具备相同能力。
+- `03_session_notes.py` 和 `04_full_agent.py` 会手工创建 `RecallNoteTool`；当前 CLI 与 ACP 的共享组装路径只注册写入侧，见[上游审计](../docs/UPSTREAM_AUDIT.md)。示例能运行不代表运行时具备相同能力。
 - `02_simple_agent.py`、`04_full_agent.py` 等路径会调用真实模型，不属于离线测试。
 - `04_full_agent.py` 是上游的组合示例，不是生产配置。
-- 当前 `EditTool` 的 contract 与实现不一致，见 [P-001](../docs/PITFALLS.md)。请只在临时工作区运行。
+- 当前 `EditTool` 的 contract 与实现不一致，见[上游审计](../docs/UPSTREAM_AUDIT.md)。请只在临时工作区运行。
 
-项目的学习顺序见 [BUILD_LIST](../docs/BUILD_LIST.md)，当前真实状态见[机制表](../docs/mechanisms.md)。
+当前工作和待研究问题见 [BUILD_LIST](../docs/BUILD_LIST.md)，已实现范围见项目 [README](../README.md)。
