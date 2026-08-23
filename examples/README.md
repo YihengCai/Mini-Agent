@@ -1,219 +1,40 @@
-# Mini Agent Examples
+# Examples
 
-This directory contains a series of progressive examples to help you understand how to use the Mini Agent framework.
+这些文件来自上游，用来观察现有 API 和组装路径，不代表本项目已完成现代 coding agent 设计。需要模型的示例会读取本地配置并访问真实端点；请先确认 API key 和费用。
 
-## 📚 Example List
+## 文件
 
-### 01_basic_tools.py - Basic Tool Usage
+| 文件 | 内容 | 需要真实 API |
+|---|---|---|
+| `01_basic_tools.py` | 直接调用 `ReadTool`、`WriteTool`、`EditTool`、`BashTool` | 否 |
+| `02_simple_agent.py` | 创建最小 `Agent`，执行文件与 shell 任务 | 是 |
+| `03_session_notes.py` | 直接装配 `SessionNoteTool` 与 `RecallNoteTool` | 部分步骤需要 |
+| `04_full_agent.py` | 手工组合文件工具、note 工具、MCP 与 skills | 是 |
+| `05_provider_selection.py` | 展示怎样选择 `LLMProvider` | 是 |
+| `06_tool_schema_demo.py` | 自定义 `Tool` 数据结构与 `ToolResult` | 是 |
 
-**Difficulty**: ⭐ Beginner
+## 运行
 
-**Content**:
-- How to directly use ReadTool, WriteTool, EditTool, BashTool
-- No Agent or LLM involved, pure tool call demonstrations
-- Perfect for understanding each tool's basic functionality
+不访问 API：
 
-**Run**:
 ```bash
 python examples/01_basic_tools.py
 ```
 
-**Key Learnings**:
-- Tool input parameter formats
-- ToolResult return structure
-- Error handling approaches
+其他示例先准备配置：
 
----
-
-### 02_simple_agent.py - Simple Agent Usage
-
-**Difficulty**: ⭐⭐ Beginner-Intermediate
-
-**Content**:
-- Create the simplest Agent
-- Have Agent perform file creation tasks
-- Have Agent execute bash command tasks
-- Understand Agent execution flow
-
-**Run**:
 ```bash
-# Requires API key configuration first
+cp mini_agent/config/config-example.yaml mini_agent/config/config.yaml
 python examples/02_simple_agent.py
 ```
 
-**Key Learnings**:
-- Agent initialization process
-- How to give tasks to Agent
-- How Agent autonomously selects tools
-- Task completion criteria
+`config.yaml` 包含 API key，已经被 `.gitignore` 排除，不要提交。
 
-**Prerequisites**:
-- API key configured in `mini_agent/config/config.yaml`
+## 已知限制
 
----
+- `03_session_notes.py` 和 `04_full_agent.py` 会手工创建 `RecallNoteTool`；当前 CLI 组装路径只注册写入侧，见 [P-005](../docs/PITFALLS.md)。示例能运行不代表 CLI 具备相同能力。
+- `02_simple_agent.py`、`04_full_agent.py` 等路径会调用真实模型，不属于离线测试。
+- `04_full_agent.py` 是上游的组合示例，不是生产配置。
+- 当前 `EditTool` 的 contract 与实现不一致，见 [P-001](../docs/PITFALLS.md)。请只在临时工作区运行。
 
-### 03_session_notes.py - Session Note Tool
-
-**Difficulty**: ⭐⭐⭐ Intermediate
-
-**Content**:
-- Direct usage of Session Note tools (record_note, recall_notes)
-- Agent using Session Notes to maintain cross-session memory
-- Demonstrate how two Agent instances share memory
-
-**Run**:
-```bash
-python examples/03_session_notes.py
-```
-
-**Key Learnings**:
-- How Session Notes work
-- Note categorization management (category)
-- How to guide Agent to use notes in system prompt
-- Cross-session memory implementation
-
-**Highlight**:
-This is one of the core features of this project! Shows a lightweight but effective session memory management solution.
-
----
-
-### 04_full_agent.py - Full-Featured Agent
-
-**Difficulty**: ⭐⭐⭐⭐ Advanced
-
-**Content**:
-- Complete Agent setup with all features
-- Integration of basic tools + Session Notes + MCP tools
-- Full execution flow for complex tasks
-- Multi-turn conversation examples
-
-**Run**:
-```bash
-python examples/04_full_agent.py
-```
-
-**Key Learnings**:
-- How to combine multiple tools
-- MCP tool loading and usage
-- Complex task decomposition and execution
-- Production environment Agent configuration
-
-**Prerequisites**:
-- API key configured
-- (Optional) MCP tools configured
-
----
-
-## 🚀 Quick Start
-
-### 1. Configure API Key
-
-```bash
-# Copy configuration template
-cp mini_agent/config/config-example.yaml mini_agent/config/config.yaml
-
-# Edit config file and fill in your MiniMax API Key
-vim mini_agent/config/config.yaml
-```
-
-### 2. Run Your First Example
-
-```bash
-# Example that doesn't need API key
-python examples/01_basic_tools.py
-
-# Example that needs API key
-python examples/02_simple_agent.py
-```
-
-### 3. Progressive Learning
-
-Recommended to learn in numerical order:
-1. **01_basic_tools.py** - Understand tools
-2. **02_simple_agent.py** - Understand Agent
-3. **03_session_notes.py** - Understand memory management
-4. **04_full_agent.py** - Understand complete system
-
----
-
-## 📖 Relationship with Test Cases
-
-These examples are all refined from test cases in the `tests/` directory:
-
-| Example             | Based on Test                                        | Description                     |
-| ------------------- | ---------------------------------------------------- | ------------------------------- |
-| 01_basic_tools.py   | tests/test_tools.py                                  | Basic tool unit tests           |
-| 02_simple_agent.py  | tests/test_agent.py                                  | Agent basic functionality tests |
-| 03_session_notes.py | tests/test_note_tool.py<br>tests/test_integration.py | Session Note tool tests         |
-| 04_full_agent.py    | tests/test_integration.py                            | Complete integration tests      |
-
----
-
-## 💡 Recommended Learning Paths
-
-### Path 1: Quick Start
-1. Run `01_basic_tools.py` - Learn about tools
-2. Run `02_simple_agent.py` - Run your first Agent
-3. Go directly to interactive mode with `mini-agent`
-
-### Path 2: Deep Understanding
-1. Read and run all examples (01 → 04)
-2. Read corresponding test cases (`tests/`)
-3. Read core implementation code (`mini_agent/`)
-4. Try modifying examples to implement your own features
-
-### Path 3: Agent Mechanism Study
-1. Understand all examples
-2. Read the [upstream baseline audit](../docs/AGENT_ROADMAP_CN.md)
-3. Pick one mechanism from the [learning roadmap](../docs/BUILD_LIST_CN.md)
-4. Write an offline failing test before changing the loop
-
----
-
-## 🔧 Troubleshooting
-
-### API Key Error
-```
-❌ API key not configured in config.yaml
-```
-**Solution**: Ensure you've configured a valid MiniMax API Key in `mini_agent/config/config.yaml`
-
-### config.yaml Not Found
-```
-❌ config.yaml not found
-```
-**Solution**:
-```bash
-cp mini_agent/config/config-example.yaml mini_agent/config/config.yaml
-```
-
-### MCP Tools Loading Failed
-```
-⚠️ MCP tools not loaded: [error message]
-```
-**Solution**: MCP tools are optional and don't affect basic functionality. If you need them, refer to the MCP configuration section in the main README.
-
----
-
-## 📚 More Resources
-
-- [Main Project README](../README.md) - Complete project documentation
-- [Test Cases](../tests/) - More usage examples
-- [Core Implementation](../mini_agent/) - Source code
-- [Mechanism Status](../docs/mechanisms.md) - What is planned, in progress, or verified
-
----
-
-## 🤝 Contributing Examples
-
-If you have good usage examples, PRs are welcome!
-
-Suggested new example directions:
-- Web search integration examples (using MiniMax Search MCP)
-- Skills usage examples (document processing, design, etc.)
-- Custom tool development examples
-- Error handling and retry mechanism examples
-
----
-
-**⭐ If these examples help you, please give the project a Star!**
+项目的学习顺序见 [BUILD_LIST](../docs/BUILD_LIST.md)，当前真实状态见[机制表](../docs/mechanisms.md)。
