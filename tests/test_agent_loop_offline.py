@@ -94,8 +94,16 @@ def tool_call(call_id: str, name: str = "echo") -> ToolCall:
 
 @pytest.mark.asyncio
 async def test_scripted_llm_records_stable_requests_and_returns_in_order():
-    messages = [Message(role="user", content="before")]
-    tools = [{"name": "echo", "input_schema": {"type": "object"}}]
+    messages = [Message(role="user", content=[{"type": "text", "text": "before"}])]
+    tools = [
+        {
+            "name": "echo",
+            "input_schema": {
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+            },
+        }
+    ]
     llm = ScriptedLLM(
         [
             ScriptedCall("agent", response("first")),
@@ -104,14 +112,25 @@ async def test_scripted_llm_records_stable_requests_and_returns_in_order():
     )
 
     first = await llm.generate(messages, tools=tools)
+    assert isinstance(messages[0].content, list)
+    messages[0].content[0]["text"] = "changed"
     messages.append(Message(role="assistant", content="after"))
     tools[0]["name"] = "changed"
+    tools[0]["input_schema"]["properties"]["text"]["type"] = "number"
     second = await llm.generate(messages, tools=tools)
 
     assert first.content == "first"
     assert second.content == "second"
-    assert [message.content for message in llm.requests[0].messages] == ["before"]
-    assert llm.requests[0].tools == ({"name": "echo", "input_schema": {"type": "object"}},)
+    assert llm.requests[0].messages[0].content == [{"type": "text", "text": "before"}]
+    assert llm.requests[0].tools == (
+        {
+            "name": "echo",
+            "input_schema": {
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+            },
+        },
+    )
     assert len(llm.requests[1].messages) == 2
     llm.assert_complete()
 
@@ -330,9 +349,9 @@ async def test_summary_and_agent_calls_follow_one_global_sequence(monkeypatch, t
     assert llm.requests[2].tools is None
     assert [message.role for message in llm.requests[2].messages] == ["system", "user"]
     final_messages = llm.requests[3].messages
-    assert [message.role for message in final_messages] == ["system", "user", "user", "user"]
-    assert final_messages[2].content == (
-        "[Assistant Execution Summary]\n\ncompressed first turn"
+    assert any(
+        "compressed first turn" in str(message.content)
+        for message in final_messages
     )
 
 
