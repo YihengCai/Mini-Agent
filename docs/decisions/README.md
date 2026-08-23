@@ -2,11 +2,13 @@
 
 这个目录记的是**选择**，不是设计，也不是 bug。
 
-三份文档分工固定，不要混：
+规范文档分工固定，不要混：
 
 | 目录 / 文件 | 回答的问题 |
 |---|---|
 | `docs/AGENT_ROADMAP_CN.md` | 现状是什么、哪里坏了（带 `file:line` 证据与确认级 bug） |
+| `docs/BUILD_LIST_CN.md` | 先做什么、依赖什么 |
+| `docs/mechanisms.md` | 每个机制的唯一状态 |
 | `docs/specs/` | 某个模块**怎么造**（新建文件、函数签名、数据结构、要改哪些行） |
 | `docs/decisions/`（本目录） | 为什么是这个方案而不是另一个，当时手里有什么证据，以及怎么证明选对了 |
 
@@ -43,7 +45,10 @@
 
 | # | 决策 | 状态 |
 |---|---|---|
-| [0001](0001-layered-context-manager.md) | 用三层上下文管理器替换 prose 摘要器 | 已采纳（未实现） |
+| [0001](0001-layered-context-manager.md) | 用三层上下文管理器替换 prose 摘要器 | 已被 ADR-0007 取代 |
 | [0002](0002-event-seam-before-context.md) | 先做事件缝，再做上下文管理 | 已采纳（未实现） |
 | [0003](0003-sandbox-gated-permissions.md) | argv 结构化权限 + 以「已验证的沙箱」为门的 ask→allow 降级 | 已采纳（未实现） |
 | [0004](0004-cut-repomap-pagerank.md) | 砍掉 repo map 的 PageRank，只保留 Glob/Grep + 自描述截断 | 已采纳（未实现） |
+| [0005](0005-fake-llm-routed-queues.md) | FakeLLM 使用按请求形状路由的有序队列 | 已采纳（未实现） |
+| [0006](0006-progressive-specification.md) | 规格按实现地平线逐步展开，只维护中文版本 | 已采纳（已实现） |
+| [0007](0007-split-file-state-from-context.md) | 上下文两层派生视图；文件状态归入编辑机制 | 已采纳（未实现） |

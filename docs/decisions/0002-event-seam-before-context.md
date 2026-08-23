@@ -2,7 +2,7 @@
 
 - 日期：2026-08-24
 - 状态：已采纳（未实现）
-- 关联：docs/specs/02-event-seam-interrupt_CN.md · docs/specs/01-context-manager_CN.md · docs/BUILD_LIST_CN.md §3「顺序，以及哪些必须成对建」· ADR-0001 · docs/PITFALLS.md（待建）
+- 关联：docs/specs/02-event-seam-interrupt_CN.md · docs/specs/01-context-manager_CN.md · docs/BUILD_LIST_CN.md「阶段 1：事件化执行内核」· ADR-0001 · docs/PITFALLS.md P-003
 
 ## 背景
 

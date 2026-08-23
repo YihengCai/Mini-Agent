@@ -51,16 +51,13 @@ If you have an idea for a new feature, please create an Issue first to discuss i
 #### Development Process
 
 1. **Write Code**
-   - Follow the project's code style (see the [Development Guide](docs/DEVELOPMENT.md#code-style-guide)).
+   - Follow the repository rules in [AGENTS.md](AGENTS.md#代码约定).
    - Add necessary comments and docstrings.
    - Keep your code clean and concise.
 
 2. **Add Tests**
    - Add test cases for new features.
-   - Ensure all tests pass:
-     ```bash
-     pytest tests/ -v
-     ```
+   - Run the offline test subset documented in [README.md](README.md#测试). Do not run the full suite by default; some upstream tests call a real API.
 
 3. **Update Documentation**
    - If you add a new feature, update the README or relevant documentation.

@@ -162,11 +162,11 @@ These examples are all refined from test cases in the `tests/` directory:
 3. Read core implementation code (`mini_agent/`)
 4. Try modifying examples to implement your own features
 
-### Path 3: Production Application
+### Path 3: Agent Mechanism Study
 1. Understand all examples
-2. Read [Production Deployment Guide](../docs/PRODUCTION_GUIDE.md)
-3. Configure MCP tools and Skills
-4. Extend tool set based on needs
+2. Read the [upstream baseline audit](../docs/AGENT_ROADMAP_CN.md)
+3. Pick one mechanism from the [learning roadmap](../docs/BUILD_LIST_CN.md)
+4. Write an offline failing test before changing the loop
 
 ---
 
@@ -200,7 +200,7 @@ cp mini_agent/config/config-example.yaml mini_agent/config/config.yaml
 - [Main Project README](../README.md) - Complete project documentation
 - [Test Cases](../tests/) - More usage examples
 - [Core Implementation](../mini_agent/) - Source code
-- [Production Guide](../docs/PRODUCTION_GUIDE.md) - Deployment guide
+- [Mechanism Status](../docs/mechanisms.md) - What is planned, in progress, or verified
 
 ---
 

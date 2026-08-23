@@ -2,7 +2,7 @@
 
 - 日期：2026-08-24
 - 状态：已采纳（未实现）
-- 关联：docs/specs/05-code-retrieval_CN.md · docs/BUILD_LIST_CN.md「5. Glob/Grep + 自描述截断」与「C 档 · repo map（PageRank 那半）」· ADR-0001（工具结果是上下文的主要消耗方）· docs/PITFALLS.md（待建）
+- 关联：docs/specs/05-code-retrieval_CN.md · docs/BUILD_LIST_CN.md「阶段 3：让 agent 真正会改代码」· ADR-0001（工具结果是上下文的主要消耗方）· docs/PITFALLS.md P-001
 
 ## 背景
 

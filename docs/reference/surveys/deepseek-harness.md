@@ -199,7 +199,7 @@ E2E runs with `DSH_EXAMPLE_MODE=lib` — built artifacts under plain `node`, "th
 
 **Benchmarks: there is no benchmark harness in this repo.** Verified by path scan of all 7,903 blobs: zero matches for `terminal-bench`, zero for `swe-bench`/`swebench`, and the only `bench` hit is `BENCHMARK.md`, which is **3 lines** in full:
 
-> "Follow [Get started with the Python SDK](docs/user/guide/python-sdk.md) to install the SDK and run the `jsonrpc-agent` minimal variant. Use separate workspaces and session IDs for independent benchmark tasks."
+> "Follow `docs/user/guide/python-sdk.md` to install the SDK and run the `jsonrpc-agent` minimal variant. Use separate workspaces and session IDs for independent benchmark tasks."
 
 So: it tells you how to *drive* the harness from a benchmark runner you supply, and the only nondeterminism guidance is "separate workspaces and session IDs per task." No pass@k, no n-runs, no seeds, no task set, no verifier. The reported V3.2 agentic scores were not produced by anything in this repo.
 

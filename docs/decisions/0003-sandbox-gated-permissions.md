@@ -2,7 +2,7 @@
 
 - 日期：2026-08-24
 - 状态：已采纳（未实现）
-- 关联：docs/specs/03-sandbox-permissions_CN.md · docs/BUILD_LIST_CN.md「3. 沙箱 + 权限引擎」· docs/AGENT_ROADMAP_CN.md §2.5 · ADR-0002（权限提示是事件缝的一次往返）· docs/PITFALLS.md（待建）
+- 关联：docs/specs/03-sandbox-permissions_CN.md · docs/BUILD_LIST_CN.md「阶段 4：执行安全」· docs/AGENT_ROADMAP_CN.md「上游基线审计」· ADR-0002（权限提示是事件缝的一次往返）· docs/PITFALLS.md P-006
 
 ## 背景
 

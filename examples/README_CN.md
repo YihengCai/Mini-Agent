@@ -162,11 +162,11 @@ python examples/02_simple_agent.py
 3. 阅读核心实现代码 (`mini_agent/`)
 4. 尝试修改示例，实现自己的功能
 
-### 路径 3: 生产应用
+### 路径 3: Agent 机制学习
 1. 理解所有示例
-2. 阅读 [生产环境部署指南](../docs/PRODUCTION_GUIDE.md)
-3. 配置 MCP 工具和 Skills
-4. 根据需求扩展工具集
+2. 阅读 [上游基线审计](../docs/AGENT_ROADMAP_CN.md)
+3. 从 [学习改造路线](../docs/BUILD_LIST_CN.md) 选择一个机制
+4. 修改循环之前先写一个离线、会失败的测试
 
 ---
 
@@ -200,7 +200,7 @@ cp mini_agent/config/config-example.yaml mini_agent/config/config.yaml
 - [项目主 README](../README.md) - 完整项目文档
 - [测试用例](../tests/) - 更多使用示例
 - [核心实现](../mini_agent/) - 源代码
-- [生产环境指南](../docs/PRODUCTION_GUIDE.md) - 部署指南
+- [机制状态表](../docs/mechanisms.md) - 查看计划中、实现中和已验证的机制
 
 ---
 

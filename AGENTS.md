@@ -6,7 +6,7 @@
 
 fork 自 [MiniMax-AI/Mini-Agent](https://github.com/MiniMax-AI/Mini-Agent)（fork 点 `953b943`）。上游写了 agent 循环、工具实现、CLI、MCP/skill 加载器和 ACP 桥，约 4.1k LOC。
 
-**我的目标：研究真实 coding agent（Claude Code / Codex 等）的关键机制，并在一个真实循环上亲手实现一遍。这是学习型作品集，不追求生产级。**
+**我的目标：研究真实 coding agent（Claude Code / Codex 等）的关键机制，把这个 demo 逐层改造成采用现代设计的 coding agent，并在真实循环上亲手实现、验证每个模块。这是学习型工程；没有测试证据的能力不宣称为已实现或 SOTA。**
 
 取舍标准只有三条：
 
@@ -49,7 +49,7 @@ fork 自 [MiniMax-AI/Mini-Agent](https://github.com/MiniMax-AI/Mini-Agent)（for
 
 1. 更新 [`docs/mechanisms.md`](docs/mechanisms.md) 对应行：状态 + 抓回归的测试名
 2. 补上对应 ADR 的「回头看」一节（实际效果、翻没翻车、要不要推翻）
-3. 如果实现偏离了 `docs/specs/` 里的设计，在那份 spec 顶部加一行「与实现不符之处」——**不要偷偷改 spec**，偏离本身就是要记录的东西
+3. 如果实现改变模块边界或数据流，先写新 ADR；普通实现细节以代码为准，及时收敛 spec，避免长期维护一份平行实现
 
 ## 动手之前：先给「改动前简报」
 
@@ -61,7 +61,7 @@ fork 自 [MiniMax-AI/Mini-Agent](https://github.com/MiniMax-AI/Mini-Agent)（for
 2. **边界**：这次**会**改哪些文件和大致行区间；同样重要的是**不会**碰什么（尤其是看起来相关但我决定不动的部分）。
 3. **决策点**：有哪几种做法、我打算选哪个、一句话理由。**这里如果出现真正的取舍，就是一条 ADR**（见上面的触发条件），简报里先点名，落地时补记录。
 4. **影响**：会不会动到现有不变量、测试、或其他机制的假设；对 [`docs/mechanisms.md`](docs/mechanisms.md) 哪一行有影响。
-5. **进度**：这一步属于 [`docs/BUILD_LIST_CN.md`](docs/BUILD_LIST_CN.md) 的哪一档、机制表哪一行，做完之后那一行的状态变成什么。
+5. **进度**：这一步属于 [`docs/BUILD_LIST_CN.md`](docs/BUILD_LIST_CN.md) 的哪个阶段、机制表哪一行，做完之后那一行的状态变成什么。
 
 什么时候可以省成一句话：**单文件、不引入新概念、不改任何接口或不变量**的改动（改错别字、补一条断言、调一个已经定好的常量）。除此之外一律走完整简报——包括"顺手重构一下"，那种恰恰最需要先划边界。
 
@@ -129,14 +129,14 @@ fork 自 [MiniMax-AI/Mini-Agent](https://github.com/MiniMax-AI/Mini-Agent)（for
 | [`docs/mechanisms.md`](docs/mechanisms.md) | **对外那一页**：机制 / 直觉实现 / 为什么错 / 我的做法 / 测试 / 状态 |
 | [`docs/decisions/`](docs/decisions/) | 决策记录（ADR），一条一个文件，编号递增 |
 | [`docs/PITFALLS.md`](docs/PITFALLS.md) | 踩坑日志，追加式，新的在最上面 |
-| [`docs/BUILD_LIST_CN.md`](docs/BUILD_LIST_CN.md) | 做什么、砍什么、每个机制的自检问题 |
-| [`docs/AGENT_ROADMAP_CN.md`](docs/AGENT_ROADMAP_CN.md) | 现状审计：模块级设计 + 确认级 bug（带 file:line） |
-| [`docs/specs/`](docs/specs/) | 逐模块实现规格（中英双版） |
-| [`docs/reference/`](docs/reference/) | 外部调查：别人（codex / deepseek-harness / pi / aider / OpenHands / gemini-cli …）怎么做 |
+| [`docs/BUILD_LIST_CN.md`](docs/BUILD_LIST_CN.md) | 实现顺序、依赖与完成门槛 |
+| [`docs/AGENT_ROADMAP_CN.md`](docs/AGENT_ROADMAP_CN.md) | 上游基线审计（不是 roadmap） |
+| [`docs/specs/`](docs/specs/) | 当前/下一阶段的中文实现规格；后期模块只留设计说明 |
+| [`docs/reference/`](docs/reference/) | 外部调查：提供证据，不自动成为本项目方案 |
 | [`docs/PROVIDER_CAPABILITIES.md`](docs/PROVIDER_CAPABILITIES.md) | endpoint 能力矩阵：哪些厂商能力实测可用，哪些必须降级 |
 
 ## 会话开始时
 
-读三样东西再动手：`docs/mechanisms.md`（当前进度）、`docs/PITFALLS.md` 最近三条、以及 `docs/BUILD_LIST_CN.md` 第 1 节（当前该做哪一档）。
+读三样东西再动手：`docs/mechanisms.md`（当前进度）、`docs/PITFALLS.md` 最近三条、以及 `docs/BUILD_LIST_CN.md`（当前阶段与依赖）。
 
 然后按「动手之前：先给改动前简报」出简报——**读完就改代码是不允许的**。

@@ -1,8 +1,8 @@
 # ADR-0001：用三层上下文管理器替换 prose 摘要器
 
 - 日期：2026-08-24
-- 状态：已采纳（未实现）
-- 关联：docs/specs/01-context-manager_CN.md · docs/BUILD_LIST_CN.md「1. 分层上下文管理 + prompt cache 断点」· docs/AGENT_ROADMAP_CN.md §2.2 · docs/PITFALLS.md（待建）· 机制表「上下文管理」行（docs/mechanisms.md 待建）
+- 状态：已被 ADR-0007 取代
+- 关联：docs/specs/01-context-manager_CN.md · docs/BUILD_LIST_CN.md「阶段 2：上下文与 cache」· docs/AGENT_ROADMAP_CN.md「上游基线审计」· docs/PITFALLS.md P-002 · docs/mechanisms.md「分层上下文」行 · ADR-0007
 
 ## 背景
 

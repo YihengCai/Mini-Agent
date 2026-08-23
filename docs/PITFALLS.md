@@ -26,7 +26,7 @@ python3 -c "import shlex; print(shlex.split('npm run build; npm publish')); prin
 ```
 
 - **教训**：词法器不是解析器。任何「切成 token 再做前缀匹配」的授权判定，默认放行的正是**你没看见的那些命令**；判定必须建在能表达复合结构的语法层上，且解析失败必须 fail-closed。
-- **关联**：ADR-0003（`docs/decisions/0003-sandbox-gated-permissions.md`）· `docs/specs/03-sandbox-permissions_CN.md:92,117,122-131` · `docs/mechanisms.md`「argv 结构化权限」行
+- **关联**：ADR-0003（`docs/decisions/0003-sandbox-gated-permissions.md`）· `docs/specs/03-sandbox-permissions_CN.md` · `docs/mechanisms.md`「结构化权限」行
 
 ---
 
@@ -70,7 +70,7 @@ HTTPS_PROXY=http://127.0.0.1:1 HTTP_PROXY=http://127.0.0.1:1 ALL_PROXY=http://12
 ```
 
 - **教训**：一份测试的价值上限，等于它**能失败的方式的数量**。用返回布尔值代替 `assert`、用 `except Exception: print()` 包住主体，这个数量就是零。相信一份测试的绿之前，先构造一次让它变红——掐网是最便宜的那次。
-- **关联**：`docs/specs/00-measurement-rig_CN.md:15,21` · `docs/BUILD_LIST_CN.md` §2.0「假 LLM + 运行记录器」
+- **关联**：`docs/specs/00-measurement-rig_CN.md` · `docs/BUILD_LIST_CN.md`「阶段 0：可信测试底座」
 
 ---
 
@@ -93,7 +93,7 @@ HTTPS_PROXY=http://127.0.0.1:1 HTTP_PROXY=http://127.0.0.1:1 ALL_PROXY=http://12
 
   这一轮是完整的——`assistant` 没有孤立的 `tool_use`，`tool` 结果也在场——它照样被删掉两条。而 `a.py` 已经在磁盘上了。
 - **教训**：中断只能**合成**，不能删除。工具的副作用已经落在进程之外（文件系统、网络、子进程），历史是唯一还改得动的东西——改它只会让历史与世界分叉，而模型看不见分叉，下一轮就把同样的活重做一遍。修复的目标是把配对补齐（给未满足的 id 各补一条 `[interrupted by user before this tool completed]`），不是回退到某个「干净点」。
-- **关联**：ADR-0002（`docs/decisions/0002-event-seam-before-context.md`）· `docs/specs/02-event-seam-interrupt_CN.md:31-32,154,360-362` · `docs/mechanisms.md`「中断与历史修复」行
+- **关联**：ADR-0002（`docs/decisions/0002-event-seam-before-context.md`）· `docs/specs/02-event-seam-interrupt_CN.md` · `docs/mechanisms.md`「中断修复」行
 
 ---
 
@@ -132,7 +132,7 @@ PY
 ```
 
 - **教训**：压缩路径必须有一条硬保证——**输出严格小于输入**，且失败时的回退是有损截断而不是原文。任何走网络的压缩步骤都会失败，回退分支决定了这个机制在最坏情况下是省钱还是烧钱；而最坏情况恰好发生在上下文最大、最贵的那一刻。附带一条：变量名不是证据，`result_preview` 一个字符都没截。
-- **关联**：ADR-0001（`docs/decisions/0001-layered-context-manager.md`）· `docs/specs/01-context-manager_CN.md:29,31,398` · `docs/mechanisms.md`「分层上下文管理」行
+- **关联**：ADR-0001（`docs/decisions/0001-layered-context-manager.md`，已被 ADR-0007 取代）· `docs/decisions/0007-split-file-state-from-context.md` · `docs/specs/01-context-manager_CN.md` · `docs/mechanisms.md`「分层上下文」行
 
 ---
 
@@ -156,4 +156,4 @@ cd "$(mktemp -d)" && printf 'x = 1\ny = 1\nz = 1\n' > t.py && PYTHONPATH=/Users/
 ```
 
 - **教训**：工具描述是模型据以判断风险的契约；描述与实现的偏差不是文档 bug，是**正确性 bug**——它诱导模型做出错误的安全性假设。而且这类失败是静默的：成功回执里没有一个数字能让调用方发现替换了 3 处而不是 1 处。工具的成功返回值至少要携带一个可被证伪的量（替换处数、diff 行区间、写后校验结果）。
-- **关联**：`docs/BUILD_LIST_CN.md` §2.4「事务性编辑 + 诊断回灌」（B 档；`docs/specs/` 下暂无对应 spec，`docs/decisions/` 下暂无 ADR）· `docs/mechanisms.md`「事务性编辑与诊断回灌」行
+- **关联**：`docs/BUILD_LIST_CN.md`「阶段 3：让 agent 真正会改代码」· `docs/specs/04-transactional-edit_CN.md` · `docs/mechanisms.md`「事务性编辑」行
