@@ -76,7 +76,9 @@ cli.run_agent()
 
 | 缺陷 | 证据 | 去向 |
 |---|---|---|
-| `edit_file` 多处/空串替换 | `mini_agent/tools/file_tools.py:273-281` | `str.replace()` 没有限制替换次数 |
+| `edit_file` 多处/空串替换 | `mini_agent/tools/file_tools.py:273-281` | 当前已由唯一匹配校验修复；回归见 `tests/test_tools.py:333-408` |
+| `read_file` 先全量读取再近似截断 | `mini_agent/tools/file_tools.py:11-60,123-148` | 当前改为 2000 行/50 KiB 有界窗口；回归见 `tests/test_tools.py:14-184` |
+| `write_file` / `edit_file` 直接覆写，编辑时 CRLF 会被文本读取归一化 | `mini_agent/tools/file_tools.py:195-209,271-281` | 当前改为同目录原子替换并保留已有换行约定与权限位；回归见 `tests/test_tools.py:187-430` |
 | 摘要失败可使上下文变大 | `mini_agent/agent.py:257-292` | 摘要输入和异常降级都没有大小上限 |
 | 取消操作会截断已完成记录 | `mini_agent/agent.py:73-94,397-398,477-478` | 清理逻辑不检查工具调用标识符是否已经配对 |
 | 测试返回值不会让 pytest 失败 | `tests/test_agent.py:72-94,146-161` | 测试返回布尔值并吞掉异常，而不是断言 |
