@@ -52,6 +52,15 @@ class EchoTool(Tool):
         return ToolResult(success=True, content=f"echo:{text}")
 
 
+class ExplodingTool(EchoTool):
+    @property
+    def name(self) -> str:
+        return "explode"
+
+    async def execute(self, text: str) -> ToolResult:
+        raise ValueError(f"boom:{text}")
+
+
 def build_agent(
     monkeypatch,
     tmp_path,
@@ -325,3 +334,111 @@ async def test_summary_and_agent_calls_follow_one_global_sequence(monkeypatch, t
     assert final_messages[2].content == (
         "[Assistant Execution Summary]\n\ncompressed first turn"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mode", "tool_name", "expected_error"),
+    [
+        ("unknown", "missing", "Error: Unknown tool: missing"),
+        ("exception", "explode", "Error: Tool execution failed: ValueError: boom:failure"),
+    ],
+)
+async def test_tool_failures_are_returned_to_the_next_model_call(
+    monkeypatch,
+    tmp_path,
+    mode,
+    tool_name,
+    expected_error,
+):
+    call = tool_call("failure", name=tool_name)
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(
+                "agent",
+                response("", tool_calls=[call], finish_reason="tool_use"),
+            ),
+            ScriptedCall("agent", response("recovered")),
+        ]
+    )
+    tools = [] if mode == "unknown" else [ExplodingTool()]
+    agent = build_agent(monkeypatch, tmp_path, llm, tools)
+    agent.add_user_message("Exercise a failing tool.")
+
+    with llm:
+        result = await agent.run()
+
+    assert result == "recovered"
+    tool_result = llm.requests[1].messages[-1]
+    assert tool_result.role == "tool"
+    assert tool_result.tool_call_id == "failure"
+    assert expected_error in tool_result.content
+
+
+@pytest.mark.asyncio
+async def test_max_steps_is_distinct_from_normal_completion(monkeypatch, tmp_path):
+    call = tool_call("only-step")
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(
+                "agent",
+                response("", tool_calls=[call], finish_reason="tool_use"),
+            )
+        ]
+    )
+    tool = EchoTool()
+    agent = build_agent(monkeypatch, tmp_path, llm, [tool], max_steps=1)
+    agent.add_user_message("Keep going past the allowed step.")
+
+    with llm:
+        result = await agent.run()
+
+    assert result == "Task couldn't be completed after 1 steps."
+    assert tool.calls == ["only-step"]
+    assert [message.role for message in agent.messages[-2:]] == ["assistant", "tool"]
+
+
+@pytest.mark.asyncio
+async def test_agent_cannot_hide_script_exhaustion(monkeypatch, tmp_path):
+    call = tool_call("needs-another-call")
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(
+                "agent",
+                response("", tool_calls=[call], finish_reason="tool_use"),
+            )
+        ]
+    )
+    agent = build_agent(monkeypatch, tmp_path, llm, [EchoTool()])
+    agent.add_user_message("Require another model call.")
+    result = ""
+
+    with pytest.raises(AssertionError, match="scripted calls exhausted"):
+        with llm:
+            result = await agent.run()
+
+    assert result.startswith("LLM call failed: Unexpected LLM call #2")
+
+
+@pytest.mark.asyncio
+async def test_summary_fallback_cannot_hide_call_order_violation(monkeypatch, tmp_path):
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(
+                "agent",
+                response("first finished", usage=TokenUsage(total_tokens=10)),
+            ),
+            ScriptedCall("agent", response("should not run")),
+        ]
+    )
+    agent = build_agent(monkeypatch, tmp_path, llm, [], token_limit=1)
+    result = ""
+
+    with pytest.raises(AssertionError, match="expected 'agent', got 'summary'"):
+        with llm:
+            agent.add_user_message("Complete the first turn.")
+            assert await agent.run() == "first finished"
+            agent.add_user_message("Trigger summary before the next turn.")
+            result = await agent.run()
+
+    assert result.startswith("LLM call failed: Unexpected LLM call #2")
