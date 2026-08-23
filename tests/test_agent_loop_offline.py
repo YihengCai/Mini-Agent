@@ -1,6 +1,5 @@
 """Offline regression tests for the agent loop and its LLM test double."""
 
-import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -92,10 +91,6 @@ def tool_call(call_id: str, name: str = "echo") -> ToolCall:
     )
 
 
-def exact_error_match(message: str) -> str:
-    return rf"\A{re.escape(message)}\Z"
-
-
 @pytest.mark.asyncio
 async def test_scripted_llm_records_stable_requests_and_returns_in_order():
     messages = [Message(role="user", content=[{"type": "text", "text": "before"}])]
@@ -145,11 +140,13 @@ async def test_response_exhaustion_remains_visible_after_caller_catches_error():
     violation = "Unexpected LLM call #1: scripted calls exhausted"
     verification_error = f"Scripted LLM verification failed:\n- {violation}"
 
-    with pytest.raises(AssertionError, match=exact_error_match(violation)):
+    with pytest.raises(AssertionError) as call_error:
         await llm.generate([Message(role="user", content="unexpected")], tools=[])
+    assert str(call_error.value) == violation
 
-    with pytest.raises(AssertionError, match=exact_error_match(verification_error)):
+    with pytest.raises(AssertionError) as completion_error:
         llm.assert_complete()
+    assert str(completion_error.value) == verification_error
 
 
 def test_unconsumed_response_fails_context_exit():
@@ -158,17 +155,19 @@ def test_unconsumed_response_fails_context_exit():
         "- 1 scripted call(s) were not consumed"
     )
 
-    with pytest.raises(AssertionError, match=exact_error_match(verification_error)):
+    with pytest.raises(AssertionError) as error:
         with ScriptedLLM([ScriptedCall("agent", response("unused"))]):
             pass
+    assert str(error.value) == verification_error
 
 
 @pytest.mark.asyncio
 async def test_scripted_exception_is_consumed_without_becoming_a_violation():
     llm = ScriptedLLM([ScriptedCall("agent", RuntimeError("planned failure"))])
 
-    with pytest.raises(RuntimeError, match=exact_error_match("planned failure")):
+    with pytest.raises(RuntimeError) as error:
         await llm.generate([Message(role="user", content="fail")], tools=[])
+    assert str(error.value) == "planned failure"
 
     llm.assert_complete()
 
@@ -186,9 +185,10 @@ async def test_context_exit_checks_leftovers_when_scripted_exception_escapes():
         "- 1 scripted call(s) were not consumed"
     )
 
-    with pytest.raises(AssertionError, match=exact_error_match(verification_error)):
+    with pytest.raises(AssertionError) as error:
         with llm:
             await llm.generate([Message(role="user", content="fail")], tools=[])
+    assert str(error.value) == verification_error
 
 
 def test_tool_call_pair_check_allows_multiple_results_in_any_order():
@@ -256,11 +256,13 @@ async def test_scripted_llm_rejects_invalid_tool_call_pairs(
         "- 1 scripted call(s) were not consumed"
     )
 
-    with pytest.raises(AssertionError, match=exact_error_match(expected_violation)):
+    with pytest.raises(AssertionError) as request_error:
         await llm.generate(messages, tools=[])
+    assert str(request_error.value) == expected_violation
 
-    with pytest.raises(AssertionError, match=exact_error_match(verification_error)):
+    with pytest.raises(AssertionError) as completion_error:
         llm.assert_complete()
+    assert str(completion_error.value) == verification_error
 
 
 @pytest.mark.asyncio
@@ -320,11 +322,13 @@ async def test_call_purpose_mismatch_remains_visible_after_caller_catches_error(
         "- 1 scripted call(s) were not consumed"
     )
 
-    with pytest.raises(AssertionError, match=exact_error_match(violation)):
+    with pytest.raises(AssertionError) as call_error:
         await llm.generate([Message(role="user", content="main")], tools=[])
+    assert str(call_error.value) == violation
 
-    with pytest.raises(AssertionError, match=exact_error_match(verification_error)):
+    with pytest.raises(AssertionError) as completion_error:
         llm.assert_complete()
+    assert str(completion_error.value) == verification_error
 
 
 @pytest.mark.asyncio
@@ -337,13 +341,17 @@ async def test_first_violation_prevents_later_script_consumption():
         "- 1 scripted call(s) were not consumed"
     )
 
-    with pytest.raises(AssertionError, match=exact_error_match(violation)):
+    with pytest.raises(AssertionError) as first_error:
         await llm.generate([Message(role="user", content="wrong")], tools=[])
-    with pytest.raises(AssertionError, match=exact_error_match(violation)):
-        await llm.generate([Message(role="user", content="now correct")])
+    assert str(first_error.value) == violation
 
-    with pytest.raises(AssertionError, match=exact_error_match(verification_error)):
+    with pytest.raises(AssertionError) as repeated_error:
+        await llm.generate([Message(role="user", content="now correct")])
+    assert str(repeated_error.value) == violation
+
+    with pytest.raises(AssertionError) as completion_error:
         llm.assert_complete()
+    assert str(completion_error.value) == verification_error
 
 
 @pytest.mark.asyncio
@@ -475,11 +483,14 @@ async def test_agent_cannot_hide_script_exhaustion(monkeypatch, tmp_path):
         "- Unexpected LLM call #2: scripted calls exhausted"
     )
 
-    with pytest.raises(AssertionError, match=exact_error_match(verification_error)):
+    with pytest.raises(AssertionError) as error:
         with llm:
             result = await agent.run()
+    assert str(error.value) == verification_error
 
-    assert result.startswith("LLM call failed: Unexpected LLM call #2")
+    assert result == (
+        "LLM call failed: Unexpected LLM call #2: scripted calls exhausted"
+    )
 
 
 @pytest.mark.asyncio
@@ -501,11 +512,14 @@ async def test_summary_fallback_cannot_hide_call_order_violation(monkeypatch, tm
         "- 1 scripted call(s) were not consumed"
     )
 
-    with pytest.raises(AssertionError, match=exact_error_match(verification_error)):
+    with pytest.raises(AssertionError) as error:
         with llm:
             agent.add_user_message("Complete the first turn.")
             assert await agent.run() == "first finished"
             agent.add_user_message("Trigger summary before the next turn.")
             result = await agent.run()
+    assert str(error.value) == verification_error
 
-    assert result.startswith("LLM call failed: Unexpected LLM call #2")
+    assert result == (
+        "LLM call failed: Unexpected LLM call #2: expected 'agent', got 'summary'"
+    )
