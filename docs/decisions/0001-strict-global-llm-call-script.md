@@ -2,7 +2,7 @@
 
 - 日期：2026-08-24
 - 状态：已采纳
-- 关联：`tests/llm_test_double.py:11-31,77-146`、`tests/test_agent_loop_offline.py:267-336`
+- 关联：`tests/llm_test_double.py:11-31,77-146`、`tests/test_agent_loop_offline.py:286-355`
 
 ## 背景
 

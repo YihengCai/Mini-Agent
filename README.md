@@ -8,9 +8,9 @@
 
 ## 当前状态
 
-项目仍处于“上游 baseline + 代码审计”阶段，还没有开始新的 harness 改造。代码可以运行，但保留了上游演示版本的重要限制：
+项目已在上游 baseline 上完成第一项 harness 改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；生产 agent loop 尚未修改。代码可以运行，但仍保留上游演示版本的重要限制：
 
-- 一部分测试无法有效失败，另一部分会访问真实 API；
+- 部分上游测试仍无法有效失败或会访问真实 API；
 - 终端渲染与 agent loop 耦合，ACP 复制了另一份循环；
 - Esc 没有真正取消正在运行的 LLM 或工具任务，消息历史清理还会删除已完成记录；
 - 上下文压缩会破坏工具调用结构，失败时甚至可能扩大上下文；
@@ -21,7 +21,9 @@
 
 ## 当前学习重点
 
-第一步是建立 LLM 测试替身，让真实 agent loop 可以在不访问网络的情况下得到可编排、可观察、确定性的模型响应。之后再基于测试暴露的真实耦合，处理核心循环与 CLI、ACP 的边界。
+LLM 测试替身已经落地：agent 与摘要调用共用一条按用途标注的全局脚本序列；用途错位、响应不足、响应剩余和工具调用配对错误都会使测试失败。测试会记录模型实际收到的消息和工具定义，并已覆盖真实工具循环、摘要交错、工具失败和最大步数。
+
+下一步是基于这个测试入口处理核心循环与 CLI、ACP 的边界，让两个适配器不再各自实现控制流。
 
 上下文管理、编辑、搜索、安全、检查点和 subagent 目前只是待研究问题，不代表方案或实现顺序已经确定。当前工作和进入下一步的条件见 [BUILD_LIST](docs/BUILD_LIST.md)。
 
@@ -51,7 +53,7 @@
 
 ```text
 mini_agent/                  上游 agent loop、模型客户端、工具、CLI、MCP/skills、ACP
-tests/                       上游测试；后续加入离线不变量测试
+tests/                       上游测试、LLM 测试替身与 agent loop 离线回归
 docs/BUILD_LIST.md           当前工作与待研究问题
 docs/UPSTREAM_AUDIT.md       上游代码审计
 docs/specs/                  仅当前实现的短规格
@@ -105,7 +107,8 @@ uv run mini-agent log
   tests/test_tool_schema.py \
   tests/test_terminal_utils.py \
   tests/test_session_integration.py \
-  tests/test_markdown_links.py
+  tests/test_markdown_links.py \
+  tests/test_agent_loop_offline.py
 ```
 
 ## 文档入口

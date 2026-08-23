@@ -8,24 +8,22 @@
 
 ## 当前状态
 
-仓库仍是上游 baseline 加代码审计；尚未开始新的 harness 改造。已确认的上游问题见 [`UPSTREAM_AUDIT.md`](UPSTREAM_AUDIT.md)。
+仓库已在上游 baseline 加代码审计的基础上完成第一项 harness 改造。生产 agent loop 未修改；新增能力位于 `tests/llm_test_double.py` 和 `tests/test_agent_loop_offline.py`。已确认的上游问题见 [`UPSTREAM_AUDIT.md`](UPSTREAM_AUDIT.md)。
 
-## 当前工作：建立可靠的 agent loop 测试入口
+## 已完成：建立可靠的 agent loop 测试入口
 
-目标是构建一个 LLM 测试替身，让 agent loop 回归测试不访问网络、不消耗真实 API，并且响应与调用顺序可重复。
+LLM 测试替身让 agent loop 回归测试不访问网络、不消耗真实 API，并且响应与调用顺序可重复。当前已经验证：
 
-当前只准备验证：
-
-1. 主循环与摘要调用可以获得各自的脚本化响应；
+1. 主循环与摘要调用按一条带用途标签的全局序列获得脚本化响应；
 2. 意外调用、响应不足和未消费响应都会让测试失败；
 3. 每次模型请求都能检查工具调用与工具结果的配对结构；
 4. 测试运行真实 agent loop，而不是在测试里手工模拟消息追加。
 
-短规格见 [`specs/00-test-harness.md`](specs/00-test-harness.md)。具体类名、异常名和文件拆分等第一条测试写出后再决定。
+实现和验证边界见 [`specs/00-test-harness.md`](specs/00-test-harness.md)，全局序列的取舍见 [`decisions/0001-strict-global-llm-call-script.md`](decisions/0001-strict-global-llm-call-script.md)。
 
-## 紧接着要回答的问题
+## 下一项：让 CLI 与 ACP 共用唯一的 agent loop
 
-当前测试入口稳定后，检查怎样让 CLI 与 ACP 共用唯一的 agent loop。现有证据是 `Agent.run()` 直接渲染终端，而 ACP 在 `mini_agent/acp/__init__.py:127-165` 复制了循环。
+下一步先检查怎样让 CLI 与 ACP 共用唯一的 agent loop。现有证据是 `Agent.run()` 直接渲染终端，而 ACP 在 `mini_agent/acp/__init__.py:127-165` 复制了循环；尚未开始修改。
 
 进入实现前只保留三个问题：
 
