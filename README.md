@@ -23,9 +23,9 @@
 
 LLM 测试替身已经落地：agent 与摘要调用共用一条按用途标注的全局脚本序列；用途错位、响应不足、响应剩余和工具调用配对错误都会使测试失败。测试会记录模型实际收到的消息和工具定义，并已覆盖真实工具循环、摘要交错、工具失败和最大步数。
 
-下一步是基于这个测试入口处理核心循环与 CLI、ACP 的边界，让两个适配器不再各自实现控制流。
+当前工作是基于这个测试入口处理核心循环与 CLI、ACP 的边界，让两个适配器不再各自实现控制流。
 
-上下文管理、编辑、搜索、安全、检查点和 subagent 目前只是待研究问题，不代表方案或实现顺序已经确定。当前工作和进入下一步的条件见 [BUILD_LIST](docs/BUILD_LIST.md)。
+CLI 与 ACP 共用 agent loop 后，每次只从 [BUILD_LIST](docs/BUILD_LIST.md) 选择一个有当前失败证据的研究主题，先复现问题，再比较、实现和验证。
 
 ## 设计原则
 
@@ -54,7 +54,7 @@ LLM 测试替身已经落地：agent 与摘要调用共用一条按用途标注�
 ```text
 mini_agent/                  上游 agent loop、模型客户端、工具、CLI、MCP/skills、ACP
 tests/                       上游测试、LLM 测试替身与 agent loop 离线回归
-docs/BUILD_LIST.md           当前工作与待研究问题
+docs/BUILD_LIST.md           当前工作与可选研究主题
 docs/UPSTREAM_AUDIT.md       上游代码审计
 docs/specs/                  仅当前实现的短规格
 docs/decisions/              ADR
@@ -113,7 +113,7 @@ uv run mini-agent log
 
 ## 文档入口
 
-- [BUILD_LIST](docs/BUILD_LIST.md)：当前做什么、未来有哪些待研究问题
+- [BUILD_LIST](docs/BUILD_LIST.md)：当前工作、可选研究主题及其选择条件
 - [上游审计](docs/UPSTREAM_AUDIT.md)：上游代码的已知问题
 - [实现规格](docs/specs/README.md)：当前实现边界
 - [决策记录](docs/decisions/README.md)：ADR 索引
