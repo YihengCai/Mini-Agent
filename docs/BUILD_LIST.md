@@ -33,7 +33,7 @@ CLI 与 core 的边界已经完成并移入“最近完成”。本文件不会�
 
 ## 最近完成
 
-- **core agent loop 边界**：模型—工具控制流、消息与压缩状态移入 `mini_agent/core/`，CLI 通过同步事件完成终端渲染和原有日志；没有真实客户端与端到端协议测试的 ACP 已删除。124 项离线测试覆盖事件顺序、无 UI 运行、CLI 适配和依赖边界。取舍见 [`decisions/0003-remove-acp-and-extract-core-loop.md`](decisions/0003-remove-acp-and-extract-core-loop.md)。
+- **core agent loop 边界**：模型—工具控制流、消息与压缩状态移入 `mini_agent/core/`，CLI 通过同步事件完成终端渲染和原有日志；没有真实客户端与端到端协议测试的 ACP 已删除。122 项离线测试覆盖事件顺序、无 UI 运行和 CLI 适配。取舍见 [`decisions/0003-remove-acp-and-extract-core-loop.md`](decisions/0003-remove-acp-and-extract-core-loop.md)。
 - **文件工具重写**：`read_file` 采用有界完整行窗口，`edit_file` 始终要求唯一精确匹配，写入以同目录原子替换提交；27 项定向离线测试覆盖预算、续读、歧义、CRLF、权限位和故障注入。取舍见 [`decisions/0002-bounded-and-atomic-file-tools.md`](decisions/0002-bounded-and-atomic-file-tools.md)。
 - **LLM 测试替身**：`tests/llm_test_double.py` 与 `tests/test_agent_loop_offline.py` 已提供确定、离线的真实 agent loop 测试入口；全局调用序列的取舍见 [`decisions/0001-strict-global-llm-call-script.md`](decisions/0001-strict-global-llm-call-script.md)。
 

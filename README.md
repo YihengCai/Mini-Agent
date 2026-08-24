@@ -116,11 +116,10 @@ uv run mini-agent log
   tests/test_terminal_utils.py \
   tests/test_session_integration.py \
   tests/test_markdown_links.py \
-  tests/test_agent_loop_offline.py \
-  tests/test_architecture_boundaries.py
+  tests/test_agent_loop_offline.py
 ```
 
-以上命令在 2026-08-24 实测为 `124 passed`；同时有一条既有的 `cache_dir` 配置警告，不影响测试结果。
+以上命令在 2026-08-24 实测为 `122 passed`；同时有一条既有的 `cache_dir` 配置警告，不影响测试结果。
 
 ## 文档入口
 

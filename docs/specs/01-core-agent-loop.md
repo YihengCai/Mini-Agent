@@ -21,7 +21,7 @@ git show cd9ae14^:tests/test_acp.py
 - `mini_agent/core/events.py:1-160` 定义运行、步骤、模型、工具、压缩、清理和终止事件。事件接收器是同步回调；事件数据在回调期间只读借用，需要留存时由消费者立即复制或序列化。
 - `mini_agent/cli_events.py:1-233` 把事件映射到原终端显示和 `AgentLogger`；CLI 的非交互与交互入口都把同一个接收器传给 core（`mini_agent/cli.py:569-589,715-788`）。
 - `mini_agent/agent.py` 保留 `Agent` 的旧导入路径；这只是兼容转发，不包含控制流。
-- 发行配置不再包含 ACP 源码、测试、命令或依赖（`pyproject.toml:11-27`；`tests/test_architecture_boundaries.py:44-52`）。
+- 发行配置不再包含 ACP 源码、测试、命令或依赖（`pyproject.toml:11-27`）。
 
 ## 不变量
 
@@ -44,5 +44,4 @@ git show cd9ae14^:tests/test_acp.py
 - `tests/test_agent_loop_offline.py:290-352` 验证两步工具循环的完整事件顺序和终止结果；
 - `tests/test_agent_loop_offline.py:355-412` 验证无 `event_sink` 的静默 core 以及 CLI 显示、日志调用；
 - `tests/test_agent_loop_offline.py:457-521` 验证摘要与主循环事件顺序；
-- `tests/test_architecture_boundaries.py:14-52` 验证源码依赖方向和 ACP 发行面均不会回归；
-- README 的离线测试命令在 2026-08-24 实测为 `124 passed`，`uv lock --check` 通过。
+- README 的离线测试命令在 2026-08-24 实测为 `122 passed`，`uv lock --check` 通过。

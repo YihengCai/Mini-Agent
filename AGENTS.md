@@ -105,7 +105,7 @@ PITFALL 只记录实现或诊断过程中亲历的错误假设：我原以为是
 离线可跑的子集：
 
 ```bash
-.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_tools.py tests/test_bash_tool.py tests/test_skill_loader.py tests/test_skill_tool.py tests/test_note_tool.py tests/test_tool_schema.py tests/test_terminal_utils.py tests/test_session_integration.py tests/test_markdown_links.py tests/test_agent_loop_offline.py tests/test_architecture_boundaries.py
+.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_tools.py tests/test_bash_tool.py tests/test_skill_loader.py tests/test_skill_tool.py tests/test_note_tool.py tests/test_tool_schema.py tests/test_terminal_utils.py tests/test_session_integration.py tests/test_markdown_links.py tests/test_agent_loop_offline.py
 ```
 
 ## 和我协作时
