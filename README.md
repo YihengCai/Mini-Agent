@@ -121,7 +121,7 @@ uv run mini-agent log
 不要直接运行完整 `pytest`：部分上游测试会读取本地配置并访问真实 API。
 
 ```bash
-.venv/bin/python -m pytest -q -p no:cacheprovider \
+.venv/bin/python -m pytest -q \
   tests/test_tools.py \
   tests/test_bash_tool.py \
   tests/test_skill_loader.py \
@@ -135,7 +135,7 @@ uv run mini-agent log
   tests/test_agent_session_offline.py
 ```
 
-以上命令在 2026-08-25 实测为 `144 passed`；同时有一条既有的 `cache_dir` 配置警告，不影响测试结果。
+以上命令在 2026-08-25 实测为 `144 passed`，没有产生 warning。
 
 ## 文档入口
 
