@@ -91,13 +91,13 @@ cp mini_agent/config/config-example.yaml mini_agent/config/config.yaml
 从项目根目录准备一个固定、可丢弃的手动测试区：
 
 ```bash
-mkdir -p playground/workspace
+mkdir -p workspace
 ```
 
-`playground/` 已被 `.gitignore` 排除，其中的实验文件不会进入提交。以后统一从项目根目录启动，并显式传入这个工作区，避免把仓库本身当作 agent 的操作目录：
+根目录下的 `workspace/` 已被 `.gitignore` 排除，其中的实验文件不会进入提交。以后统一从项目根目录启动，并显式传入这个工作区，避免把仓库本身当作 agent 的操作目录：
 
 ```bash
-uv run mini-agent --workspace ./playground/workspace
+uv run mini-agent --workspace ./workspace
 ```
 
 只做启动冒烟测试时，看到交互提示符后立即输入 `/exit`；没有提交任务就不会发起模型生成请求。启动过程仍会读取本地配置、初始化工具，并连接已经配置的 MCP server。完整手动体验则直接在提示符中输入任务，agent 会使用当前配置的端点。
@@ -105,7 +105,7 @@ uv run mini-agent --workspace ./playground/workspace
 执行一次非交互任务：
 
 ```bash
-uv run mini-agent --workspace ./playground/workspace --task "inspect the project and explain its agent loop"
+uv run mini-agent --workspace ./workspace --task "inspect the project and explain its agent loop"
 ```
 
 非交互任务会访问当前配置的真实端点，可能产生费用；离线回归请使用下方测试命令。
