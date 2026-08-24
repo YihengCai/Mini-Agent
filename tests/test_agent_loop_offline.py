@@ -1,10 +1,25 @@
 """Offline regression tests for the agent loop and its LLM test double."""
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 from mini_agent.agent import Agent
+from mini_agent.cli_events import CliEventSink
+from mini_agent.core.events import (
+    CompactionFinished,
+    CompactionRoundFinished,
+    CompactionStarted,
+    ModelRequest,
+    ModelResponse,
+    RunFinished,
+    RunStarted,
+    StepFinished,
+    StepStarted,
+    ToolFinished,
+    ToolStarted,
+)
 from mini_agent.schema import FunctionCall, LLMResponse, Message, TokenUsage, ToolCall
 from mini_agent.tools.base import Tool, ToolResult
 from tests.llm_test_double import ScriptedCall, ScriptedLLM, validate_tool_call_pairs
@@ -69,8 +84,6 @@ def build_agent(
     max_steps: int = 3,
     token_limit: int = 80_000,
 ) -> Agent:
-    logger = MagicMock()
-    monkeypatch.setattr("mini_agent.agent.AgentLogger", lambda: logger)
     agent = Agent(
         llm_client=llm,
         system_prompt="You are a test agent.",
@@ -284,9 +297,10 @@ async def test_real_agent_loop_executes_tool_and_sends_result_to_model(monkeypat
     tool = EchoTool()
     agent = build_agent(monkeypatch, tmp_path, llm, [tool])
     agent.add_user_message("Echo ping, then finish.")
+    events = []
 
     with llm:
-        result = await agent.run()
+        result = await agent.run(event_sink=events.append)
 
     assert result == "finished"
     assert tool.calls == ["ping"]
@@ -310,6 +324,92 @@ async def test_real_agent_loop_executes_tool_and_sends_result_to_model(monkeypat
             "input_schema": tool.parameters,
         },
     )
+    assert [type(event) for event in events] == [
+        RunStarted,
+        StepStarted,
+        ModelRequest,
+        ModelResponse,
+        ToolStarted,
+        ToolFinished,
+        StepFinished,
+        StepStarted,
+        ModelRequest,
+        ModelResponse,
+        StepFinished,
+        RunFinished,
+    ]
+    assert [
+        (event.step, event.index, event.call.id)
+        for event in events
+        if isinstance(event, ToolStarted)
+    ] == [(1, 1, "call-1")]
+    assert [event.purpose for event in events if isinstance(event, ModelRequest)] == [
+        "agent",
+        "agent",
+    ]
+    assert isinstance(events[-1], RunFinished)
+    assert events[-1].reason == "completed"
+    assert events[-1].result == result
+
+
+@pytest.mark.asyncio
+async def test_core_agent_run_is_silent_without_an_event_sink(monkeypatch, tmp_path):
+    llm = ScriptedLLM([ScriptedCall("agent", response("quietly finished"))])
+    agent = build_agent(monkeypatch, tmp_path, llm, [])
+    agent.add_user_message("Finish without a UI.")
+
+    def reject_print(*_args, **_kwargs):
+        raise AssertionError("core agent loop attempted terminal output")
+
+    monkeypatch.setattr("builtins.print", reject_print)
+    with llm:
+        result = await agent.run()
+
+    assert result == "quietly finished"
+    assert not hasattr(agent, "logger")
+
+
+@pytest.mark.asyncio
+async def test_cli_event_sink_preserves_rendering_and_run_logging(
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    call = ToolCall(
+        id="cli-call",
+        type="function",
+        function=FunctionCall(name="echo", arguments={"text": "visible"}),
+    )
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(
+                "agent",
+                response("", tool_calls=[call], finish_reason="tool_use"),
+            ),
+            ScriptedCall("agent", response("visible finish")),
+        ]
+    )
+    agent = build_agent(monkeypatch, tmp_path, llm, [EchoTool()])
+    agent.add_user_message("Exercise the CLI adapter.")
+    logger = MagicMock()
+    logger.get_log_file_path.return_value = Path("/tmp/agent-run.log")
+
+    with llm:
+        result = await agent.run(event_sink=CliEventSink(logger=logger))
+
+    output = capsys.readouterr().out
+    assert result == "visible finish"
+    assert "Log file: /tmp/agent-run.log" in output
+    assert "Step 1/3" in output
+    assert "Tool Call:" in output
+    assert "echo:visible" in output
+    assert "Assistant:" in output
+    assert "visible finish" in output
+    assert "Step 2 completed" in output
+    logger.start_new_run.assert_called_once_with()
+    assert logger.log_request.call_count == 2
+    assert logger.log_response.call_count == 2
+    logger.log_tool_result.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -378,12 +478,13 @@ async def test_summary_and_agent_calls_follow_one_global_sequence(monkeypatch, t
         [EchoTool()],
         token_limit=1,
     )
+    second_run_events = []
 
     with llm:
         agent.add_user_message("Complete the first turn.")
         first_result = await agent.run()
         agent.add_user_message("Complete the second turn.")
-        second_result = await agent.run()
+        second_result = await agent.run(event_sink=second_run_events.append)
 
     assert first_result == "first finished"
     assert second_result == "second finished"
@@ -400,6 +501,24 @@ async def test_summary_and_agent_calls_follow_one_global_sequence(monkeypatch, t
         "compressed first turn" in str(message.content)
         for message in final_messages
     )
+    assert [type(event) for event in second_run_events] == [
+        RunStarted,
+        CompactionStarted,
+        ModelRequest,
+        ModelResponse,
+        CompactionRoundFinished,
+        CompactionFinished,
+        StepStarted,
+        ModelRequest,
+        ModelResponse,
+        StepFinished,
+        RunFinished,
+    ]
+    assert [
+        event.purpose
+        for event in second_run_events
+        if isinstance(event, ModelRequest)
+    ] == ["summary", "agent"]
 
 
 @pytest.mark.asyncio
@@ -455,13 +574,19 @@ async def test_max_steps_is_distinct_from_normal_completion(monkeypatch, tmp_pat
     tool = EchoTool()
     agent = build_agent(monkeypatch, tmp_path, llm, [tool], max_steps=1)
     agent.add_user_message("Keep going past the allowed step.")
+    events = []
 
     with llm:
-        result = await agent.run()
+        result = await agent.run(event_sink=events.append)
 
     assert result == "Task couldn't be completed after 1 steps."
     assert tool.calls == ["only-step"]
     assert [message.role for message in agent.messages[-2:]] == ["assistant", "tool"]
+    terminal_events = [event for event in events if isinstance(event, RunFinished)]
+    assert len(terminal_events) == 1
+    assert terminal_events[0].reason == "max_steps"
+    assert terminal_events[0].result == result
+    assert events[-1] is terminal_events[0]
 
 
 @pytest.mark.asyncio

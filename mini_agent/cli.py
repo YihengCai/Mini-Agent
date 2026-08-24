@@ -28,8 +28,9 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 
 from mini_agent import LLMClient
-from mini_agent.agent import Agent
+from mini_agent.cli_events import CliEventSink
 from mini_agent.config import Config
+from mini_agent.core import Agent
 from mini_agent.schema import LLMProvider
 from mini_agent.tools.base import Tool
 from mini_agent.tools.bash_tool import BashKillTool, BashOutputTool, BashTool
@@ -573,6 +574,7 @@ async def run_agent(workspace_dir: Path, task: str = None):
         max_steps=config.agent.max_steps,
         workspace_dir=str(workspace_dir),
     )
+    event_sink = CliEventSink()
 
     # 8. Display welcome information
     if not task:
@@ -584,7 +586,7 @@ async def run_agent(workspace_dir: Path, task: str = None):
         print(f"\n{Colors.BRIGHT_BLUE}Agent{Colors.RESET} {Colors.DIM}›{Colors.RESET} {Colors.DIM}Executing task...{Colors.RESET}\n")
         agent.add_user_message(task)
         try:
-            await agent.run()
+            await agent.run(event_sink=event_sink)
         except Exception as e:
             print(f"\n{Colors.RED}❌ Error: {e}{Colors.RESET}")
         finally:
@@ -672,9 +674,11 @@ async def run_agent(workspace_dir: Path, task: str = None):
 
                 elif command == "/clear":
                     # Clear message history but keep system prompt
-                    old_count = len(agent.messages)
-                    agent.messages = [agent.messages[0]]  # Keep only system message
-                    print(f"{Colors.GREEN}✅ Cleared {old_count - 1} messages, starting new session{Colors.RESET}\n")
+                    removed_count = agent.clear_history()
+                    print(
+                        f"{Colors.GREEN}✅ Cleared {removed_count} messages, "
+                        f"starting new session{Colors.RESET}\n"
+                    )
                     continue
 
                 elif command == "/history":
@@ -772,7 +776,7 @@ async def run_agent(workspace_dir: Path, task: str = None):
 
             # Run agent with periodic cancellation check
             try:
-                agent_task = asyncio.create_task(agent.run())
+                agent_task = asyncio.create_task(agent.run(event_sink=event_sink))
 
                 # Poll for cancellation while agent runs
                 while not agent_task.done():

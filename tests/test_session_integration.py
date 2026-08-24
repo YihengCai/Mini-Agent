@@ -89,10 +89,11 @@ def test_session_history_management(mock_llm_client, temp_workspace):
     # Verify message count (1 system + 5 user)
     assert len(agent.messages) == 6
 
-    # Clear history (keep system prompt)
-    agent.messages = [agent.messages[0]]
+    # Clear history through the core-owned session API (keep system prompt)
+    removed_count = agent.clear_history()
 
     # Verify only system prompt remains after clearing
+    assert removed_count == 5
     assert len(agent.messages) == 1
     assert agent.messages[0].role == "system"
 
