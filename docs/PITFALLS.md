@@ -75,6 +75,26 @@
 - 教训：agent 事件边界要验证嵌套对象的所有权，而不只看最外层类型；观察接口应发送独立快照或真正的不可变值，尤其不能把同一消息对象同时交给日志接收器和模型客户端。
 - 关联：`mini_agent/core/agent.py:404-498,609-681`、`mini_agent/core/events.py:42-81`、`tests/test_agent_session_offline.py:353-380,669-724`、[ADR-0004](decisions/0004-session-turn-step-lifecycle.md)、提交 `fdcd945`。
 
+## P-004 · 事件分层正确不等于 CLI 已表达分层
+
+- 日期：2026-08-25
+- 原以为：`CliEventSink` 已分别处理 `TurnStarted`、`StepStarted`、`StepFinished` 和 `TurnFinished`，用户自然会看到与 core 一致的 Session、Turn、Step 语义。
+- 实际是：初版 CLI 把 Step 画成顶层标题并写成 `completed`，正常 `TurnFinished(end_turn)` 却完全不显示；一个包含两次模型请求的 Turn 因而只显得像两个顶层执行段。第一次修正还用了绿色勾表达 `end_turn`，并在非交互入口和模型错误路径重复输出 Turn 信息，仍会暗示任务成功或混淆唯一终止事实。
+- 根因：事件类型只保证机器可见的归属；省略哪一层、文案、颜色、图标和重复输出同样会改变用户理解。观察适配器必须单独验证层级和终止语义，不能把“消费了正确事件”等同于“表达了正确 contract”。
+- 复现：下列测试用两次 agent 模型请求构造一个 Turn，并分别检查层级、中性结束标记、模型错误去重和帮助文案；恢复 `6147f7d^:mini_agent/cli_events.py` 的 `completed` 与静默 `end_turn` 分支时前两项会失败。
+
+  ```bash
+  .venv/bin/python -m pytest -q -p no:cacheprovider \
+    tests/test_agent_loop_offline.py::test_cli_event_sink_preserves_rendering_and_run_logging \
+    tests/test_agent_loop_offline.py::test_cli_event_sink_renders_step_and_turn_stop_facts \
+    tests/test_agent_loop_offline.py::test_cli_event_sink_does_not_repeat_model_failure_details \
+    tests/test_agent_loop_offline.py::test_cli_help_uses_session_turn_and_interruption_semantics
+  ```
+
+  修复后实测输出为 `4 passed, 1 warning in 0.75s`；警告仍是既有的未知 `cache_dir` 配置。
+- 教训：任何事件驱动的 agent 客户端都要用“一个 Turn 包含多个 Step”的真实序列测试用户可见层级，并把“交还控制权”与“任务成功”在文字和视觉符号上同时分开。
+- 关联：`mini_agent/cli.py:157-185,294-344,766-844`、`mini_agent/cli_events.py:26-193`、`tests/test_agent_loop_offline.py:386-525`、[ADR-0004](decisions/0004-session-turn-step-lifecycle.md)、提交 `6147f7d`。
+
 ## 模板
 
 ```markdown

@@ -30,7 +30,7 @@ LLM 测试替身已经落地：agent 与摘要调用共用一条按用途标注�
 
 核心边界改造已经落地：消息、压缩、模型调用、工具执行和终止判断只在 `mini_agent/core/agent.py` 中运行；`mini_agent/cli_events.py` 消费同一条事件序列完成终端渲染与原有文本日志。不给 `event_sink` 时，真实 agent loop 可以无终端输出、无日志副作用地运行。事件顺序、摘要交错、CLI 输出与日志调用，以及 core 不导入 UI、日志或传输模块，都有离线回归。
 
-执行生命周期改造也已经落地：`AgentSession.start_turn()` 原子接纳输入并返回 `TurnHandle`，同一 Session 只允许一个活动 Turn；`TurnOutcome` 区分模型交回控制权、用户中断、Step 上限和失败，但没有 `success` 或 `completed`。工具调用继续同一 Turn，摘要模型调用不算 Step；事件载荷使用独立快照，Turn 配置在接纳时固化，接收器失败也不会留下缺少工具结果的历史。取舍与中断延迟见 [ADR-0004](docs/decisions/0004-session-turn-step-lifecycle.md)。
+执行生命周期改造也已经落地：`AgentSession.start_turn()` 原子接纳输入并返回 `TurnHandle`，同一 Session 只允许一个活动 Turn；`TurnOutcome` 区分模型交回控制权、用户中断、Step 上限和失败，但没有 `success` 或 `completed`。工具调用继续同一 Turn，摘要模型调用不算 Step；事件载荷使用独立快照，Turn 配置在接纳时固化，接收器失败也不会留下缺少工具结果的历史。CLI 分别显示 Turn 的控制权边界和内部 Step，把 `end_turn` 写成中性的“交还控制权”，不显示任务成功标记。取舍与中断延迟见 [ADR-0004](docs/decisions/0004-session-turn-step-lifecycle.md)。
 
 ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生命周期的端到端测试；继续维护它只会让协议层提前塑造执行框架。因此当前版本主动删除 ACP，而不是把 CLI 改成 ACP 客户端。重新引入协议层的条件见 [ADR-0003](docs/decisions/0003-remove-acp-and-extract-core-loop.md)。下一项工作尚未自动选择；继续从 [BUILD_LIST](docs/BUILD_LIST.md) 中挑选有当前失败证据的主题。
 
@@ -60,7 +60,7 @@ ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生�
 
 ```text
 mini_agent/core/             UI 无关的 agent loop 与进程内事件 contract
-mini_agent/cli.py            终端输入、取消轮询和运行时组装
+mini_agent/cli.py            终端输入、中断轮询和运行时组装
 mini_agent/cli_events.py     终端渲染与原有文本日志的事件适配器
 mini_agent/agent.py          AgentSession 的公开导入层
 mini_agent/                  模型客户端、工具、MCP/skills 与配置
@@ -102,13 +102,13 @@ uv run mini-agent --workspace ./workspace
 
 只做启动冒烟测试时，看到交互提示符后立即输入 `/exit`；没有提交任务就不会发起模型生成请求。启动过程仍会读取本地配置、初始化工具，并连接已经配置的 MCP server。完整手动体验则直接在提示符中输入任务，agent 会使用当前配置的端点。
 
-执行一次非交互任务：
+提交一次非交互 Turn：
 
 ```bash
 uv run mini-agent --workspace ./workspace --task "inspect the project and explain its agent loop"
 ```
 
-非交互任务会访问当前配置的真实端点，可能产生费用；离线回归请使用下方测试命令。
+非交互 Turn 会访问当前配置的真实端点，可能产生费用；它在 core 交还控制权后退出，但不据此判断任务成功。离线回归请使用下方测试命令。
 
 查看日志：
 
@@ -135,7 +135,7 @@ uv run mini-agent log
   tests/test_agent_session_offline.py
 ```
 
-以上命令在 2026-08-24 实测为 `142 passed`；同时有一条既有的 `cache_dir` 配置警告，不影响测试结果。
+以上命令在 2026-08-25 实测为 `144 passed`；同时有一条既有的 `cache_dir` 配置警告，不影响测试结果。
 
 ## 文档入口
 

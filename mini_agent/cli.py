@@ -7,7 +7,7 @@ Usage:
 Examples:
     mini-agent                              # Use current directory as workspace (interactive mode)
     mini-agent --workspace /path/to/dir     # Use specific workspace directory (interactive mode)
-    mini-agent --task "create a file"       # Execute a task non-interactively
+    mini-agent --task "create a file"       # Submit one Turn non-interactively
 """
 
 import argparse

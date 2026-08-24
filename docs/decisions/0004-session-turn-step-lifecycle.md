@@ -47,10 +47,13 @@ Session 身份、模型引用、工具映射、步数和 token 上限在接纳�
 - `tests/test_agent_session_offline.py:234-350` 验证等待者取消不取消 runner、CLI 取消先收敛、接纳时配置快照和多 Step 工具循环。
 - `tests/test_agent_session_offline.py:353-607` 验证观察数据隔离、接收器失败后的消息配对、主次错误、内部失败和停止原因不包含任务成功。
 - `tests/test_agent_session_offline.py:610-724` 验证完整 Step 中断、终止优先级，以及摘要调用不计为 Step。
-- README 所列离线命令在 2026-08-24 实测为 `142 passed`，只有一条既有的 `cache_dir` 配置警告；`git diff --check`、模块编译和公开导入检查均通过。
+- `tests/test_agent_loop_offline.py:386-525` 验证 CLI 分别显示 Turn 和 Step、`end_turn` 不暗示任务成功、模型错误不重复，以及帮助文案使用相同语义。
+- README 所列离线命令在 2026-08-25 实测为 `144 passed`，只有一条既有的 `cache_dir` 配置警告；`git diff --check`、模块编译和公开导入检查均通过。
 
 ## 回头看
 
 实现起点原本只是把 `run() -> str` 换成 Session/Turn/Step；实际审查迫使边界进一步收紧：公开可变工具表会让“告诉模型的工具”和实际调度的工具分叉，晚设置活动句柄会被任务工厂重入，而同步观察者也能通过嵌套对象或异常影响执行。最终实现因此增加了接纳预占、Turn 配置快照、事件数据快照和整批工具结果提交；这些不是预写设计，而是失败复现后的修正。
+
+2026-08-25 的 CLI 复查又证明事件类型接线正确不等于用户可见语义正确：初版适配器突出显示 Step，却不显示正常 Turn 结束，还把 Step 写成 `completed`。提交 `6147f7d` 因此把事件作为唯一生命周期来源，分别显示 Turn 与 Step，并用中性符号表达 `end_turn`；这没有改变本 ADR 的 core contract。
 
 当前结果建立了可消费的执行生命周期，但没有建立仅追加的会话事实、真正取消正在等待的模型或工具、任务完成判定、持久化轨迹或基准评测分数。下一项研究仍需从 `docs/BUILD_LIST.md` 单独选择，不能把这些缺口宣称为本轮能力。

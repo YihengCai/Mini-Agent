@@ -20,7 +20,7 @@ git show fdcd945^:mini_agent/cli.py
 - Turn 从客户端交出控制权开始，到 `end_turn`、`interrupted`、`max_steps` 或 `failed` 后交还控制权。`TurnOutcome` 可以带最后回复与结构化错误，但没有任务成功字段（`mini_agent/core/turn.py:10-48`）。
 - Step 是一次 `purpose="agent"` 的模型请求、该响应中的全部工具调用及结果写入。工具调用会继续同一个 Turn；摘要请求是 Turn 维护，事件 `step=None`，不消耗 Step（`mini_agent/core/agent.py:294-402,506-825`）。
 - 公开 core API 只有 Session、Turn 句柄、结果和观察事件；`_AgentLoop` 是 Session 内部实现，不能绕过接纳不变量（`mini_agent/core/agent.py:506-902`；`mini_agent/core/__init__.py:1-55`）。
-- `AgentEventEnvelope` 为每个事件附加 Session、Turn 和可选 Step 身份；CLI 仍用同步接收器渲染终端并写原日志（`mini_agent/core/events.py:20-146`；`mini_agent/cli_events.py:26-168`）。
+- `AgentEventEnvelope` 为每个事件附加 Session、Turn 和可选 Step 身份；CLI 用同步接收器分别渲染 Turn 控制权边界和内部 Step，并写原日志（`mini_agent/core/events.py:20-146`；`mini_agent/cli_events.py:26-193`）。
 
 ## 不变量
 
@@ -30,7 +30,8 @@ git show fdcd945^:mini_agent/cli.py
 4. 中断是合作式请求。完整工具批次、终止响应和模型失败优先完成当前 Step；下一 Step 不再启动。由此保留消息配对，但中断延迟可能等于一次模型调用加整批工具执行时间。
 5. 模型请求消息与事件消息是两份快照；事件中的响应、工具定义、调用和结果也不能修改 Session 或真实模型输入。摘要请求遵守同一隔离规则。
 6. 接收器首个异常会禁用该接收器。若它阻止循环继续，Turn 在安全边界以 `observer_error` 失败；若模型或内部失败已发生，则保留原主因并附观察错误。已成功交给接收器的 `TurnFinished.outcome` 与 `wait()` 返回同一个对象。
-7. `TurnHandle.wait()` 屏蔽等待者取消，CLI 必须先请求中断并等待 runner 收敛，再传播应用取消或开始下一次输入（`mini_agent/cli.py:273-294,823-847`）。
+7. `TurnHandle.wait()` 屏蔽等待者取消，CLI 必须先请求中断并等待 runner 收敛，再传播应用取消或开始下一次输入（`mini_agent/cli.py:273-291,830-854`）。
+8. CLI 必须把一次 Turn 中的多个 Step 显示为层级关系；`end_turn` 只显示控制权交还，不使用成功或完成标记。`max_steps` 的用户可见定义是“一个 Turn 内允许的 agent 模型请求数”。
 
 ## 未包含
 
@@ -46,4 +47,5 @@ git show fdcd945^:mini_agent/cli.py
 - `tests/test_agent_session_offline.py:234-350`：等待者取消、CLI 收敛、配置快照和工具驱动的多 Step；
 - `tests/test_agent_session_offline.py:353-607`：观察数据隔离、接收器错误、消息配对、内部错误和结构化停止原因；
 - `tests/test_agent_session_offline.py:610-724`：完整 Step 中断、终止优先级与摘要不计 Step；
-- README 的离线命令在 2026-08-24 实测为 `142 passed`，并有一条既有的 `cache_dir` 配置警告。
+- `tests/test_agent_loop_offline.py:386-525`：一个多 Step Turn 的 CLI 层级、中性结束标记、失败去重和帮助文案；
+- README 的离线命令在 2026-08-25 实测为 `144 passed`，并有一条既有的 `cache_dir` 配置警告。
