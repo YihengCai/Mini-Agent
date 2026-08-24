@@ -159,7 +159,7 @@ def print_help():
     help_text = f"""
 {Colors.BOLD}{Colors.BRIGHT_YELLOW}Available Commands:{Colors.RESET}
   {Colors.BRIGHT_GREEN}/help{Colors.RESET}      - Show this help message
-  {Colors.BRIGHT_GREEN}/clear{Colors.RESET}     - Clear session history (keep system prompt)
+  {Colors.BRIGHT_GREEN}/clear{Colors.RESET}     - Start a new Session with the same configuration
   {Colors.BRIGHT_GREEN}/history{Colors.RESET}   - Show current session message count
   {Colors.BRIGHT_GREEN}/stats{Colors.RESET}     - Show session statistics
   {Colors.BRIGHT_GREEN}/log{Colors.RESET}       - Show log directory and recent files
@@ -167,7 +167,7 @@ def print_help():
   {Colors.BRIGHT_GREEN}/exit{Colors.RESET}      - Exit program (also: exit, quit, q)
 
 {Colors.BOLD}{Colors.BRIGHT_YELLOW}Keyboard Shortcuts:{Colors.RESET}
-  {Colors.BRIGHT_CYAN}Esc{Colors.RESET}        - Cancel current agent execution
+  {Colors.BRIGHT_CYAN}Esc{Colors.RESET}        - Request interruption of the current Turn
   {Colors.BRIGHT_CYAN}Ctrl+C{Colors.RESET}     - Exit program
   {Colors.BRIGHT_CYAN}Ctrl+U{Colors.RESET}     - Clear current input line
   {Colors.BRIGHT_CYAN}Ctrl+L{Colors.RESET}     - Clear screen
@@ -320,7 +320,7 @@ Examples:
         "-t",
         type=str,
         default=None,
-        help="Execute a task non-interactively and exit",
+        help="Submit one Turn non-interactively, wait for control to return, and exit",
     )
     parser.add_argument(
         "--version",
@@ -627,9 +627,8 @@ async def run_agent(workspace_dir: Path, task: str = None):
         print_banner()
         print_session_info(agent_session, workspace_dir, config.llm.model)
 
-    # 8.5 Non-interactive mode: execute task and exit
+    # 8.5 Non-interactive mode: submit one Turn and exit after it settles.
     if task:
-        print(f"\n{Colors.BRIGHT_BLUE}Agent{Colors.RESET} {Colors.DIM}›{Colors.RESET} {Colors.DIM}Executing task...{Colors.RESET}\n")
         try:
             turn = agent_session.start_turn(task, event_sink=event_sink)
             outcome = await wait_for_turn(turn)
@@ -764,9 +763,11 @@ async def run_agent(workspace_dir: Path, task: str = None):
                 print_stats(agent_session, session_start)
                 break
 
-            # Run Agent with Esc cancellation support
+            # Run one Turn with cooperative Esc interruption support.
             print(
-                f"\n{Colors.BRIGHT_BLUE}Agent{Colors.RESET} {Colors.DIM}›{Colors.RESET} {Colors.DIM}Thinking... (Esc to cancel){Colors.RESET}\n"
+                f"\n{Colors.BRIGHT_BLUE}Agent{Colors.RESET} "
+                f"{Colors.DIM}› Thinking... "
+                f"(Esc requests interruption at a Step boundary){Colors.RESET}\n"
             )
             turn = agent_session.start_turn(user_input, event_sink=event_sink)
 
@@ -784,7 +785,10 @@ async def run_agent(workspace_dir: Path, task: str = None):
                             if msvcrt.kbhit():
                                 char = msvcrt.getch()
                                 if char == b"\x1b":  # Esc
-                                    print(f"\n{Colors.BRIGHT_YELLOW}⏹️  Esc pressed, cancelling...{Colors.RESET}")
+                                    print(
+                                        f"\n{Colors.BRIGHT_YELLOW}⏹️  Esc pressed, "
+                                        f"requesting Turn interruption...{Colors.RESET}"
+                                    )
                                     esc_cancelled[0] = True
                                     break
                             esc_listener_stop.wait(0.05)
@@ -808,7 +812,10 @@ async def run_agent(workspace_dir: Path, task: str = None):
                             if rlist:
                                 char = sys.stdin.read(1)
                                 if char == "\x1b":  # Esc
-                                    print(f"\n{Colors.BRIGHT_YELLOW}⏹️  Esc pressed, cancelling...{Colors.RESET}")
+                                    print(
+                                        f"\n{Colors.BRIGHT_YELLOW}⏹️  Esc pressed, "
+                                        f"requesting Turn interruption...{Colors.RESET}"
+                                    )
                                     esc_cancelled[0] = True
                                     break
                     finally:

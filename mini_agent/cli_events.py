@@ -36,6 +36,11 @@ class CliEventSink:
             self._max_steps = event.max_steps
             self.logger.start_new_run()
             print(
+                f"\n{Colors.BOLD}{Colors.BRIGHT_CYAN}▶ Turn started{Colors.RESET}"
+                f"{Colors.DIM} — Step budget: {event.max_steps} agent model "
+                f"requests; each Step includes its tool batch.{Colors.RESET}"
+            )
+            print(
                 f"{Colors.DIM}📝 Log file: "
                 f"{self.logger.get_log_file_path()}{Colors.RESET}"
             )
@@ -84,10 +89,10 @@ class CliEventSink:
         if isinstance(event, StepFinished):
             assert envelope.step is not None
             status_text = {
-                "continued": "completed",
-                "end_turn": "completed",
-                "interrupted": "interrupted",
-                "max_steps": "reached the Turn step limit",
+                "continued": "finished; continuing the same Turn",
+                "end_turn": "finished; model made no tool calls",
+                "interrupted": "finished at the interruption boundary",
+                "max_steps": "finished; this Turn's Step budget is exhausted",
                 "failed": "failed",
             }[event.status]
             print(
@@ -145,23 +150,36 @@ class CliEventSink:
             return
 
         if isinstance(event, TurnFinished):
-            if event.outcome.stop_reason == "interrupted":
+            if event.outcome.stop_reason == "end_turn":
+                print(
+                    f"\n{Colors.BRIGHT_CYAN}↩ "
+                    f"Turn ended; control returned to the client."
+                    f"{Colors.RESET}"
+                )
+            elif event.outcome.stop_reason == "interrupted":
                 print(
                     f"\n{Colors.BRIGHT_YELLOW}⚠️  "
-                    f"Turn interrupted by user.{Colors.RESET}"
+                    f"Turn interrupted at a Step boundary.{Colors.RESET}"
                 )
             elif event.outcome.stop_reason == "max_steps":
                 print(
                     f"\n{Colors.BRIGHT_YELLOW}⚠️  "
-                    f"Turn stopped after reaching the {self._max_steps}-step limit."
+                    f"Turn stopped after {self._max_steps} Steps; "
+                    f"agent model-request budget exhausted."
                     f"{Colors.RESET}"
                 )
             elif event.outcome.stop_reason == "failed":
                 assert event.outcome.error is not None
                 if event.outcome.error.kind == "internal_error":
                     print(
-                        f"\n{Colors.BRIGHT_RED}❌ Turn failed:{Colors.RESET} "
+                        f"\n{Colors.BRIGHT_RED}❌ Turn ended "
+                        f"(internal_error):{Colors.RESET} "
                         f"{event.outcome.error.message}"
+                    )
+                else:
+                    print(
+                        f"\n{Colors.BRIGHT_RED}❌ Turn ended "
+                        f"({event.outcome.error.kind}).{Colors.RESET}"
                     )
             return
 

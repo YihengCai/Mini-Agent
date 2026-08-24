@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from mini_agent.agent import AgentSession
-from mini_agent.cli import report_observer_failure
+from mini_agent.cli import parse_args, print_help, report_observer_failure
 from mini_agent.cli_events import CliEventSink
 from mini_agent.core import TurnError, TurnOutcome
 from mini_agent.core.events import (
@@ -416,12 +416,18 @@ async def test_cli_event_sink_preserves_rendering_and_run_logging(
     output = capsys.readouterr().out
     assert outcome.last_assistant_message == "visible finish"
     assert "Log file: /tmp/agent-run.log" in output
+    assert output.count("Turn started") == 1
+    assert "Step budget: 3 agent model requests" in output
     assert "Step 1/3" in output
     assert "Tool Call:" in output
     assert "echo:visible" in output
     assert "Assistant:" in output
     assert "visible finish" in output
-    assert "Step 2 completed" in output
+    assert "Step 1 finished; continuing the same Turn" in output
+    assert "Step 2 finished; model made no tool calls" in output
+    assert output.count("Turn ended; control returned to the client") == 1
+    assert "✓ Turn" not in output
+    assert "Step 2 completed" not in output
     logger.start_new_run.assert_called_once_with()
     assert logger.log_request.call_count == 2
     assert logger.log_response.call_count == 2
@@ -468,12 +474,55 @@ def test_cli_event_sink_renders_step_and_turn_stop_facts(capsys):
     )
 
     output = capsys.readouterr().out
-    assert "Step 1 interrupted" in output
-    assert "Step 2 reached the Turn step limit" in output
+    assert "Step 1 finished at the interruption boundary" in output
+    assert "Step 2 finished; this Turn's Step budget is exhausted" in output
     assert "Step 3 failed" in output
-    assert "Turn stopped after reaching the 3-step limit" in output
-    assert "Turn failed:" in output
+    assert "Turn stopped after 3 Steps; agent model-request budget exhausted" in output
+    assert "Turn ended (internal_error):" in output
     assert "broken invariant" in output
+
+
+@pytest.mark.asyncio
+async def test_cli_event_sink_does_not_repeat_model_failure_details(
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    llm = ScriptedLLM([ScriptedCall("agent", RuntimeError("model unavailable"))])
+    agent = build_agent(monkeypatch, tmp_path, llm, [])
+    logger = MagicMock()
+    logger.get_log_file_path.return_value = Path("/tmp/agent-run.log")
+
+    with llm:
+        outcome = await run_turn(
+            agent,
+            "Fail the model call.",
+            event_sink=CliEventSink(logger=logger),
+        )
+
+    output = capsys.readouterr().out
+    assert outcome.stop_reason == "failed"
+    assert output.count("model unavailable") == 1
+    assert "Step 1 failed" in output
+    assert "Turn ended (model_error)." in output
+
+
+def test_cli_help_uses_session_turn_and_interruption_semantics(
+    monkeypatch,
+    capsys,
+):
+    print_help()
+    interactive_help = capsys.readouterr().out
+    assert "Start a new Session with the same configuration" in interactive_help
+    assert "Request interruption of the current Turn" in interactive_help
+    assert "Cancel current agent execution" not in interactive_help
+
+    monkeypatch.setattr("sys.argv", ["mini-agent", "--help"])
+    with pytest.raises(SystemExit) as exit_info:
+        parse_args()
+    assert exit_info.value.code == 0
+    argument_help = capsys.readouterr().out
+    assert "Submit one Turn non-interactively" in argument_help
 
 
 def test_cli_reports_an_event_observer_failure_without_the_broken_sink(capsys):
