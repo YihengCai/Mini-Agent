@@ -4,6 +4,8 @@
 - 状态：已采纳
 - 关联：`mini_agent/core/`、`mini_agent/cli_events.py`、`tests/test_agent_loop_offline.py`、提交 `fe6a682`、`cd9ae14`
 
+> 后续修订： [ADR-0004](0004-session-turn-step-lifecycle.md) 替换了本 ADR 为缩小迁移范围而保留的 `Agent.run() -> str`、借用事件对象和接收器异常直接传播 contract；删除 ACP、CLI 直连 core 与同步进程内观察边界的决定继续有效。以下正文保留当时决定，不作追写。
+
 ## 背景
 
 改造前，`Agent.run()` 同时持有消息、模型—工具控制流、终端渲染和 `AgentLogger`；ACP 又实现一份模型调用、工具执行与消息追加。可用 `git show fe6a682^:mini_agent/agent.py` 和 `git show cd9ae14^:mini_agent/acp/__init__.py` 复查两条控制流。

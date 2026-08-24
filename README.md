@@ -8,13 +8,14 @@
 
 ## 当前状态
 
-项目已在上游 baseline 上完成三项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 也已移入不依赖终端的 `mini_agent/core/`。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖已经删除。
+项目已在上游 baseline 上完成四项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖已经删除。
 
 `read_file` 现在返回 1-based 行窗口，编号正文最多 2000 个完整行或 50 KiB，并给出下一次 `offset`；`edit_file` 仅把 LF/CRLF 视为等价，其他文本必须精确匹配且只能出现一次。写入和编辑通过同目录临时文件和 `os.replace()` 提交，已有文件保留 CRLF 约定与权限位。代码可以运行，但仍保留重要限制：
 
 - 部分上游测试仍无法有效失败或会访问真实 API；
-- core 事件目前只是进程内同步通知，不是可持久化、可回放的轨迹格式，也还没有独立统计或基准评测消费者；
-- Esc 没有真正取消正在运行的 LLM 或工具任务，消息历史清理还会删除已完成记录；
+- `TurnOutcome` 只解释 core 为什么交还控制权，不判断用户任务是否完成；目前没有 TaskSupervisor、BenchmarkEvaluator 或 SWE-bench 接入；
+- core 事件目前只是带 Session、Turn、Step 身份的进程内同步通知，不是可持久化、可回放的轨迹格式，也还没有独立统计或基准评测消费者；
+- Esc 没有真正取消正在运行的模型或工具任务；中断只在完整 Step 边界生效，延迟可能覆盖一次模型调用和整批工具执行；
 - 上下文压缩会破坏工具调用结构，失败时甚至可能扩大上下文；
 - 文件工具仍接受绝对路径和解析到工作区外的路径，也没有读取版本回执或并发覆盖检测；
 - 没有权限引擎、工作区边界限制、操作系统沙箱、跨文件回滚或检查点。
@@ -28,6 +29,8 @@ LLM 测试替身已经落地：agent 与摘要调用共用一条按用途标注�
 文件工具改造也已经落地：读取预算、续读提示、歧义拒绝、CRLF、权限位和原子替换失败都有离线回归；删除唯一匹配判断、`os.replace()` 或超长行早停时，对应测试会转红。取舍见 [ADR-0002](docs/decisions/0002-bounded-and-atomic-file-tools.md)。
 
 核心边界改造已经落地：消息、压缩、模型调用、工具执行和终止判断只在 `mini_agent/core/agent.py` 中运行；`mini_agent/cli_events.py` 消费同一条事件序列完成终端渲染与原有文本日志。不给 `event_sink` 时，真实 agent loop 可以无终端输出、无日志副作用地运行。事件顺序、摘要交错、CLI 输出与日志调用，以及 core 不导入 UI、日志或传输模块，都有离线回归。
+
+执行生命周期改造也已经落地：`AgentSession.start_turn()` 原子接纳输入并返回 `TurnHandle`，同一 Session 只允许一个活动 Turn；`TurnOutcome` 区分模型交回控制权、用户中断、Step 上限和失败，但没有 `success` 或 `completed`。工具调用继续同一 Turn，摘要模型调用不算 Step；事件载荷使用独立快照，Turn 配置在接纳时固化，接收器失败也不会留下缺少工具结果的历史。取舍与中断延迟见 [ADR-0004](docs/decisions/0004-session-turn-step-lifecycle.md)。
 
 ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生命周期的端到端测试；继续维护它只会让协议层提前塑造执行框架。因此当前版本主动删除 ACP，而不是把 CLI 改成 ACP 客户端。重新引入协议层的条件见 [ADR-0003](docs/decisions/0003-remove-acp-and-extract-core-loop.md)。下一项工作尚未自动选择；继续从 [BUILD_LIST](docs/BUILD_LIST.md) 中挑选有当前失败证据的主题。
 
@@ -59,7 +62,7 @@ ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生�
 mini_agent/core/             UI 无关的 agent loop 与进程内事件 contract
 mini_agent/cli.py            终端输入、取消轮询和运行时组装
 mini_agent/cli_events.py     终端渲染与原有文本日志的事件适配器
-mini_agent/agent.py          兼容原有导入路径的薄转发层
+mini_agent/agent.py          AgentSession 的公开导入层
 mini_agent/                  模型客户端、工具、MCP/skills 与配置
 tests/                       上游测试、LLM 测试替身与离线回归
 docs/BUILD_LIST.md           当前工作与可选研究主题
@@ -116,10 +119,11 @@ uv run mini-agent log
   tests/test_terminal_utils.py \
   tests/test_session_integration.py \
   tests/test_markdown_links.py \
-  tests/test_agent_loop_offline.py
+  tests/test_agent_loop_offline.py \
+  tests/test_agent_session_offline.py
 ```
 
-以上命令在 2026-08-24 实测为 `122 passed`；同时有一条既有的 `cache_dir` 配置警告，不影响测试结果。
+以上命令在 2026-08-24 实测为 `142 passed`；同时有一条既有的 `cache_dir` 配置警告，不影响测试结果。
 
 ## 文档入口
 
@@ -130,6 +134,7 @@ uv run mini-agent log
 - [PITFALLS](docs/PITFALLS.md)：实现过程中亲历且可复现的错误假设
 - [coding agent 测试框架调查](docs/reference/agent-testing-survey.md)：外部项目证据
 - [主流开源 coding agent 文件工具调查](docs/reference/file-tools-survey.md)：本轮借鉴与未借鉴的源码依据
+- [coding agent 执行生命周期调查](docs/reference/agent-loop-lifecycle-survey.md)：Session、Turn、Step 与任务评测的外部证据
 
 ## 来源与许可证
 

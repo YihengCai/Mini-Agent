@@ -6,13 +6,11 @@
 
 选择一个主题时，先为它找到当前代码中的失败证据和一分钟内可运行的离线验证，再写改动前简报。具体接口、类名和文件布局到实现时再决定，不为候选主题提前创建规格或 ADR。
 
-## 当前工作：显式执行生命周期与任务完成边界
+## 当前工作：待选择
 
-当前 `Agent` 是“长期消息状态 + 一次性 `run() -> str`”的混合对象：模型不再请求工具就被命名为 `completed`，但 CLI 丢弃返回字符串，只消费同步事件（`mini_agent/core/agent.py:33-73,374-589`；`mini_agent/cli.py:584-597,777-798`）。这不能区分 turn（一次用户输入驱动的执行段）结束、长任务完成和外部评测成功。
+Session、Turn、Step 生命周期已经落地并完成离线验证，见 [`decisions/0004-session-turn-step-lifecycle.md`](decisions/0004-session-turn-step-lifecycle.md)。它为日志、统计、轨迹和基准评测提供了稳定执行身份，但不自动证明其中任何一个是下一优先级。
 
-本轮先把会话、turn 与 step（一次模型采样及工具处理）的状态所有权和停止原因分开；core 只陈述可观察的停止事实，不宣称任务成功。长任务 supervisor、持久化 trajectory 和 SWE-bench 评测仍是后续独立工作。外部实现证据与方案取舍见 [`reference/agent-loop-lifecycle-survey.md`](reference/agent-loop-lifecycle-survey.md)。
-
-一分钟内的离线验证目标：连续 turn 共享会话事实但各有唯一身份和终止结果；模型不再调用工具只产生“交回控制权”而非“任务成功”；活动 turn 期间的新输入不会静默写入正在发送的消息；终止事件与等待到的结果对停止原因保持一致。具体接口、类名和文件布局在改动前简报确认后再定。
+下一项工作尚未选择。选择时仍需先找到当前失败证据和一分钟内离线验证，不因为某模块现在“可以消费事件”就提前采用设计。
 
 ## 可选研究主题
 
@@ -20,22 +18,23 @@
 
 | 主题 | 当前证据与研究问题 | 什么时候值得选择 |
 |---|---|---|
-| 会话事实记录与模型请求视图 | 压缩和取消清理会改写 `self.messages`（`mini_agent/core/agent.py:96-120,179-276`）。研究已经发生的事实、模型可见历史、持久化和恢复是否应分开；append-only session log（仅追加的会话日志）只是候选方案之一。 | 准备替换消息状态或处理取消、恢复、审计问题时。 |
-| 模型调用 contract 与协议适配 | 内部边界目前由 `Agent` 对 `generate(messages, tools)` 的调用方式隐式表达；测试替身能靠结构兼容注入，但 `LLMClient` 还混合端点处理、协议选择和转发（`mini_agent/core/agent.py:278-372,424-464`；`mini_agent/llm/llm_wrapper.py:18-127`）。 | 要增加流式响应、本地协议测试、错误分类，或当前端点的新能力时。 |
-| 上下文管理 | 当前压缩直接重写消息，可能破坏工具调用结构，失败降级还可能扩大输入（`mini_agent/core/agent.py:179-372`）。研究 token 预算、选择、压缩和失败行为需要哪些不变量。 | 选定一个可以稳定复现的压缩失败案例时；依赖 vendor 能力前先做端点探测。 |
+| 会话事实记录与模型请求视图 | 压缩仍直接替换模型可见消息（`mini_agent/core/agent.py:294-402`）。研究已经发生的事实、模型请求视图、持久化和恢复是否应分开；append-only session log（仅追加的会话日志）只是候选方案之一。 | 准备替换消息状态或处理恢复、审计问题时。 |
+| 模型调用 contract 与协议适配 | 内部边界目前由 `_AgentLoop` 对 `generate(messages, tools)` 的调用方式隐式表达；测试替身能靠结构兼容注入，但 `LLMClient` 还混合端点处理、协议选择和转发（`mini_agent/core/agent.py:404-498,609-681`；`mini_agent/llm/llm_wrapper.py:18-127`）。 | 要增加流式响应、本地协议测试、错误分类，或当前端点的新能力时。 |
+| 上下文管理 | 当前压缩直接重写消息，可能破坏工具调用结构，失败降级还可能扩大输入（`mini_agent/core/agent.py:294-498`）。研究 token 预算、选择、压缩和失败行为需要哪些不变量。 | 选定一个可以稳定复现的压缩失败案例时；依赖 vendor 能力前先做端点探测。 |
 | 任务模式与意图边界 | 研究“讨论、规划、修改、审查”等意图应由显式模式、确定性规则还是模型判断，以及能力边界是否要通过工具和权限强制。这里不预设需要单独的意图分类模型。 | 先复现仅靠提示词导致错误动作的案例；没有案例就继续保留为问题。 |
 | 代码搜索与上下文选择 | 项目没有专用 Glob/Grep，shell 输出也没有统一上限（`docs/UPSTREAM_AUDIT.md:61-65`）。研究搜索、忽略规则、截断信息和 token 预算；直接使用 `rg` 与仓库地图都只是候选。 | 出现可复现的代码定位失败或搜索结果挤占上下文时。 |
-| 工具执行与输出边界 | 工具现在只由 core 串行执行，但 shell 输出仍可不受限地进入模型消息（`mini_agent/core/agent.py:503-573`；`mini_agent/tools/bash_tool.py:18-49`）。研究参数校验、失败隔离、长运行进程、并行调用和输出预算。 | 从一个具体工具失败或输出失控案例进入。 |
+| 工具执行与输出边界 | 工具现在只由 core 串行执行，但 shell 输出仍可不受限地进入模型消息（`mini_agent/core/agent.py:703-775`；`mini_agent/tools/bash_tool.py:18-49`）。研究参数校验、失败隔离、长运行进程、并行调用和输出预算。 | 从一个具体工具失败或输出失控案例进入。 |
 | 可靠的代码编辑与恢复 | 当前已完成唯一精确匹配、单文件原子替换和提交前失败不改目标（`mini_agent/tools/file_tools.py:81-126,468-573`）；仍没有读取版本回执或并发覆盖检测，也不能一起恢复多个文件、工具副作用和模型状态。 | 先复现读取后并发变化造成的丢失更新，或需要跨文件恢复的具体失败；检查点只有在能完成恢复验证时才进入实现。 |
-| 权限与执行隔离 | 工具当前直接执行，文件与 shell 没有统一策略或强制隔离（`mini_agent/core/agent.py:503-573`；`docs/UPSTREAM_AUDIT.md:49-53`）。研究用户批准负责什么、操作系统沙箱负责什么，以及工作区、网络、进程和资源边界怎样验证。 | 能够一次完成真实拒绝测试矩阵时。 |
+| 权限与执行隔离 | 工具当前直接执行，文件与 shell 没有统一策略或强制隔离（`mini_agent/core/agent.py:703-775`；`docs/UPSTREAM_AUDIT.md:49-53`）。研究用户批准负责什么、操作系统沙箱负责什么，以及工作区、网络、进程和资源边界怎样验证。 | 能够一次完成真实拒绝测试矩阵时。 |
 | 指令、skills 与 MCP 的信任边界 | 系统提示词、skills 元数据和 MCP 工具分别在 `mini_agent/cli.py:304-398,547-567` 组装。研究加入仓库指令后，各来源如何确定优先级，外部内容怎样避免获得额外权限。 | 出现可复现的指令冲突、提示词注入或外部工具数据污染案例时。 |
 | subagent 隔离与并发 | 研究 subagent 是否真的减少父级上下文，以及预算、工具权限、结果大小和并发文件修改怎样隔离。 | 能先定义可量化收益和冲突案例时；仅仅“能启动另一个 agent”不算完成。 |
-| 轨迹、回放与任务级评测 | core 已提供进程内同步事件，但事件没有持久化或回放语义（`mini_agent/core/events.py:1-160`）。研究怎样从执行事件生成调试轨迹和回放，并在模块回归之外度量任务完成、错误修改、调用次数、token、延迟与成本。 | 积累了单模块测试覆盖不了的真实回归，并能先定义任务结果判定时。 |
+| 轨迹、回放与任务级评测 | core 已提供带 Session、Turn、Step 身份的进程内同步事件，但没有持久化或回放语义（`mini_agent/core/events.py:20-146`）。研究怎样从执行事件生成调试轨迹和回放，并在模块回归之外度量任务完成、错误修改、调用次数、token、延迟与成本。 | 积累了单模块测试覆盖不了的真实回归，并能先定义任务结果判定时。 |
 
 本轮选题范围参考了 Codex、Gemini CLI、OpenHands、aider、SWE-agent 和 goose 的一手资料；外部项目拥有某项能力不构成本项目实现它的理由，真正选择主题时重新核对当时源码。
 
 ## 最近完成
 
+- **显式执行生命周期**：`AgentSession` 表示一段逻辑对话，`TurnHandle` 表示一次控制权交接，Step 表示一次 agent 模型请求及其完整工具批次；结构化停止原因不判断任务成功。47 项定向离线测试覆盖原子接纳、状态快照、中断、错误和观察隔离；标准离线集合共 `142 passed`。取舍见 [`decisions/0004-session-turn-step-lifecycle.md`](decisions/0004-session-turn-step-lifecycle.md)。
 - **core agent loop 边界**：模型—工具控制流、消息与压缩状态移入 `mini_agent/core/`，CLI 通过同步事件完成终端渲染和原有日志；没有真实客户端与端到端协议测试的 ACP 已删除。122 项离线测试覆盖事件顺序、无 UI 运行和 CLI 适配。取舍见 [`decisions/0003-remove-acp-and-extract-core-loop.md`](decisions/0003-remove-acp-and-extract-core-loop.md)。
 - **文件工具重写**：`read_file` 采用有界完整行窗口，`edit_file` 始终要求唯一精确匹配，写入以同目录原子替换提交；27 项定向离线测试覆盖预算、续读、歧义、CRLF、权限位和故障注入。取舍见 [`decisions/0002-bounded-and-atomic-file-tools.md`](decisions/0002-bounded-and-atomic-file-tools.md)。
 - **LLM 测试替身**：`tests/llm_test_double.py` 与 `tests/test_agent_loop_offline.py` 已提供确定、离线的真实 agent loop 测试入口；全局调用序列的取舍见 [`decisions/0001-strict-global-llm-call-script.md`](decisions/0001-strict-global-llm-call-script.md)。
