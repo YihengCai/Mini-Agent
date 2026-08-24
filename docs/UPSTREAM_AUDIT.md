@@ -38,6 +38,8 @@ cli.run_agent()
 
 要研究的问题：怎样让核心循环只保留控制流，并让 CLI、ACP 和测试共享同一条执行路径。具体输出接口尚未决定。
 
+实现结果没有改写以上 baseline 证据：当前选择删除无真实客户端验证的 ACP，并用同步事件连接 core 与 CLI，见 [ADR-0003](decisions/0003-remove-acp-and-extract-core-loop.md)。
+
 ### 2. 消息历史不是可靠日志
 
 `_summarize_messages()`（`mini_agent/agent.py:153-232`）原地重写 `self.messages`；`_cleanup_incomplete_messages()`（`mini_agent/agent.py:73-94`）在取消时截断尾部。工具副作用已经发生后再删除消息，会让模型可见的消息历史与磁盘状态不一致。

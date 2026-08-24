@@ -6,7 +6,7 @@
 
 现有 agent loop 测试会访问真实 API，部分测试还以返回布尔值代替断言，因此不能提供快速、便宜、稳定的回归反馈，见 [`UPSTREAM_AUDIT.md`](../UPSTREAM_AUDIT.md)。
 
-`Agent.run()` 会传入工具列表调用 `llm.generate()`（`mini_agent/agent.py:341-345`），`Agent._create_summary()` 也会调用同一方法但省略 `tools`（`mini_agent/agent.py:275-283`）。测试替身必须能区分主循环调用与摘要调用，并检查两者的全局顺序。
+`Agent.run()` 会传入工具列表调用 `llm.generate()`（`mini_agent/core/agent.py:424-434`），`Agent._create_summary()` 也会调用同一方法但省略 `tools`（`mini_agent/core/agent.py:329-340`）。测试替身必须能区分主循环调用与摘要调用，并检查两者的全局顺序。
 
 ## 已实现范围
 

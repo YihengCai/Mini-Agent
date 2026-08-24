@@ -8,12 +8,12 @@
 
 ## 当前状态
 
-项目已在上游 baseline 上完成两项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具也改成了有界读取、唯一匹配和单文件原子替换。生产 agent loop 尚未修改。
+项目已在上游 baseline 上完成三项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 也已移入不依赖终端的 `mini_agent/core/`。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖已经删除。
 
 `read_file` 现在返回 1-based 行窗口，编号正文最多 2000 个完整行或 50 KiB，并给出下一次 `offset`；`edit_file` 仅把 LF/CRLF 视为等价，其他文本必须精确匹配且只能出现一次。写入和编辑通过同目录临时文件和 `os.replace()` 提交，已有文件保留 CRLF 约定与权限位。代码可以运行，但仍保留重要限制：
 
 - 部分上游测试仍无法有效失败或会访问真实 API；
-- 终端渲染与 agent loop 耦合，ACP 复制了另一份循环；
+- core 事件目前只是进程内同步通知，不是可持久化、可回放的轨迹格式，也还没有独立统计或基准评测消费者；
 - Esc 没有真正取消正在运行的 LLM 或工具任务，消息历史清理还会删除已完成记录；
 - 上下文压缩会破坏工具调用结构，失败时甚至可能扩大上下文；
 - 文件工具仍接受绝对路径和解析到工作区外的路径，也没有读取版本回执或并发覆盖检测；
@@ -27,9 +27,9 @@ LLM 测试替身已经落地：agent 与摘要调用共用一条按用途标注�
 
 文件工具改造也已经落地：读取预算、续读提示、歧义拒绝、CRLF、权限位和原子替换失败都有离线回归；删除唯一匹配判断、`os.replace()` 或超长行早停时，对应测试会转红。取舍见 [ADR-0002](docs/decisions/0002-bounded-and-atomic-file-tools.md)。
 
-当前工作是基于这个测试入口处理核心循环与 CLI、ACP 的边界，让两个适配器不再各自实现控制流。
+核心边界改造已经落地：消息、压缩、模型调用、工具执行和终止判断只在 `mini_agent/core/agent.py` 中运行；`mini_agent/cli_events.py` 消费同一条事件序列完成终端渲染与原有文本日志。不给 `event_sink` 时，真实 agent loop 可以无终端输出、无日志副作用地运行。事件顺序、摘要交错、CLI 输出与日志调用，以及 core 不导入 UI、日志或传输模块，都有离线回归。
 
-CLI 与 ACP 共用 agent loop 后，每次只从 [BUILD_LIST](docs/BUILD_LIST.md) 选择一个有当前失败证据的研究主题，先复现问题，再比较、实现和验证。
+ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生命周期的端到端测试；继续维护它只会让协议层提前塑造执行框架。因此当前版本主动删除 ACP，而不是把 CLI 改成 ACP 客户端。重新引入协议层的条件见 [ADR-0003](docs/decisions/0003-remove-acp-and-extract-core-loop.md)。下一项工作尚未自动选择；继续从 [BUILD_LIST](docs/BUILD_LIST.md) 中挑选有当前失败证据的主题。
 
 ## 设计原则
 
@@ -56,8 +56,12 @@ CLI 与 ACP 共用 agent loop 后，每次只从 [BUILD_LIST](docs/BUILD_LIST.md
 ## 仓库结构
 
 ```text
-mini_agent/                  上游 agent loop、模型客户端、工具、CLI、MCP/skills、ACP
-tests/                       上游测试、LLM 测试替身与 agent loop 离线回归
+mini_agent/core/             UI 无关的 agent loop 与进程内事件 contract
+mini_agent/cli.py            终端输入、取消轮询和运行时组装
+mini_agent/cli_events.py     终端渲染与原有文本日志的事件适配器
+mini_agent/agent.py          兼容原有导入路径的薄转发层
+mini_agent/                  模型客户端、工具、MCP/skills 与配置
+tests/                       上游测试、LLM 测试替身与离线回归
 docs/BUILD_LIST.md           当前工作与可选研究主题
 docs/UPSTREAM_AUDIT.md       上游代码审计
 docs/specs/                  仅当前实现的短规格
@@ -67,7 +71,7 @@ docs/reference/              外部 coding agent 源码调研
 docs/PROVIDER_CAPABILITIES.md 端点能力探测结果
 ```
 
-## 运行上游 baseline
+## 运行项目
 
 要求 Python 3.10+，推荐使用 `uv`：
 
@@ -99,7 +103,7 @@ uv run mini-agent log
 
 ## 离线测试
 
-不要直接运行完整 `pytest`：部分上游测试会读取本地配置并访问真实 API，`tests/test_acp.py` 还有一个独立故障。
+不要直接运行完整 `pytest`：部分上游测试会读取本地配置并访问真实 API。
 
 ```bash
 .venv/bin/python -m pytest -q -p no:cacheprovider \
@@ -112,8 +116,11 @@ uv run mini-agent log
   tests/test_terminal_utils.py \
   tests/test_session_integration.py \
   tests/test_markdown_links.py \
-  tests/test_agent_loop_offline.py
+  tests/test_agent_loop_offline.py \
+  tests/test_architecture_boundaries.py
 ```
+
+以上命令在 2026-08-24 实测为 `124 passed`；同时有一条既有的 `cache_dir` 配置警告，不影响测试结果。
 
 ## 文档入口
 
