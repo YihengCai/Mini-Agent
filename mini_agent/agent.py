@@ -1,5 +1,5 @@
-"""Compatibility import for the core Agent API."""
+"""Public import for the core AgentSession API."""
 
-from .core.agent import Agent
+from .core.agent import AgentSession
 
-__all__ = ["Agent"]
+__all__ = ["AgentSession"]

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from mini_agent import LLMClient
-from mini_agent.agent import Agent
+from mini_agent.agent import AgentSession
 from mini_agent.config import Config
 from mini_agent.tools import BashTool, EditTool, ReadTool, WriteTool
 
@@ -48,7 +48,7 @@ async def test_agent_simple_task():
         ]
 
         # Create agent
-        agent = Agent(
+        agent = AgentSession(
             llm_client=llm_client,
             system_prompt=system_prompt,
             tools=tools,
@@ -60,13 +60,11 @@ async def test_agent_simple_task():
         task = "Create a file named 'test.txt' with the content 'Hello from Agent!'"
         print(f"\nTask: {task}\n")
 
-        agent.add_user_message(task)
-
         try:
-            result = await agent.run()
+            outcome = await agent.start_turn(task).wait()
 
             print(f"\n{'=' * 80}")
-            print(f"Agent Result: {result}")
+            print(f"Agent Outcome: {outcome}")
             print("=" * 80)
 
             # Check if file was created
@@ -129,7 +127,7 @@ async def test_agent_bash_task():
         ]
 
         # Create agent
-        agent = Agent(
+        agent = AgentSession(
             llm_client=llm_client,
             system_prompt=system_prompt,
             tools=tools,
@@ -141,13 +139,11 @@ async def test_agent_bash_task():
         task = "Use bash to list all files in the current directory and tell me what you find."
         print(f"\nTask: {task}\n")
 
-        agent.add_user_message(task)
-
         try:
-            result = await agent.run()
+            outcome = await agent.start_turn(task).wait()
 
             print(f"\n{'=' * 80}")
-            print(f"Agent Result: {result}")
+            print(f"Agent Outcome: {outcome}")
             print("=" * 80)
 
             print("\n✅ Bash task completed!")

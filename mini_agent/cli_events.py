@@ -3,21 +3,20 @@
 import json
 
 from .core.events import (
-    AgentEvent,
+    AgentEventEnvelope,
     CompactionFinished,
     CompactionRoundFinished,
     CompactionSkipped,
     CompactionStarted,
-    HistoryCleaned,
     ModelCallFailed,
     ModelRequest,
     ModelResponse,
-    RunFinished,
-    RunStarted,
     StepFinished,
     StepStarted,
     ToolFinished,
     ToolStarted,
+    TurnFinished,
+    TurnStarted,
 )
 from .logger import AgentLogger
 from .retry import RetryExhaustedError
@@ -29,9 +28,12 @@ class CliEventSink:
 
     def __init__(self, logger: AgentLogger | None = None):
         self.logger = logger or AgentLogger()
+        self._max_steps = 0
 
-    def __call__(self, event: AgentEvent) -> None:
-        if isinstance(event, RunStarted):
+    def __call__(self, envelope: AgentEventEnvelope) -> None:
+        event = envelope.event
+        if isinstance(event, TurnStarted):
+            self._max_steps = event.max_steps
             self.logger.start_new_run()
             print(
                 f"{Colors.DIM}📝 Log file: "
@@ -40,7 +42,8 @@ class CliEventSink:
             return
 
         if isinstance(event, StepStarted):
-            self._render_step_started(event)
+            assert envelope.step is not None
+            self._render_step_started(envelope.step, event)
             return
 
         if isinstance(event, ModelRequest):
@@ -79,17 +82,18 @@ class CliEventSink:
             return
 
         if isinstance(event, StepFinished):
+            assert envelope.step is not None
+            status_text = {
+                "continued": "completed",
+                "end_turn": "completed",
+                "interrupted": "interrupted",
+                "max_steps": "reached the Turn step limit",
+                "failed": "failed",
+            }[event.status]
             print(
-                f"\n{Colors.DIM}⏱️  Step {event.step} completed in "
+                f"\n{Colors.DIM}⏱️  Step {envelope.step} {status_text} in "
                 f"{event.elapsed_seconds:.2f}s "
                 f"(total: {event.total_elapsed_seconds:.2f}s){Colors.RESET}"
-            )
-            return
-
-        if isinstance(event, HistoryCleaned):
-            print(
-                f"{Colors.DIM}   Cleaned up {event.removed_count} "
-                f"incomplete message(s){Colors.RESET}"
             )
             return
 
@@ -140,21 +144,34 @@ class CliEventSink:
             )
             return
 
-        if isinstance(event, RunFinished):
-            if event.reason in {"cancelled", "max_steps"}:
+        if isinstance(event, TurnFinished):
+            if event.outcome.stop_reason == "interrupted":
                 print(
                     f"\n{Colors.BRIGHT_YELLOW}⚠️  "
-                    f"{event.result}{Colors.RESET}"
+                    f"Turn interrupted by user.{Colors.RESET}"
                 )
+            elif event.outcome.stop_reason == "max_steps":
+                print(
+                    f"\n{Colors.BRIGHT_YELLOW}⚠️  "
+                    f"Turn stopped after reaching the {self._max_steps}-step limit."
+                    f"{Colors.RESET}"
+                )
+            elif event.outcome.stop_reason == "failed":
+                assert event.outcome.error is not None
+                if event.outcome.error.kind == "internal_error":
+                    print(
+                        f"\n{Colors.BRIGHT_RED}❌ Turn failed:{Colors.RESET} "
+                        f"{event.outcome.error.message}"
+                    )
             return
 
         raise TypeError(f"Unsupported agent event: {type(event).__name__}")
 
-    def _render_step_started(self, event: StepStarted) -> None:
+    def _render_step_started(self, step_number: int, event: StepStarted) -> None:
         box_width = 58
         step_text = (
             f"{Colors.BOLD}{Colors.BRIGHT_CYAN}"
-            f"💭 Step {event.step}/{event.max_steps}{Colors.RESET}"
+            f"💭 Step {step_number}/{event.max_steps}{Colors.RESET}"
         )
         step_display_width = calculate_display_width(step_text)
         padding = max(0, box_width - 1 - step_display_width)

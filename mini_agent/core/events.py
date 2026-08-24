@@ -1,53 +1,58 @@
-"""Synchronous observation events emitted by the agent loop.
-
-Event payloads borrow the core objects for the duration of the callback. A sink
-that needs to retain an event must copy or serialize the payload synchronously.
-"""
+"""Synchronous, turn-scoped observation events emitted by the agent loop."""
 
 from dataclasses import dataclass
-from typing import Literal, Protocol, TypeAlias
+from typing import Any, Literal, Protocol, TypeAlias
 
 from ..schema import LLMResponse, Message, ToolCall
-from ..tools.base import Tool, ToolResult
+from ..tools.base import ToolResult
+from .turn import TurnOutcome
 
 ModelCallPurpose: TypeAlias = Literal["agent", "summary"]
-RunFinishReason: TypeAlias = Literal[
-    "completed",
-    "cancelled",
-    "model_error",
+StepStatus: TypeAlias = Literal[
+    "continued",
+    "end_turn",
+    "interrupted",
     "max_steps",
+    "failed",
 ]
 
 
 @dataclass(frozen=True)
-class RunStarted:
+class TurnStarted:
     max_steps: int
 
 
 @dataclass(frozen=True)
-class RunFinished:
-    reason: RunFinishReason
-    result: str
+class TurnFinished:
+    outcome: TurnOutcome
 
 
 @dataclass(frozen=True)
 class StepStarted:
-    step: int
     max_steps: int
 
 
 @dataclass(frozen=True)
 class StepFinished:
-    step: int
+    status: StepStatus
     elapsed_seconds: float
     total_elapsed_seconds: float
+
+
+@dataclass(frozen=True)
+class ToolDefinition:
+    """Owned snapshot of one tool definition exposed to the model."""
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
 
 
 @dataclass(frozen=True)
 class ModelRequest:
     purpose: ModelCallPurpose
     messages: tuple[Message, ...]
-    tools: tuple[Tool, ...]
+    tools: tuple[ToolDefinition, ...]
 
 
 @dataclass(frozen=True)
@@ -65,22 +70,15 @@ class ModelCallFailed:
 
 @dataclass(frozen=True)
 class ToolStarted:
-    step: int
     index: int
     call: ToolCall
 
 
 @dataclass(frozen=True)
 class ToolFinished:
-    step: int
     index: int
     call: ToolCall
     result: ToolResult
-
-
-@dataclass(frozen=True)
-class HistoryCleaned:
-    removed_count: int
 
 
 @dataclass(frozen=True)
@@ -111,8 +109,8 @@ class CompactionFinished:
 
 
 AgentEvent: TypeAlias = (
-    RunStarted
-    | RunFinished
+    TurnStarted
+    | TurnFinished
     | StepStarted
     | StepFinished
     | ModelRequest
@@ -120,7 +118,6 @@ AgentEvent: TypeAlias = (
     | ModelCallFailed
     | ToolStarted
     | ToolFinished
-    | HistoryCleaned
     | CompactionStarted
     | CompactionSkipped
     | CompactionRoundFinished
@@ -128,33 +125,45 @@ AgentEvent: TypeAlias = (
 )
 
 
-class AgentEventSink(Protocol):
-    """Consume one event synchronously.
+@dataclass(frozen=True)
+class AgentEventEnvelope:
+    """Attach one observation to its Session, Turn, and optional Step."""
 
-    Exceptions intentionally propagate to the caller. Best-effort handling is a
-    policy for an adapter or a composed sink, not for the core loop.
+    session_id: str
+    turn_id: str
+    step: int | None
+    event: AgentEvent
+
+
+class AgentEventSink(Protocol):
+    """Consume one scoped event synchronously.
+
+    The loop captures the first callback exception and disables that sink. If it
+    prevents execution from continuing, the Turn fails at a safe boundary; if a
+    terminal cause already exists, the observer failure is secondary metadata.
     """
 
-    def __call__(self, event: AgentEvent) -> None: ...
+    def __call__(self, event: AgentEventEnvelope) -> None: ...
 
 
 __all__ = [
     "AgentEvent",
+    "AgentEventEnvelope",
     "AgentEventSink",
     "CompactionFinished",
     "CompactionRoundFinished",
     "CompactionSkipped",
     "CompactionStarted",
-    "HistoryCleaned",
     "ModelCallFailed",
     "ModelCallPurpose",
     "ModelRequest",
     "ModelResponse",
-    "RunFinished",
-    "RunFinishReason",
-    "RunStarted",
+    "StepStatus",
     "StepFinished",
     "StepStarted",
+    "ToolDefinition",
     "ToolFinished",
     "ToolStarted",
+    "TurnFinished",
+    "TurnStarted",
 ]

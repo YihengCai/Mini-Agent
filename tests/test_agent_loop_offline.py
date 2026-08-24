@@ -5,20 +5,23 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mini_agent.agent import Agent
+from mini_agent.agent import AgentSession
+from mini_agent.cli import report_observer_failure
 from mini_agent.cli_events import CliEventSink
+from mini_agent.core import TurnError, TurnOutcome
 from mini_agent.core.events import (
+    AgentEventEnvelope,
     CompactionFinished,
     CompactionRoundFinished,
     CompactionStarted,
     ModelRequest,
     ModelResponse,
-    RunFinished,
-    RunStarted,
     StepFinished,
     StepStarted,
     ToolFinished,
     ToolStarted,
+    TurnFinished,
+    TurnStarted,
 )
 from mini_agent.schema import FunctionCall, LLMResponse, Message, TokenUsage, ToolCall
 from mini_agent.tools.base import Tool, ToolResult
@@ -83,8 +86,8 @@ def build_agent(
     *,
     max_steps: int = 3,
     token_limit: int = 80_000,
-) -> Agent:
-    agent = Agent(
+) -> AgentSession:
+    agent = AgentSession(
         llm_client=llm,
         system_prompt="You are a test agent.",
         tools=tools,
@@ -94,6 +97,10 @@ def build_agent(
     )
     monkeypatch.setattr(agent, "_estimate_tokens", lambda: 0)
     return agent
+
+
+async def run_turn(agent, user_input: str, event_sink=None):
+    return await agent.start_turn(user_input, event_sink=event_sink).wait()
 
 
 def tool_call(call_id: str, name: str = "echo") -> ToolCall:
@@ -296,13 +303,16 @@ async def test_real_agent_loop_executes_tool_and_sends_result_to_model(monkeypat
     )
     tool = EchoTool()
     agent = build_agent(monkeypatch, tmp_path, llm, [tool])
-    agent.add_user_message("Echo ping, then finish.")
     events = []
 
     with llm:
-        result = await agent.run(event_sink=events.append)
+        outcome = await run_turn(
+            agent,
+            "Echo ping, then finish.",
+            event_sink=events.append,
+        )
 
-    assert result == "finished"
+    assert outcome.last_assistant_message == "finished"
     assert tool.calls == ["ping"]
     assert [message.role for message in llm.requests[0].messages] == ["system", "user"]
     assert [message.role for message in llm.requests[1].messages] == [
@@ -324,8 +334,8 @@ async def test_real_agent_loop_executes_tool_and_sends_result_to_model(monkeypat
             "input_schema": tool.parameters,
         },
     )
-    assert [type(event) for event in events] == [
-        RunStarted,
+    assert [type(envelope.event) for envelope in events] == [
+        TurnStarted,
         StepStarted,
         ModelRequest,
         ModelResponse,
@@ -336,36 +346,39 @@ async def test_real_agent_loop_executes_tool_and_sends_result_to_model(monkeypat
         ModelRequest,
         ModelResponse,
         StepFinished,
-        RunFinished,
+        TurnFinished,
     ]
     assert [
-        (event.step, event.index, event.call.id)
-        for event in events
-        if isinstance(event, ToolStarted)
+        (envelope.step, envelope.event.index, envelope.event.call.id)
+        for envelope in events
+        if isinstance(envelope.event, ToolStarted)
     ] == [(1, 1, "call-1")]
-    assert [event.purpose for event in events if isinstance(event, ModelRequest)] == [
+    assert [
+        envelope.event.purpose
+        for envelope in events
+        if isinstance(envelope.event, ModelRequest)
+    ] == [
         "agent",
         "agent",
     ]
-    assert isinstance(events[-1], RunFinished)
-    assert events[-1].reason == "completed"
-    assert events[-1].result == result
+    assert isinstance(events[-1].event, TurnFinished)
+    assert events[-1].event.outcome is outcome
+    assert outcome.stop_reason == "end_turn"
 
 
 @pytest.mark.asyncio
 async def test_core_agent_run_is_silent_without_an_event_sink(monkeypatch, tmp_path):
     llm = ScriptedLLM([ScriptedCall("agent", response("quietly finished"))])
     agent = build_agent(monkeypatch, tmp_path, llm, [])
-    agent.add_user_message("Finish without a UI.")
 
     def reject_print(*_args, **_kwargs):
         raise AssertionError("core agent loop attempted terminal output")
 
     monkeypatch.setattr("builtins.print", reject_print)
     with llm:
-        result = await agent.run()
+        outcome = await run_turn(agent, "Finish without a UI.")
 
-    assert result == "quietly finished"
+    assert outcome.last_assistant_message == "quietly finished"
     assert not hasattr(agent, "logger")
 
 
@@ -390,15 +403,18 @@ async def test_cli_event_sink_preserves_rendering_and_run_logging(
         ]
     )
     agent = build_agent(monkeypatch, tmp_path, llm, [EchoTool()])
-    agent.add_user_message("Exercise the CLI adapter.")
     logger = MagicMock()
     logger.get_log_file_path.return_value = Path("/tmp/agent-run.log")
 
     with llm:
-        result = await agent.run(event_sink=CliEventSink(logger=logger))
+        outcome = await run_turn(
+            agent,
+            "Exercise the CLI adapter.",
+            event_sink=CliEventSink(logger=logger),
+        )
 
     output = capsys.readouterr().out
-    assert result == "visible finish"
+    assert outcome.last_assistant_message == "visible finish"
     assert "Log file: /tmp/agent-run.log" in output
     assert "Step 1/3" in output
     assert "Tool Call:" in output
@@ -410,6 +426,70 @@ async def test_cli_event_sink_preserves_rendering_and_run_logging(
     assert logger.log_request.call_count == 2
     assert logger.log_response.call_count == 2
     logger.log_tool_result.assert_called_once()
+
+
+def test_cli_event_sink_renders_step_and_turn_stop_facts(capsys):
+    logger = MagicMock()
+    logger.get_log_file_path.return_value = Path("/tmp/agent-run.log")
+    sink = CliEventSink(logger=logger)
+
+    def emit(event, *, step=None):
+        sink(
+            AgentEventEnvelope(
+                session_id="session",
+                turn_id="session:turn-1",
+                step=step,
+                event=event,
+            )
+        )
+
+    emit(TurnStarted(max_steps=3))
+    emit(StepFinished("interrupted", 0.1, 0.1), step=1)
+    emit(StepFinished("max_steps", 0.2, 0.3), step=2)
+    emit(StepFinished("failed", 0.3, 0.6), step=3)
+    emit(
+        TurnFinished(
+            TurnOutcome(
+                session_id="session",
+                turn_id="session:turn-1",
+                stop_reason="max_steps",
+            )
+        )
+    )
+    emit(
+        TurnFinished(
+            TurnOutcome(
+                session_id="session",
+                turn_id="session:turn-1",
+                stop_reason="failed",
+                error=TurnError("internal_error", "broken invariant"),
+            )
+        )
+    )
+
+    output = capsys.readouterr().out
+    assert "Step 1 interrupted" in output
+    assert "Step 2 reached the Turn step limit" in output
+    assert "Step 3 failed" in output
+    assert "Turn stopped after reaching the 3-step limit" in output
+    assert "Turn failed:" in output
+    assert "broken invariant" in output
+
+
+def test_cli_reports_an_event_observer_failure_without_the_broken_sink(capsys):
+    outcome = TurnOutcome(
+        session_id="session",
+        turn_id="session:turn-1",
+        stop_reason="failed",
+        error=TurnError("model_error", "model unavailable"),
+        observer_error=TurnError("observer_error", "logger unavailable"),
+    )
+
+    report_observer_failure(outcome)
+
+    error_output = capsys.readouterr().err
+    assert "Turn event observer failed" in error_output
+    assert "logger unavailable" in error_output
 
 
 @pytest.mark.asyncio
@@ -481,13 +561,15 @@ async def test_summary_and_agent_calls_follow_one_global_sequence(monkeypatch, t
     second_run_events = []
 
     with llm:
-        agent.add_user_message("Complete the first turn.")
-        first_result = await agent.run()
-        agent.add_user_message("Complete the second turn.")
-        second_result = await agent.run(event_sink=second_run_events.append)
+        first_outcome = await run_turn(agent, "Complete the first turn.")
+        second_outcome = await run_turn(
+            agent,
+            "Complete the second turn.",
+            event_sink=second_run_events.append,
+        )
 
-    assert first_result == "first finished"
-    assert second_result == "second finished"
+    assert first_outcome.last_assistant_message == "first finished"
+    assert second_outcome.last_assistant_message == "second finished"
     assert [request.purpose for request in llm.requests] == [
         "agent",
         "agent",
@@ -501,8 +583,8 @@ async def test_summary_and_agent_calls_follow_one_global_sequence(monkeypatch, t
         "compressed first turn" in str(message.content)
         for message in final_messages
     )
-    assert [type(event) for event in second_run_events] == [
-        RunStarted,
+    assert [type(envelope.event) for envelope in second_run_events] == [
+        TurnStarted,
         CompactionStarted,
         ModelRequest,
         ModelResponse,
@@ -512,13 +594,18 @@ async def test_summary_and_agent_calls_follow_one_global_sequence(monkeypatch, t
         ModelRequest,
         ModelResponse,
         StepFinished,
-        RunFinished,
+        TurnFinished,
     ]
     assert [
-        event.purpose
-        for event in second_run_events
-        if isinstance(event, ModelRequest)
+        envelope.event.purpose
+        for envelope in second_run_events
+        if isinstance(envelope.event, ModelRequest)
     ] == ["summary", "agent"]
+    assert [
+        envelope.step
+        for envelope in second_run_events
+        if isinstance(envelope.event, ModelRequest)
+    ] == [None, 1]
 
 
 @pytest.mark.asyncio
@@ -548,12 +635,11 @@ async def test_tool_failures_are_returned_to_the_next_model_call(
     )
     tools = [] if mode == "unknown" else [ExplodingTool()]
     agent = build_agent(monkeypatch, tmp_path, llm, tools)
-    agent.add_user_message("Exercise a failing tool.")
 
     with llm:
-        result = await agent.run()
+        outcome = await run_turn(agent, "Exercise a failing tool.")
 
-    assert result == "recovered"
+    assert outcome.last_assistant_message == "recovered"
     tool_result = llm.requests[1].messages[-1]
     assert tool_result.role == "tool"
     assert tool_result.tool_call_id == "failure"
@@ -573,20 +659,29 @@ async def test_max_steps_is_distinct_from_normal_completion(monkeypatch, tmp_pat
     )
     tool = EchoTool()
     agent = build_agent(monkeypatch, tmp_path, llm, [tool], max_steps=1)
-    agent.add_user_message("Keep going past the allowed step.")
     events = []
 
     with llm:
-        result = await agent.run(event_sink=events.append)
+        outcome = await run_turn(
+            agent,
+            "Keep going past the allowed step.",
+            event_sink=events.append,
+        )
 
-    assert result == "Task couldn't be completed after 1 steps."
+    assert outcome.stop_reason == "max_steps"
     assert tool.calls == ["only-step"]
-    assert [message.role for message in agent.messages[-2:]] == ["assistant", "tool"]
-    terminal_events = [event for event in events if isinstance(event, RunFinished)]
+    assert [message.role for message in agent.get_history()[-2:]] == [
+        "assistant",
+        "tool",
+    ]
+    terminal_events = [
+        envelope.event
+        for envelope in events
+        if isinstance(envelope.event, TurnFinished)
+    ]
     assert len(terminal_events) == 1
-    assert terminal_events[0].reason == "max_steps"
-    assert terminal_events[0].result == result
-    assert events[-1] is terminal_events[0]
+    assert terminal_events[0].outcome is outcome
+    assert events[-1].event is terminal_events[0]
 
 
 @pytest.mark.asyncio
@@ -601,8 +696,7 @@ async def test_agent_cannot_hide_script_exhaustion(monkeypatch, tmp_path):
         ]
     )
     agent = build_agent(monkeypatch, tmp_path, llm, [EchoTool()])
-    agent.add_user_message("Require another model call.")
-    result = ""
+    outcome = None
     verification_error = (
         "Scripted LLM verification failed:\n"
         "- Unexpected LLM call #2: scripted calls exhausted"
@@ -610,10 +704,13 @@ async def test_agent_cannot_hide_script_exhaustion(monkeypatch, tmp_path):
 
     with pytest.raises(AssertionError) as error:
         with llm:
-            result = await agent.run()
+            outcome = await run_turn(agent, "Require another model call.")
     assert str(error.value) == verification_error
 
-    assert result == (
+    assert outcome is not None
+    assert outcome.stop_reason == "failed"
+    assert outcome.error is not None
+    assert outcome.error.message == (
         "LLM call failed: Unexpected LLM call #2: scripted calls exhausted"
     )
 
@@ -630,7 +727,7 @@ async def test_summary_fallback_cannot_hide_call_order_violation(monkeypatch, tm
         ]
     )
     agent = build_agent(monkeypatch, tmp_path, llm, [], token_limit=1)
-    result = ""
+    outcome = None
     verification_error = (
         "Scripted LLM verification failed:\n"
         "- Unexpected LLM call #2: expected 'agent', got 'summary'\n"
@@ -639,12 +736,14 @@ async def test_summary_fallback_cannot_hide_call_order_violation(monkeypatch, tm
 
     with pytest.raises(AssertionError) as error:
         with llm:
-            agent.add_user_message("Complete the first turn.")
-            assert await agent.run() == "first finished"
-            agent.add_user_message("Trigger summary before the next turn.")
-            result = await agent.run()
+            first = await run_turn(agent, "Complete the first turn.")
+            assert first.last_assistant_message == "first finished"
+            outcome = await run_turn(agent, "Trigger summary before the next turn.")
     assert str(error.value) == verification_error
 
-    assert result == (
+    assert outcome is not None
+    assert outcome.stop_reason == "failed"
+    assert outcome.error is not None
+    assert outcome.error.message == (
         "LLM call failed: Unexpected LLM call #2: expected 'agent', got 'summary'"
     )

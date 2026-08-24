@@ -1,41 +1,55 @@
 """Core harness APIs."""
 
-from .agent import Agent
+from .agent import AgentSession
 from .events import (
     AgentEvent,
+    AgentEventEnvelope,
     AgentEventSink,
     CompactionFinished,
     CompactionRoundFinished,
     CompactionSkipped,
     CompactionStarted,
-    HistoryCleaned,
     ModelCallFailed,
     ModelRequest,
     ModelResponse,
-    RunFinished,
-    RunStarted,
     StepFinished,
     StepStarted,
+    ToolDefinition,
     ToolFinished,
     ToolStarted,
+    TurnFinished,
+    TurnStarted,
+)
+from .turn import (
+    TurnAlreadyActiveError,
+    TurnError,
+    TurnHandle,
+    TurnOutcome,
+    TurnStopReason,
 )
 
 __all__ = [
-    "Agent",
+    "AgentSession",
     "AgentEvent",
+    "AgentEventEnvelope",
     "AgentEventSink",
     "CompactionFinished",
     "CompactionRoundFinished",
     "CompactionSkipped",
     "CompactionStarted",
-    "HistoryCleaned",
     "ModelCallFailed",
     "ModelRequest",
     "ModelResponse",
-    "RunFinished",
-    "RunStarted",
     "StepFinished",
     "StepStarted",
+    "ToolDefinition",
     "ToolFinished",
     "ToolStarted",
+    "TurnAlreadyActiveError",
+    "TurnError",
+    "TurnFinished",
+    "TurnHandle",
+    "TurnOutcome",
+    "TurnStarted",
+    "TurnStopReason",
 ]

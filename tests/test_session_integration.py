@@ -9,11 +9,21 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from mini_agent import LLMClient
-from mini_agent.agent import Agent
-from mini_agent.schema import LLMResponse, Message
+from mini_agent.agent import AgentSession
+from mini_agent.schema import FunctionCall, LLMResponse, Message, ToolCall
 from mini_agent.tools.bash_tool import BashTool
 from mini_agent.tools.file_tools import ReadTool, WriteTool
 from mini_agent.tools.note_tool import RecallNoteTool, SessionNoteTool
+
+
+def response(content: str, *, tool_calls=None, finish_reason: str = "stop"):
+    return LLMResponse(
+        content=content,
+        thinking=None,
+        tool_calls=tool_calls,
+        finish_reason=finish_reason,
+        usage=None,
+    )
 
 
 @pytest.fixture
@@ -30,7 +40,8 @@ def temp_workspace():
         yield tmpdir
 
 
-def test_multi_turn_conversation(mock_llm_client, temp_workspace):
+@pytest.mark.asyncio
+async def test_multi_turn_conversation(mock_llm_client, temp_workspace):
     """Test multi-turn conversation and context sharing"""
     # Prepare test data
     system_prompt = "You are an intelligent assistant"
@@ -41,7 +52,10 @@ def test_multi_turn_conversation(mock_llm_client, temp_workspace):
     ]
 
     # Create agent
-    agent = Agent(
+    mock_llm_client.generate = AsyncMock(
+        side_effect=[response("Hello back"), response("Ready to help")]
+    )
+    agent = AgentSession(
         llm_client=mock_llm_client,
         system_prompt=system_prompt,
         tools=tools,
@@ -49,78 +63,79 @@ def test_multi_turn_conversation(mock_llm_client, temp_workspace):
     )
 
     # Verify initial state
-    assert len(agent.messages) == 1  # Only system prompt
-    assert agent.messages[0].role == "system"
+    assert len(agent.get_history()) == 1  # Only system prompt
+    assert agent.get_history()[0].role == "system"
     # Agent automatically adds workspace info to system prompt
-    assert system_prompt in agent.messages[0].content
-    assert "Current Workspace" in agent.messages[0].content
+    assert system_prompt in agent.get_history()[0].content
+    assert "Current Workspace" in agent.get_history()[0].content
 
-    # Add first user message
-    agent.add_user_message("Hello")
-    assert len(agent.messages) == 2
-    assert agent.messages[1].role == "user"
-    assert agent.messages[1].content == "Hello"
+    # Run two distinct Turns in one conversation Session.
+    first = await agent.start_turn("Hello").wait()
+    second = await agent.start_turn("Help me create a file").wait()
+    assert first.turn_id != second.turn_id
 
-    # Add second user message
-    agent.add_user_message("Help me create a file")
-    assert len(agent.messages) == 3
-    assert agent.messages[2].role == "user"
-
-    # Verify all messages are retained in history
-    user_messages = [m for m in agent.messages if m.role == "user"]
+    # Verify all messages are retained in the shared Session history.
+    user_messages = [m for m in agent.get_history() if m.role == "user"]
     assert len(user_messages) == 2
     assert user_messages[0].content == "Hello"
     assert user_messages[1].content == "Help me create a file"
 
 
-def test_session_history_management(mock_llm_client, temp_workspace):
-    """Test session history management"""
-    agent = Agent(
+@pytest.mark.asyncio
+async def test_new_conversation_uses_a_new_session(mock_llm_client, temp_workspace):
+    """A Session is one conversation; starting over creates another Session."""
+    mock_llm_client.generate = AsyncMock(
+        side_effect=[response(f"Reply {i}") for i in range(5)]
+    )
+    agent = AgentSession(
         llm_client=mock_llm_client,
         system_prompt="System prompt",
         tools=[],
         workspace_dir=temp_workspace,
     )
 
-    # Add multiple messages
+    # Complete multiple Turns in one conversation.
     for i in range(5):
-        agent.add_user_message(f"Message {i}")
+        await agent.start_turn(f"Message {i}").wait()
 
-    # Verify message count (1 system + 5 user)
-    assert len(agent.messages) == 6
+    # Verify message count (1 system + 5 user + 5 assistant)
+    assert len(agent.get_history()) == 11
 
-    # Clear history through the core-owned session API (keep system prompt)
-    removed_count = agent.clear_history()
+    next_conversation = AgentSession(
+        llm_client=mock_llm_client,
+        system_prompt="System prompt",
+        tools=[],
+        workspace_dir=temp_workspace,
+    )
+    assert next_conversation.session_id != agent.session_id
+    assert [message.role for message in next_conversation.get_history()] == ["system"]
+    assert len(agent.get_history()) == 11
 
-    # Verify only system prompt remains after clearing
-    assert removed_count == 5
-    assert len(agent.messages) == 1
-    assert agent.messages[0].role == "system"
 
-
-def test_get_history(mock_llm_client, temp_workspace):
+@pytest.mark.asyncio
+async def test_get_history(mock_llm_client, temp_workspace):
     """Test getting session history"""
-    agent = Agent(
+    mock_llm_client.generate = AsyncMock(return_value=response("Assistant reply"))
+    agent = AgentSession(
         llm_client=mock_llm_client,
         system_prompt="System",
         tools=[],
         workspace_dir=temp_workspace,
     )
 
-    # Add message
-    agent.add_user_message("Test message")
+    await agent.start_turn("Test message").wait()
 
     # Get history
     history = agent.get_history()
 
     # Verify history is a copy (doesn't affect original messages)
-    assert len(history) == len(agent.messages)
-    assert history is not agent.messages
+    assert len(history) == len(agent.get_history())
+    assert history is not agent.get_history()
 
     # Modifying copy should not affect original messages
     history.append(Message(role="user", content="New message"))
-    assert len(agent.messages) == 2  # Original messages unchanged
-    assert len(history) == 3  # Copy changed
+    assert len(agent.get_history()) == 3  # Original messages unchanged
+    assert len(history) == 4  # Copy changed
 
 
 @pytest.mark.asyncio
@@ -142,31 +157,45 @@ async def test_session_note_persistence(temp_workspace):
     assert "Test note" in result2.content
 
 
-def test_message_statistics(mock_llm_client, temp_workspace):
+@pytest.mark.asyncio
+async def test_message_statistics(mock_llm_client, temp_workspace):
     """Test message statistics functionality"""
-    agent = Agent(
+    tool_call = ToolCall(
+        id="note-1",
+        type="function",
+        function=FunctionCall(
+            name="record_note",
+            arguments={"content": "remember this", "category": "test"},
+        ),
+    )
+    mock_llm_client.generate = AsyncMock(
+        side_effect=[
+            response("", tool_calls=[tool_call], finish_reason="tool_use"),
+            response("First reply"),
+            response("Second reply"),
+        ]
+    )
+    agent = AgentSession(
         llm_client=mock_llm_client,
         system_prompt="System",
-        tools=[],
+        tools=[
+            SessionNoteTool(
+                memory_file=str(Path(temp_workspace) / "stats-memory.json")
+            )
+        ],
         workspace_dir=temp_workspace,
     )
 
-    # Add different types of messages
-    agent.add_user_message("User message 1")
-    agent.messages.append(Message(role="assistant", content="Assistant response 1"))
-    agent.add_user_message("User message 2")
-    agent.messages.append(
-        Message(
-            role="tool", content="Tool result", tool_call_id="123", name="test_tool"
-        )
-    )
+    await agent.start_turn("User message 1").wait()
+    await agent.start_turn("User message 2").wait()
 
     # Count different types of messages
-    user_msgs = sum(1 for m in agent.messages if m.role == "user")
-    assistant_msgs = sum(1 for m in agent.messages if m.role == "assistant")
-    tool_msgs = sum(1 for m in agent.messages if m.role == "tool")
+    history = agent.get_history()
+    user_msgs = sum(1 for m in history if m.role == "user")
+    assistant_msgs = sum(1 for m in history if m.role == "assistant")
+    tool_msgs = sum(1 for m in history if m.role == "tool")
 
     assert user_msgs == 2
-    assert assistant_msgs == 1
+    assert assistant_msgs == 3
     assert tool_msgs == 1
-    assert len(agent.messages) == 5  # 1 system + 2 user + 1 assistant + 1 tool
+    assert len(history) == 7  # 1 system + 2 user + 3 assistant + 1 tool

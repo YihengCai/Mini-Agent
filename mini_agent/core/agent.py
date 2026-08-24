@@ -1,9 +1,15 @@
-"""UI-independent agent loop implementation."""
+"""Session-owned conversation state and the UI-independent agent loop."""
+
+from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import Optional
+from types import MappingProxyType
+from typing import Mapping
+from uuid import uuid4
 
 import tiktoken
 
@@ -12,26 +18,85 @@ from ..schema import Message
 from ..tools.base import Tool, ToolResult
 from .events import (
     AgentEvent,
+    AgentEventEnvelope,
     AgentEventSink,
     CompactionFinished,
     CompactionRoundFinished,
     CompactionSkipped,
     CompactionStarted,
-    HistoryCleaned,
     ModelCallFailed,
     ModelRequest,
     ModelResponse,
-    RunFinished,
-    RunStarted,
     StepFinished,
+    StepStatus,
     StepStarted,
+    ToolDefinition,
     ToolFinished,
     ToolStarted,
+    TurnFinished,
+    TurnStarted,
+)
+from .turn import (
+    TurnAlreadyActiveError,
+    TurnError,
+    TurnHandle,
+    TurnOutcome,
+    TurnStopReason,
 )
 
 
-class Agent:
-    """Single agent with basic tools and MCP support."""
+@dataclass(frozen=True)
+class _TurnContext:
+    session_id: str
+    turn_id: str
+    interrupt_event: asyncio.Event
+    llm: LLMClient
+    tools: Mapping[str, Tool]
+    max_steps: int
+    token_limit: int
+
+
+@dataclass(frozen=True)
+class _StepResult:
+    stop_reason: TurnStopReason | None
+    last_assistant_message: str | None
+    error: TurnError | None = None
+
+
+class _TurnEmitter:
+    """Bind all observations to one admitted Turn."""
+
+    def __init__(
+        self,
+        context: _TurnContext,
+        event_sink: AgentEventSink | None,
+    ) -> None:
+        self._context = context
+        self._event_sink = event_sink
+        self._error: Exception | None = None
+
+    @property
+    def error(self) -> Exception | None:
+        return self._error
+
+    def emit(self, event: AgentEvent, *, step: int | None = None) -> None:
+        if self._event_sink is None or self._error is not None:
+            return
+        try:
+            self._event_sink(
+                AgentEventEnvelope(
+                    session_id=self._context.session_id,
+                    turn_id=self._context.turn_id,
+                    step=step,
+                    event=event,
+                )
+            )
+        except Exception as error:
+            self._error = error
+
+
+class AgentSession:
+    """One logical conversation containing an ordered sequence of Turns."""
 
     def __init__(
         self,
@@ -41,14 +106,18 @@ class Agent:
         max_steps: int = 50,
         workspace_dir: str = "./workspace",
         token_limit: int = 80000,  # Summary triggered when tokens exceed this value
+        session_id: str | None = None,
     ):
-        self.llm = llm_client
-        self.tools = {tool.name: tool for tool in tools}
-        self.max_steps = max_steps
-        self.token_limit = token_limit
+        self._session_id = session_id or uuid4().hex
+        self._llm = llm_client
+        self._tools = {tool.name: tool for tool in tools}
+        self._max_steps = max_steps
+        self._token_limit = token_limit
         self.workspace_dir = Path(workspace_dir)
-        # Cancellation event for interrupting agent execution (set externally, e.g., by Esc key)
-        self.cancel_event: Optional[asyncio.Event] = None
+        self._turn_counter = 0
+        self._active_turn_id: str | None = None
+        self._active_turn: TurnHandle | None = None
+        self._loop = _AgentLoop()
 
         # Ensure workspace exists
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -61,63 +130,109 @@ class Agent:
         self.system_prompt = system_prompt
 
         # Initialize message history
-        self.messages: list[Message] = [Message(role="system", content=system_prompt)]
+        self._messages: list[Message] = [Message(role="system", content=system_prompt)]
 
         # Token usage from last API response (updated after each LLM call)
-        self.api_total_tokens: int = 0
+        self._api_total_tokens: int = 0
         # Flag to skip token check right after summary (avoid consecutive triggers)
         self._skip_next_token_check: bool = False
 
-    def add_user_message(self, content: str):
-        """Add a user message to history."""
-        self.messages.append(Message(role="user", content=content))
+    @property
+    def active_turn(self) -> TurnHandle | None:
+        """Return the active Turn, if execution control is currently held."""
 
-    def clear_history(self) -> int:
-        """Clear conversation history while retaining the system prompt."""
-        removed_count = len(self.messages) - 1
-        self.messages = [self.messages[0]]
-        return removed_count
+        if self._active_turn is not None and self._active_turn.done:
+            self._release_turn(self._active_turn.turn_id)
+        return self._active_turn
 
-    @staticmethod
-    def _emit(event_sink: AgentEventSink | None, event: AgentEvent) -> None:
-        if event_sink is not None:
-            event_sink(event)
+    @property
+    def session_id(self) -> str:
+        return self._session_id
 
-    def _check_cancelled(self) -> bool:
-        """Check if agent execution has been cancelled.
+    @property
+    def llm(self) -> LLMClient:
+        return self._llm
 
-        Returns:
-            True if cancelled, False otherwise.
-        """
-        if self.cancel_event is not None and self.cancel_event.is_set():
-            return True
-        return False
+    @property
+    def tools(self) -> Mapping[str, Tool]:
+        """Expose the configured tools without exposing the mutable registry."""
 
-    def _cleanup_incomplete_messages(
+        return MappingProxyType(self._tools)
+
+    @property
+    def max_steps(self) -> int:
+        return self._max_steps
+
+    @property
+    def token_limit(self) -> int:
+        return self._token_limit
+
+    @property
+    def api_total_tokens(self) -> int:
+        return self._api_total_tokens
+
+    def start_turn(
         self,
+        user_input: str,
+        *,
         event_sink: AgentEventSink | None = None,
-    ) -> None:
-        """Remove the incomplete assistant message and its partial tool results.
+    ) -> TurnHandle:
+        """Atomically admit input and start one Turn for this conversation."""
 
-        This ensures message consistency after cancellation by removing
-        only the current step's incomplete messages, preserving completed steps.
-        """
-        # Find the index of the last assistant message
-        last_assistant_idx = -1
-        for i in range(len(self.messages) - 1, -1, -1):
-            if self.messages[i].role == "assistant":
-                last_assistant_idx = i
-                break
+        running_loop = asyncio.get_running_loop()
+        if self._active_turn_id is not None:
+            raise TurnAlreadyActiveError(self._active_turn_id)
 
-        if last_assistant_idx == -1:
-            # No assistant message found, nothing to clean
-            return
+        user_message = Message(role="user", content=user_input)
+        next_turn_number = self._turn_counter + 1
+        turn_id = f"{self.session_id}:turn-{next_turn_number}"
+        interrupt_event = asyncio.Event()
+        context = _TurnContext(
+            session_id=self.session_id,
+            turn_id=turn_id,
+            interrupt_event=interrupt_event,
+            llm=self._llm,
+            tools=MappingProxyType(dict(self._tools)),
+            max_steps=self._max_steps,
+            token_limit=self._token_limit,
+        )
+        self._turn_counter = next_turn_number
+        self._active_turn_id = turn_id
+        self._messages.append(user_message)
 
-        # Remove the last assistant message and all tool results after it
-        removed_count = len(self.messages) - last_assistant_idx
-        if removed_count > 0:
-            self.messages = self.messages[:last_assistant_idx]
-            self._emit(event_sink, HistoryCleaned(removed_count=removed_count))
+        async def run_admitted_turn() -> TurnOutcome:
+            try:
+                return await self._loop.run_turn(
+                    session=self,
+                    context=context,
+                    event_sink=event_sink,
+                )
+            finally:
+                self._release_turn(turn_id)
+
+        runner = run_admitted_turn()
+        try:
+            task = running_loop.create_task(runner)
+        except BaseException:
+            runner.close()
+            self._messages.pop()
+            self._turn_counter -= 1
+            self._active_turn_id = None
+            raise
+        handle = TurnHandle(
+            session_id=self.session_id,
+            turn_id=turn_id,
+            task=task,
+            interrupt_event=interrupt_event,
+        )
+        if self._active_turn_id == turn_id:
+            self._active_turn = handle
+        return handle
+
+    def _release_turn(self, turn_id: str) -> None:
+        if self._active_turn_id == turn_id:
+            self._active_turn_id = None
+            self._active_turn = None
 
     def _estimate_tokens(self) -> int:
         """Accurately calculate token count for message history using tiktoken
@@ -133,7 +248,7 @@ class Agent:
 
         total_tokens = 0
 
-        for msg in self.messages:
+        for msg in self._messages:
             # Count text content
             if isinstance(msg.content, str):
                 total_tokens += len(encoding.encode(msg.content))
@@ -159,7 +274,7 @@ class Agent:
     def _estimate_tokens_fallback(self) -> int:
         """Fallback token estimation method (when tiktoken is unavailable)"""
         total_chars = 0
-        for msg in self.messages:
+        for msg in self._messages:
             if isinstance(msg.content, str):
                 total_chars += len(msg.content)
             elif isinstance(msg.content, list):
@@ -178,7 +293,8 @@ class Agent:
 
     async def _summarize_messages(
         self,
-        event_sink: AgentEventSink | None = None,
+        context: _TurnContext,
+        emitter: _TurnEmitter,
     ) -> None:
         """Message history summarization: summarize conversations between user messages when tokens exceed limit
 
@@ -200,55 +316,66 @@ class Agent:
         estimated_tokens = self._estimate_tokens()
 
         # Check both local estimation and API reported tokens
-        should_summarize = estimated_tokens > self.token_limit or self.api_total_tokens > self.token_limit
+        should_summarize = (
+            estimated_tokens > context.token_limit
+            or self._api_total_tokens > context.token_limit
+        )
 
         # If neither exceeded, no summary needed
         if not should_summarize:
             return
 
-        self._emit(
-            event_sink,
+        emitter.emit(
             CompactionStarted(
                 estimated_tokens=estimated_tokens,
-                reported_tokens=self.api_total_tokens,
-                token_limit=self.token_limit,
+                reported_tokens=self._api_total_tokens,
+                token_limit=context.token_limit,
             ),
         )
+        if emitter.error is not None:
+            return
 
         # Find all user message indices (skip system prompt)
-        user_indices = [i for i, msg in enumerate(self.messages) if msg.role == "user" and i > 0]
+        user_indices = [
+            i
+            for i, msg in enumerate(self._messages)
+            if msg.role == "user" and i > 0
+        ]
 
         # Need at least 1 user message to perform summary
         if len(user_indices) < 1:
-            self._emit(event_sink, CompactionSkipped(reason="insufficient_messages"))
+            emitter.emit(CompactionSkipped(reason="insufficient_messages"))
             return
 
         # Build new message list
-        new_messages = [self.messages[0]]  # Keep system prompt
+        new_messages = [self._messages[0]]  # Keep system prompt
         summary_count = 0
 
         # Iterate through each user message and summarize the execution process after it
         for i, user_idx in enumerate(user_indices):
             # Add current user message
-            new_messages.append(self.messages[user_idx])
+            new_messages.append(self._messages[user_idx])
 
             # Determine message range to summarize
             # If last user, go to end of message list; otherwise to before next user
             if i < len(user_indices) - 1:
                 next_user_idx = user_indices[i + 1]
             else:
-                next_user_idx = len(self.messages)
+                next_user_idx = len(self._messages)
 
             # Extract execution messages for this round
-            execution_messages = self.messages[user_idx + 1 : next_user_idx]
+            execution_messages = self._messages[user_idx + 1 : next_user_idx]
 
             # If there are execution messages in this round, summarize them
             if execution_messages:
                 summary_text = await self._create_summary(
                     execution_messages,
                     i + 1,
-                    event_sink,
+                    context,
+                    emitter,
                 )
+                if emitter.error is not None:
+                    return
                 if summary_text:
                     summary_message = Message(
                         role="user",
@@ -258,15 +385,14 @@ class Agent:
                     summary_count += 1
 
         # Replace message list
-        self.messages = new_messages
+        self._messages = new_messages
 
         # Skip next token check to avoid consecutive summary triggers
         # (api_total_tokens will be updated after next LLM call)
         self._skip_next_token_check = True
 
         new_tokens = self._estimate_tokens()
-        self._emit(
-            event_sink,
+        emitter.emit(
             CompactionFinished(
                 previous_tokens=estimated_tokens,
                 current_tokens=new_tokens,
@@ -279,7 +405,8 @@ class Agent:
         self,
         messages: list[Message],
         round_num: int,
-        event_sink: AgentEventSink | None = None,
+        context: _TurnContext,
+        emitter: _TurnEmitter,
     ) -> str:
         """Create summary for one execution round
 
@@ -306,9 +433,7 @@ class Agent:
                 result_preview = msg.content if isinstance(msg.content, str) else str(msg.content)
                 summary_content += f"  ← Tool returned: {result_preview}...\n"
 
-        # Call LLM to generate concise summary
-        try:
-            summary_prompt = f"""Please provide a concise summary of the following Agent execution process:
+        summary_prompt = f"""Please provide a concise summary of the following Agent execution process:
 
 {summary_content}
 
@@ -319,49 +444,36 @@ Requirements:
 4. Use English
 5. Do not include "user" related content, only summarize the Agent's execution process"""
 
-            summary_messages = [
-                Message(
-                    role="system",
-                    content="You are an assistant skilled at summarizing Agent execution processes.",
+        summary_messages = [
+            Message(
+                role="system",
+                content="You are an assistant skilled at summarizing Agent execution processes.",
+            ),
+            Message(role="user", content=summary_prompt),
+        ]
+        emitter.emit(
+            ModelRequest(
+                purpose="summary",
+                messages=tuple(
+                    message.model_copy(deep=True) for message in summary_messages
                 ),
-                Message(role="user", content=summary_prompt),
-            ]
-            self._emit(
-                event_sink,
-                ModelRequest(
-                    purpose="summary",
-                    messages=tuple(summary_messages),
-                    tools=(),
-                ),
+                tools=(),
             )
-            response = await self.llm.generate(messages=summary_messages)
-            self._emit(
-                event_sink,
-                ModelResponse(purpose="summary", response=response),
-            )
-
-            summary_text = response.content
-            self._emit(
-                event_sink,
-                CompactionRoundFinished(
-                    round_number=round_num,
-                    used_fallback=False,
-                ),
-            )
-            return summary_text
-
+        )
+        if emitter.error is not None:
+            return ""
+        try:
+            response = await context.llm.generate(messages=summary_messages)
         except Exception as e:
             error_msg = f"Summary generation failed for round {round_num}: {e}"
-            self._emit(
-                event_sink,
+            emitter.emit(
                 ModelCallFailed(
                     purpose="summary",
                     error=e,
                     result=error_msg,
                 ),
             )
-            self._emit(
-                event_sink,
+            emitter.emit(
                 CompactionRoundFinished(
                     round_number=round_num,
                     used_fallback=True,
@@ -371,152 +483,236 @@ Requirements:
             # Use simple text summary on failure
             return summary_content
 
-    async def run(
+        emitter.emit(
+            ModelResponse(
+                purpose="summary",
+                response=response.model_copy(deep=True),
+            )
+        )
+        emitter.emit(
+            CompactionRoundFinished(
+                round_number=round_num,
+                used_fallback=False,
+            )
+        )
+        return response.content
+
+    def get_history(self) -> list[Message]:
+        """Return an owned snapshot of the current model-visible history."""
+
+        return [message.model_copy(deep=True) for message in self._messages]
+
+
+class _AgentLoop:
+    """Drive one admitted Turn as ordered agent-purpose Steps."""
+
+    async def run_turn(
         self,
-        cancel_event: Optional[asyncio.Event] = None,
-        event_sink: AgentEventSink | None = None,
-    ) -> str:
-        """Execute agent loop until task is complete or max steps reached.
+        *,
+        session: AgentSession,
+        context: _TurnContext,
+        event_sink: AgentEventSink | None,
+    ) -> TurnOutcome:
+        emitter = _TurnEmitter(context, event_sink)
+        turn_start_time = perf_counter()
+        last_assistant_message: str | None = None
+        emitter.emit(TurnStarted(max_steps=context.max_steps))
 
-        Args:
-            cancel_event: Optional asyncio.Event that can be set to cancel execution.
-                          When set, the agent will stop at the next safe checkpoint
-                          (after completing the current step to keep messages consistent).
-            event_sink: Optional synchronous observer for execution events. Event
-                        payloads are borrowed for the duration of the callback.
-
-        Returns:
-            The final response content, or error message (including cancellation message).
-        """
-        # Set cancellation event (can also be set via self.cancel_event before calling run())
-        if cancel_event is not None:
-            self.cancel_event = cancel_event
-
-        self._emit(event_sink, RunStarted(max_steps=self.max_steps))
-
-        step = 0
-        run_start_time = perf_counter()
-
-        while step < self.max_steps:
-            # Check for cancellation at start of each step
-            if self._check_cancelled():
-                self._cleanup_incomplete_messages(event_sink)
-                cancel_msg = "Task cancelled by user."
-                self._emit(
-                    event_sink,
-                    RunFinished(reason="cancelled", result=cancel_msg),
+        try:
+            if emitter.error is not None:
+                return self._finish_turn(
+                    emitter=emitter,
+                    context=context,
+                    stop_reason="failed",
+                    last_assistant_message=None,
+                    error=self._observer_error(emitter.error),
                 )
-                return cancel_msg
 
-            step_start_time = perf_counter()
-            # Check and summarize message history to prevent context overflow
-            await self._summarize_messages(event_sink)
+            for step_number in range(1, context.max_steps + 1):
+                if context.interrupt_event.is_set():
+                    return self._finish_turn(
+                        emitter=emitter,
+                        context=context,
+                        stop_reason="interrupted",
+                        last_assistant_message=last_assistant_message,
+                    )
 
-            step_number = step + 1
-            self._emit(
-                event_sink,
-                StepStarted(step=step_number, max_steps=self.max_steps),
+                # Compaction is Turn maintenance, not an agent-purpose Step.
+                await session._summarize_messages(context, emitter)
+                if emitter.error is not None:
+                    return self._finish_turn(
+                        emitter=emitter,
+                        context=context,
+                        stop_reason="failed",
+                        last_assistant_message=last_assistant_message,
+                        error=self._observer_error(emitter.error),
+                    )
+                if context.interrupt_event.is_set():
+                    return self._finish_turn(
+                        emitter=emitter,
+                        context=context,
+                        stop_reason="interrupted",
+                        last_assistant_message=last_assistant_message,
+                    )
+
+                step_result = await self._run_step(
+                    session=session,
+                    context=context,
+                    emitter=emitter,
+                    step_number=step_number,
+                    turn_start_time=turn_start_time,
+                )
+                if step_result.last_assistant_message is not None:
+                    last_assistant_message = step_result.last_assistant_message
+                if step_result.stop_reason is not None:
+                    return self._finish_turn(
+                        emitter=emitter,
+                        context=context,
+                        stop_reason=step_result.stop_reason,
+                        last_assistant_message=last_assistant_message,
+                        error=step_result.error,
+                    )
+
+            return self._finish_turn(
+                emitter=emitter,
+                context=context,
+                stop_reason="max_steps",
+                last_assistant_message=last_assistant_message,
+            )
+        except Exception as error:
+            return self._finish_turn(
+                emitter=emitter,
+                context=context,
+                stop_reason="failed",
+                last_assistant_message=last_assistant_message,
+                error=self._internal_error(error),
             )
 
-            # Get tool list for LLM call
-            tool_list = list(self.tools.values())
+    async def _run_step(
+        self,
+        *,
+        session: AgentSession,
+        context: _TurnContext,
+        emitter: _TurnEmitter,
+        step_number: int,
+        turn_start_time: float,
+    ) -> _StepResult:
+        step_start_time = perf_counter()
+        try:
+            emitter.emit(
+                StepStarted(max_steps=context.max_steps),
+                step=step_number,
+            )
+            if emitter.error is not None:
+                return self._observer_failed_step(emitter.error)
 
-            self._emit(
-                event_sink,
+            tool_list = list(context.tools.values())
+            tool_definitions = tuple(
+                ToolDefinition(
+                    name=tool.name,
+                    description=tool.description,
+                    parameters=deepcopy(tool.parameters),
+                )
+                for tool in tool_list
+            )
+            model_messages = [
+                message.model_copy(deep=True) for message in session._messages
+            ]
+            event_messages = tuple(
+                message.model_copy(deep=True) for message in model_messages
+            )
+            emitter.emit(
                 ModelRequest(
                     purpose="agent",
-                    messages=tuple(self.messages),
-                    tools=tuple(tool_list),
+                    messages=event_messages,
+                    tools=tool_definitions,
                 ),
+                step=step_number,
             )
+            if emitter.error is not None:
+                return self._observer_failed_step(emitter.error)
 
             try:
-                response = await self.llm.generate(messages=self.messages, tools=tool_list)
-            except Exception as e:
-                # Check if it's a retry exhausted error
+                response = await context.llm.generate(
+                    messages=model_messages,
+                    tools=tool_list,
+                )
+            except Exception as error:
                 from ..retry import RetryExhaustedError
 
-                if isinstance(e, RetryExhaustedError):
-                    error_msg = f"LLM call failed after {e.attempts} retries\nLast error: {str(e.last_exception)}"
+                if isinstance(error, RetryExhaustedError):
+                    error_message = (
+                        f"LLM call failed after {error.attempts} retries\n"
+                        f"Last error: {error.last_exception}"
+                    )
                 else:
-                    error_msg = f"LLM call failed: {str(e)}"
-                self._emit(
-                    event_sink,
+                    error_message = f"LLM call failed: {error}"
+                emitter.emit(
                     ModelCallFailed(
                         purpose="agent",
-                        error=e,
-                        result=error_msg,
+                        error=error,
+                        result=error_message,
                     ),
+                    step=step_number,
                 )
-                self._emit(
-                    event_sink,
-                    RunFinished(reason="model_error", result=error_msg),
+                self._emit_step_finished(
+                    emitter=emitter,
+                    step_number=step_number,
+                    status="failed",
+                    step_start_time=step_start_time,
+                    turn_start_time=turn_start_time,
                 )
-                return error_msg
+                return _StepResult(
+                    stop_reason="failed",
+                    last_assistant_message=None,
+                    error=TurnError(kind="model_error", message=error_message),
+                )
 
-            # Accumulate API reported token usage
             if response.usage:
-                self.api_total_tokens = response.usage.total_tokens
-
-            self._emit(
-                event_sink,
-                ModelResponse(purpose="agent", response=response),
+                session._api_total_tokens = response.usage.total_tokens
+            emitter.emit(
+                ModelResponse(
+                    purpose="agent",
+                    response=response.model_copy(deep=True),
+                ),
+                step=step_number,
             )
+            if emitter.error is not None:
+                return self._observer_failed_step(emitter.error)
 
-            # Add assistant message
-            assistant_msg = Message(
+            assistant_message = Message(
                 role="assistant",
                 content=response.content,
                 thinking=response.thinking,
                 tool_calls=response.tool_calls,
             )
-            self.messages.append(assistant_msg)
-
-            # Check if task is complete (no tool calls)
             if not response.tool_calls:
-                step_elapsed = perf_counter() - step_start_time
-                total_elapsed = perf_counter() - run_start_time
-                self._emit(
-                    event_sink,
-                    StepFinished(
-                        step=step_number,
-                        elapsed_seconds=step_elapsed,
-                        total_elapsed_seconds=total_elapsed,
-                    ),
+                session._messages.append(assistant_message)
+                self._emit_step_finished(
+                    emitter=emitter,
+                    step_number=step_number,
+                    status="end_turn",
+                    step_start_time=step_start_time,
+                    turn_start_time=turn_start_time,
                 )
-                self._emit(
-                    event_sink,
-                    RunFinished(reason="completed", result=response.content),
+                return _StepResult(
+                    stop_reason="end_turn",
+                    last_assistant_message=response.content,
                 )
-                return response.content
 
-            # Check for cancellation before executing tools
-            if self._check_cancelled():
-                self._cleanup_incomplete_messages(event_sink)
-                cancel_msg = "Task cancelled by user."
-                self._emit(
-                    event_sink,
-                    RunFinished(reason="cancelled", result=cancel_msg),
-                )
-                return cancel_msg
-
-            # Execute tool calls
+            tool_messages: list[Message] = []
             for tool_index, tool_call in enumerate(response.tool_calls, start=1):
-                tool_call_id = tool_call.id
                 function_name = tool_call.function.name
                 arguments = tool_call.function.arguments
-
-                self._emit(
-                    event_sink,
+                emitter.emit(
                     ToolStarted(
-                        step=step_number,
                         index=tool_index,
-                        call=tool_call,
+                        call=tool_call.model_copy(deep=True),
                     ),
+                    step=step_number,
                 )
 
-                # Execute tool
-                if function_name not in self.tools:
+                if function_name not in context.tools:
                     result = ToolResult(
                         success=False,
                         content="",
@@ -524,70 +720,183 @@ Requirements:
                     )
                 else:
                     try:
-                        tool = self.tools[function_name]
-                        result = await tool.execute(**arguments)
-                    except Exception as e:
-                        # Catch all exceptions during tool execution, convert to failed ToolResult
+                        raw_result = await context.tools[function_name].execute(
+                            **arguments
+                        )
+                        if not isinstance(raw_result, ToolResult):
+                            result = ToolResult(
+                                success=False,
+                                content="",
+                                error=(
+                                    f"Tool contract violation: {function_name} "
+                                    f"returned {type(raw_result).__name__}, expected "
+                                    "ToolResult"
+                                ),
+                            )
+                        else:
+                            result = raw_result
+                    except Exception as error:
                         import traceback
 
-                        error_detail = f"{type(e).__name__}: {str(e)}"
+                        error_detail = f"{type(error).__name__}: {error}"
                         error_trace = traceback.format_exc()
                         result = ToolResult(
                             success=False,
                             content="",
-                            error=f"Tool execution failed: {error_detail}\n\nTraceback:\n{error_trace}",
+                            error=(
+                                f"Tool execution failed: {error_detail}\n\n"
+                                f"Traceback:\n{error_trace}"
+                            ),
                         )
 
-                self._emit(
-                    event_sink,
+                emitter.emit(
                     ToolFinished(
-                        step=step_number,
                         index=tool_index,
-                        call=tool_call,
-                        result=result,
+                        call=tool_call.model_copy(deep=True),
+                        result=result.model_copy(deep=True),
                     ),
-                )
-
-                # Add tool result message
-                tool_msg = Message(
-                    role="tool",
-                    content=result.content if result.success else f"Error: {result.error}",
-                    tool_call_id=tool_call_id,
-                    name=function_name,
-                )
-                self.messages.append(tool_msg)
-
-                # Check for cancellation after each tool execution
-                if self._check_cancelled():
-                    self._cleanup_incomplete_messages(event_sink)
-                    cancel_msg = "Task cancelled by user."
-                    self._emit(
-                        event_sink,
-                        RunFinished(reason="cancelled", result=cancel_msg),
-                    )
-                    return cancel_msg
-
-            step_elapsed = perf_counter() - step_start_time
-            total_elapsed = perf_counter() - run_start_time
-            self._emit(
-                event_sink,
-                StepFinished(
                     step=step_number,
-                    elapsed_seconds=step_elapsed,
-                    total_elapsed_seconds=total_elapsed,
-                ),
+                )
+                tool_messages.append(
+                    Message(
+                        role="tool",
+                        content=(
+                            result.content
+                            if result.success
+                            else f"Error: {result.error}"
+                        ),
+                        tool_call_id=tool_call.id,
+                        name=function_name,
+                    )
+                )
+
+            # Commit an assistant tool-call message and all corresponding results
+            # together, so the next Turn never sees a half-written protocol pair.
+            session._messages.extend([assistant_message, *tool_messages])
+
+            if emitter.error is not None:
+                status: StepStatus = "failed"
+                stop_reason: TurnStopReason | None = "failed"
+                step_error = self._observer_error(emitter.error)
+            elif context.interrupt_event.is_set():
+                status = "interrupted"
+                stop_reason = "interrupted"
+                step_error = None
+            elif step_number == context.max_steps:
+                status = "max_steps"
+                stop_reason = "max_steps"
+                step_error = None
+            else:
+                status = "continued"
+                stop_reason = None
+                step_error = None
+
+            self._emit_step_finished(
+                emitter=emitter,
+                step_number=step_number,
+                status=status,
+                step_start_time=step_start_time,
+                turn_start_time=turn_start_time,
+            )
+            if (
+                emitter.error is not None
+                and step_error is None
+                and stop_reason is None
+            ):
+                stop_reason = "failed"
+                step_error = self._observer_error(emitter.error)
+            return _StepResult(
+                stop_reason=stop_reason,
+                last_assistant_message=response.content,
+                error=step_error,
+            )
+        except Exception as error:
+            self._emit_step_finished(
+                emitter=emitter,
+                step_number=step_number,
+                status="failed",
+                step_start_time=step_start_time,
+                turn_start_time=turn_start_time,
+            )
+            return _StepResult(
+                stop_reason="failed",
+                last_assistant_message=None,
+                error=self._internal_error(error),
             )
 
-            step += 1
-
-        # Max steps reached
-        error_msg = f"Task couldn't be completed after {self.max_steps} steps."
-        self._emit(
-            event_sink,
-            RunFinished(reason="max_steps", result=error_msg),
+    @classmethod
+    def _observer_failed_step(
+        cls,
+        error: Exception,
+        *,
+        last_assistant_message: str | None = None,
+    ) -> _StepResult:
+        return _StepResult(
+            stop_reason="failed",
+            last_assistant_message=last_assistant_message,
+            error=cls._observer_error(error),
         )
-        return error_msg
 
-    def get_history(self) -> list[Message]:
-        """Get message history."""
-        return self.messages.copy()
+    @staticmethod
+    def _emit_step_finished(
+        *,
+        emitter: _TurnEmitter,
+        step_number: int,
+        status: StepStatus,
+        step_start_time: float,
+        turn_start_time: float,
+    ) -> None:
+        emitter.emit(
+            StepFinished(
+                status=status,
+                elapsed_seconds=perf_counter() - step_start_time,
+                total_elapsed_seconds=perf_counter() - turn_start_time,
+            ),
+            step=step_number,
+        )
+
+    @classmethod
+    def _finish_turn(
+        cls,
+        *,
+        emitter: _TurnEmitter,
+        context: _TurnContext,
+        stop_reason: TurnStopReason,
+        last_assistant_message: str | None,
+        error: TurnError | None = None,
+    ) -> TurnOutcome:
+        observer_error = None
+        if emitter.error is not None and (
+            error is None or error.kind != "observer_error"
+        ):
+            observer_error = cls._observer_error(emitter.error)
+
+        outcome = TurnOutcome(
+            session_id=context.session_id,
+            turn_id=context.turn_id,
+            stop_reason=stop_reason,
+            last_assistant_message=last_assistant_message,
+            error=error,
+            observer_error=observer_error,
+        )
+        emitter.emit(TurnFinished(outcome=outcome))
+        # Once a terminal outcome has been published, a delivery exception cannot
+        # retroactively replace it without making event and waiter disagree.
+        return outcome
+
+    @staticmethod
+    def _observer_error(error: Exception) -> TurnError:
+        return TurnError(
+            kind="observer_error",
+            message=f"Agent event sink failed: {type(error).__name__}: {error}",
+        )
+
+    @staticmethod
+    def _internal_error(error: Exception) -> TurnError:
+        return TurnError(
+            kind="internal_error",
+            message=f"Internal agent loop error: {type(error).__name__}: {error}",
+        )
+
+
+__all__ = ["AgentSession"]

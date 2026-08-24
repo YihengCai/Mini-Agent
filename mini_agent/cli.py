@@ -18,7 +18,7 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import Callable, List
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -30,7 +30,7 @@ from prompt_toolkit.styles import Style
 from mini_agent import LLMClient
 from mini_agent.cli_events import CliEventSink
 from mini_agent.config import Config
-from mini_agent.core import Agent
+from mini_agent.core import AgentSession, TurnHandle, TurnOutcome
 from mini_agent.schema import LLMProvider
 from mini_agent.tools.base import Tool
 from mini_agent.tools.bash_tool import BashKillTool, BashOutputTool, BashTool
@@ -186,7 +186,7 @@ def print_help():
     print(help_text)
 
 
-def print_session_info(agent: Agent, workspace_dir: Path, model: str):
+def print_session_info(agent_session: AgentSession, workspace_dir: Path, model: str):
     """Print session information with proper alignment"""
     BOX_WIDTH = 58
 
@@ -214,8 +214,8 @@ def print_session_info(agent: Agent, workspace_dir: Path, model: str):
     # Info lines
     print_info_line(f"Model: {model}")
     print_info_line(f"Workspace: {workspace_dir}")
-    print_info_line(f"Message History: {len(agent.messages)} messages")
-    print_info_line(f"Available Tools: {len(agent.tools)} tools")
+    print_info_line(f"Message History: {len(agent_session.get_history())} messages")
+    print_info_line(f"Available Tools: {len(agent_session.tools)} tools")
 
     # Bottom border
     print(f"{Colors.DIM}└{'─' * BOX_WIDTH}┘{Colors.RESET}")
@@ -224,28 +224,71 @@ def print_session_info(agent: Agent, workspace_dir: Path, model: str):
     print()
 
 
-def print_stats(agent: Agent, session_start: datetime):
+def print_stats(agent_session: AgentSession, session_start: datetime):
     """Print session statistics"""
     duration = datetime.now() - session_start
     hours, remainder = divmod(int(duration.total_seconds()), 3600)
     minutes, seconds = divmod(remainder, 60)
 
     # Count different types of messages
-    user_msgs = sum(1 for m in agent.messages if m.role == "user")
-    assistant_msgs = sum(1 for m in agent.messages if m.role == "assistant")
-    tool_msgs = sum(1 for m in agent.messages if m.role == "tool")
+    history = agent_session.get_history()
+    user_msgs = sum(1 for m in history if m.role == "user")
+    assistant_msgs = sum(1 for m in history if m.role == "assistant")
+    tool_msgs = sum(1 for m in history if m.role == "tool")
 
     print(f"\n{Colors.BOLD}{Colors.BRIGHT_CYAN}Session Statistics:{Colors.RESET}")
     print(f"{Colors.DIM}{'─' * 40}{Colors.RESET}")
     print(f"  Session Duration: {hours:02d}:{minutes:02d}:{seconds:02d}")
-    print(f"  Total Messages: {len(agent.messages)}")
+    print(f"  Total Messages: {len(history)}")
     print(f"    - User Messages: {Colors.BRIGHT_GREEN}{user_msgs}{Colors.RESET}")
     print(f"    - Assistant Replies: {Colors.BRIGHT_BLUE}{assistant_msgs}{Colors.RESET}")
     print(f"    - Tool Calls: {Colors.BRIGHT_YELLOW}{tool_msgs}{Colors.RESET}")
-    print(f"  Available Tools: {len(agent.tools)}")
-    if agent.api_total_tokens > 0:
-        print(f"  API Tokens Used: {Colors.BRIGHT_MAGENTA}{agent.api_total_tokens:,}{Colors.RESET}")
+    print(f"  Available Tools: {len(agent_session.tools)}")
+    if agent_session.api_total_tokens > 0:
+        print(
+            f"  API Tokens Used: {Colors.BRIGHT_MAGENTA}"
+            f"{agent_session.api_total_tokens:,}{Colors.RESET}"
+        )
     print(f"{Colors.DIM}{'─' * 40}{Colors.RESET}\n")
+
+
+def report_observer_failure(outcome: TurnOutcome) -> None:
+    """Fallback when the normal CLI event adapter is the failing component."""
+
+    observer_error = outcome.observer_error
+    if (
+        observer_error is None
+        and outcome.error is not None
+        and outcome.error.kind == "observer_error"
+    ):
+        observer_error = outcome.error
+    if observer_error is not None:
+        print(
+            f"{Colors.RED}❌ Turn event observer failed: "
+            f"{observer_error.message}{Colors.RESET}",
+            file=sys.stderr,
+        )
+
+
+async def wait_for_turn(
+    turn: TurnHandle,
+    *,
+    interrupt_requested: Callable[[], bool] | None = None,
+    poll_interval: float = 0.1,
+) -> TurnOutcome:
+    """Wait for a Turn and settle it before propagating caller cancellation."""
+
+    try:
+        if interrupt_requested is not None:
+            while not turn.done:
+                if interrupt_requested():
+                    turn.interrupt()
+                await asyncio.sleep(poll_interval)
+        return await turn.wait()
+    except asyncio.CancelledError:
+        turn.interrupt()
+        await turn.wait()
+        raise
 
 
 def parse_args() -> argparse.Namespace:
@@ -566,34 +609,38 @@ async def run_agent(workspace_dir: Path, task: str = None):
         # Remove placeholder if skills not enabled
         system_prompt = system_prompt.replace("{SKILLS_METADATA}", "")
 
-    # 7. Create Agent
-    agent = Agent(
-        llm_client=llm_client,
-        system_prompt=system_prompt,
-        tools=tools,
-        max_steps=config.agent.max_steps,
-        workspace_dir=str(workspace_dir),
-    )
+    # 7. Create one logical conversation Session.
+    def create_agent_session() -> AgentSession:
+        return AgentSession(
+            llm_client=llm_client,
+            system_prompt=system_prompt,
+            tools=tools,
+            max_steps=config.agent.max_steps,
+            workspace_dir=str(workspace_dir),
+        )
+
+    agent_session = create_agent_session()
     event_sink = CliEventSink()
 
     # 8. Display welcome information
     if not task:
         print_banner()
-        print_session_info(agent, workspace_dir, config.llm.model)
+        print_session_info(agent_session, workspace_dir, config.llm.model)
 
     # 8.5 Non-interactive mode: execute task and exit
     if task:
         print(f"\n{Colors.BRIGHT_BLUE}Agent{Colors.RESET} {Colors.DIM}›{Colors.RESET} {Colors.DIM}Executing task...{Colors.RESET}\n")
-        agent.add_user_message(task)
         try:
-            await agent.run(event_sink=event_sink)
+            turn = agent_session.start_turn(task, event_sink=event_sink)
+            outcome = await wait_for_turn(turn)
+            report_observer_failure(outcome)
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             print(f"\n{Colors.RED}❌ Error: {e}{Colors.RESET}")
         finally:
-            print_stats(agent, session_start)
-
-        # Cleanup MCP connections
-        await _quiet_cleanup()
+            print_stats(agent_session, session_start)
+            await _quiet_cleanup()
         return
 
     # 9. Setup prompt_toolkit session
@@ -665,7 +712,7 @@ async def run_agent(workspace_dir: Path, task: str = None):
 
                 if command in ["/exit", "/quit", "/q"]:
                     print(f"\n{Colors.BRIGHT_YELLOW}👋 Goodbye! Thanks for using Mini Agent{Colors.RESET}\n")
-                    print_stats(agent, session_start)
+                    print_stats(agent_session, session_start)
                     break
 
                 elif command == "/help":
@@ -673,8 +720,10 @@ async def run_agent(workspace_dir: Path, task: str = None):
                     continue
 
                 elif command == "/clear":
-                    # Clear message history but keep system prompt
-                    removed_count = agent.clear_history()
+                    # A cleared conversation receives a new Session identity.
+                    removed_count = len(agent_session.get_history()) - 1
+                    agent_session = create_agent_session()
+                    session_start = datetime.now()
                     print(
                         f"{Colors.GREEN}✅ Cleared {removed_count} messages, "
                         f"starting new session{Colors.RESET}\n"
@@ -682,11 +731,14 @@ async def run_agent(workspace_dir: Path, task: str = None):
                     continue
 
                 elif command == "/history":
-                    print(f"\n{Colors.BRIGHT_CYAN}Current session message count: {len(agent.messages)}{Colors.RESET}\n")
+                    print(
+                        f"\n{Colors.BRIGHT_CYAN}Current session message count: "
+                        f"{len(agent_session.get_history())}{Colors.RESET}\n"
+                    )
                     continue
 
                 elif command == "/stats":
-                    print_stats(agent, session_start)
+                    print_stats(agent_session, session_start)
                     continue
 
                 elif command == "/log" or command.startswith("/log "):
@@ -709,18 +761,14 @@ async def run_agent(workspace_dir: Path, task: str = None):
             # Normal conversation - exit check
             if user_input.lower() in ["exit", "quit", "q"]:
                 print(f"\n{Colors.BRIGHT_YELLOW}👋 Goodbye! Thanks for using Mini Agent{Colors.RESET}\n")
-                print_stats(agent, session_start)
+                print_stats(agent_session, session_start)
                 break
 
             # Run Agent with Esc cancellation support
             print(
                 f"\n{Colors.BRIGHT_BLUE}Agent{Colors.RESET} {Colors.DIM}›{Colors.RESET} {Colors.DIM}Thinking... (Esc to cancel){Colors.RESET}\n"
             )
-            agent.add_user_message(user_input)
-
-            # Create cancellation event
-            cancel_event = asyncio.Event()
-            agent.cancel_event = cancel_event
+            turn = agent_session.start_turn(user_input, event_sink=event_sink)
 
             # Esc key listener thread
             esc_listener_stop = threading.Event()
@@ -738,7 +786,6 @@ async def run_agent(workspace_dir: Path, task: str = None):
                                 if char == b"\x1b":  # Esc
                                     print(f"\n{Colors.BRIGHT_YELLOW}⏹️  Esc pressed, cancelling...{Colors.RESET}")
                                     esc_cancelled[0] = True
-                                    cancel_event.set()
                                     break
                             esc_listener_stop.wait(0.05)
                     except Exception:
@@ -763,7 +810,6 @@ async def run_agent(workspace_dir: Path, task: str = None):
                                 if char == "\x1b":  # Esc
                                     print(f"\n{Colors.BRIGHT_YELLOW}⏹️  Esc pressed, cancelling...{Colors.RESET}")
                                     esc_cancelled[0] = True
-                                    cancel_event.set()
                                     break
                     finally:
                         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
@@ -774,23 +820,19 @@ async def run_agent(workspace_dir: Path, task: str = None):
             esc_thread = threading.Thread(target=esc_key_listener, daemon=True)
             esc_thread.start()
 
-            # Run agent with periodic cancellation check
+            # Wait for the active Turn with periodic interruption checks.
             try:
-                agent_task = asyncio.create_task(agent.run(event_sink=event_sink))
-
-                # Poll for cancellation while agent runs
-                while not agent_task.done():
-                    if esc_cancelled[0]:
-                        cancel_event.set()
-                    await asyncio.sleep(0.1)
-
-                # Get result
-                _ = agent_task.result()
+                outcome = await wait_for_turn(
+                    turn,
+                    interrupt_requested=lambda: esc_cancelled[0],
+                )
+                report_observer_failure(outcome)
 
             except asyncio.CancelledError:
                 print(f"\n{Colors.BRIGHT_YELLOW}⚠️  Agent execution cancelled{Colors.RESET}")
+                await _quiet_cleanup()
+                raise
             finally:
-                agent.cancel_event = None
                 esc_listener_stop.set()
                 esc_thread.join(timeout=0.2)
 
@@ -798,8 +840,13 @@ async def run_agent(workspace_dir: Path, task: str = None):
             print(f"\n{Colors.DIM}{'─' * 60}{Colors.RESET}\n")
 
         except KeyboardInterrupt:
+            active_turn = agent_session.active_turn
+            if active_turn is not None:
+                active_turn.interrupt()
+                outcome = await active_turn.wait()
+                report_observer_failure(outcome)
             print(f"\n\n{Colors.BRIGHT_YELLOW}👋 Interrupt signal detected, exiting...{Colors.RESET}\n")
-            print_stats(agent, session_start)
+            print_stats(agent_session, session_start)
             break
 
         except Exception as e:

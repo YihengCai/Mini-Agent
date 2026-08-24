@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from mini_agent import LLMClient
-from mini_agent.agent import Agent
+from mini_agent.agent import AgentSession
 from mini_agent.config import Config
 from mini_agent.tools import BashTool, EditTool, ReadTool, WriteTool
 from mini_agent.tools.mcp_loader import load_mcp_tools_async
@@ -86,7 +86,7 @@ async def test_basic_agent_usage():
             print(f"⚠️  MCP tools not loaded: {e}")
 
         # Create agent
-        agent = Agent(
+        agent = AgentSession(
             llm_client=llm_client,
             system_prompt=system_prompt,
             tools=tools,
@@ -103,8 +103,8 @@ async def test_basic_agent_usage():
         print(f"\nTask: {task}")
         print("\n" + "=" * 80 + "\n")
 
-        agent.add_user_message(task)
-        result = await agent.run()
+        outcome = await agent.start_turn(task).wait()
+        result = outcome.last_assistant_message or ""
 
         print("\n" + "=" * 80)
         print(f"Result: {result}")
@@ -168,7 +168,7 @@ You have record_note and recall_notes tools:
         ]
 
         print("\n📝 Creating Agent with Session Note tools...")
-        agent = Agent(
+        agent = AgentSession(
             llm_client=llm_client,
             system_prompt=system_prompt,
             tools=tools,
@@ -190,8 +190,8 @@ You have record_note and recall_notes tools:
         print(f"\n📌 First Conversation:\n{task1}")
         print("=" * 80)
 
-        agent.add_user_message(task1)
-        result1 = await agent.run()
+        outcome1 = await agent.start_turn(task1).wait()
+        result1 = outcome1.last_assistant_message or ""
 
         print("\n" + "=" * 80)
         print(f"Agent completed: {result1[:200]}...")
@@ -212,7 +212,7 @@ You have record_note and recall_notes tools:
         print("=" * 80)
 
         # Task 2: New conversation - agent should recall memories
-        agent2 = Agent(
+        agent2 = AgentSession(
             llm_client=llm_client,
             system_prompt=system_prompt,
             tools=tools,
@@ -227,8 +227,8 @@ You have record_note and recall_notes tools:
         print(f"\n📌 Second Conversation (new session):\n{task2}")
         print("=" * 80)
 
-        agent2.add_user_message(task2)
-        result2 = await agent2.run()
+        outcome2 = await agent2.start_turn(task2).wait()
+        result2 = outcome2.last_assistant_message or ""
 
         print("\n" + "=" * 80)
         print(f"Agent response: {result2}")
