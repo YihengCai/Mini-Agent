@@ -95,6 +95,22 @@
 - 教训：任何事件驱动的 agent 客户端都要用“一个 Turn 包含多个 Step”的真实序列测试用户可见层级，并把“交还控制权”与“任务成功”在文字和视觉符号上同时分开。
 - 关联：`mini_agent/cli.py:157-185,294-344,766-844`、`mini_agent/cli_events.py:26-193`、`tests/test_agent_loop_offline.py:386-525`、[ADR-0004](decisions/0004-session-turn-step-lifecycle.md)、提交 `6147f7d`。
 
+## P-005 · 禁用插件也会撤销它注册的配置项
+
+- 日期：2026-08-25
+- 原以为：标准测试命令用 `-p no:cacheprovider` 只会禁止 pytest 写缓存，既有的未知 `cache_dir` 配置警告只是无害的环境噪声。
+- 实际是：`cache_dir` 正是 pytest 内建 `cacheprovider` 插件注册的配置项；同一测试禁用插件时实测为 `1 passed, 1 warning in 0.43s`，保留插件时为 `1 passed in 0.43s`。
+- 根因：插件专属配置的生命周期属于插件；禁用插件不仅关闭其运行行为，也撤销它向 pytest 注册的命令行和配置选项。
+- 复现：在仓库根目录分别运行下列命令；第一条产生 `PytestConfigWarning: Unknown config option: cache_dir`，第二条没有 warning。
+
+  ```bash
+  .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_markdown_links.py
+  .venv/bin/python -m pytest -q tests/test_markdown_links.py
+  ```
+
+- 教训：测试工具的插件配置和插件启停必须作为一个整体维护；如果决定禁用插件，就要同时删除它的专属配置，不能把配置警告长期当作无害噪声。
+- 关联：`pyproject.toml:51-54`、`AGENTS.md:114-119`、`README.md:119-138`、提交 `1a64d0c`。
+
 ## 模板
 
 ```markdown
