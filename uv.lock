@@ -3,18 +3,6 @@ revision = 1
 requires-python = ">=3.10"
 
 [[package]]
-name = "agent-client-protocol"
-version = "0.6.3"
-source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
-dependencies = [
-    { name = "pydantic" },
-]
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/c6/fe/147187918c5ba695db537b3088c441bcace4ac9365fae532bf36b1494769/agent_client_protocol-0.6.3.tar.gz", hash = "sha256:ea01a51d5b55864c606401694dad429d83c5bedb476807d81b8208031d6cf3d8", size = 152382 }
-wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/9c/2e/62d1770a489d3356cd75e19cd61583e7e411f1b00ab9859c73048621e4c2/agent_client_protocol-0.6.3-py3-none-any.whl", hash = "sha256:184264bd6988731613a49c9eb89d7ecd23c6afffe905c64f1b604a42a9b20aef", size = 47613 },
-]
-
-[[package]]
 name = "annotated-types"
 version = "0.7.0"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -561,7 +549,6 @@ name = "mini-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "agent-client-protocol" },
     { name = "anthropic" },
     { name = "httpx" },
     { name = "mcp" },
@@ -591,7 +578,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-client-protocol", specifier = ">=0.6.0" },
     { name = "anthropic", specifier = ">=0.39.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "mcp", specifier = ">=1.0.0" },
