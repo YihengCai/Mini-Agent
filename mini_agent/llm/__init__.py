@@ -1,16 +1,13 @@
-"""LLM clients package supporting both Anthropic and OpenAI protocols."""
+"""Vendor-neutral model contract and configured wire adapters."""
 
-from .anthropic_client import AnthropicClient
-from .base import LLMClientBase
-from .llm_wrapper import LLMClient
-from .openai_client import OpenAIClient
+from .base import LLMAdapter
+from .factory import AdapterName, create_model_client
 from .protocol import ModelClient, ToolDefinition
 
 __all__ = [
-    "LLMClientBase",
+    "AdapterName",
+    "LLMAdapter",
     "ModelClient",
     "ToolDefinition",
-    "AnthropicClient",
-    "OpenAIClient",
-    "LLMClient",
+    "create_model_client",
 ]

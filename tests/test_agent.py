@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from mini_agent import LLMClient
+from mini_agent import create_model_client
 from mini_agent.agent import AgentSession
 from mini_agent.config import Config
 from mini_agent.tools import BashTool, EditTool, ReadTool, WriteTool
@@ -33,10 +33,12 @@ async def test_agent_simple_task():
             system_prompt = "You are a helpful AI assistant that can use tools."
 
         # Initialize LLM client
-        llm_client = LLMClient(
+        llm_client = create_model_client(
             api_key=config.llm.api_key,
+            adapter=config.llm.adapter,
             api_base=config.llm.api_base,
             model=config.llm.model,
+            max_output_tokens=config.llm.max_output_tokens,
         )
 
         # Initialize tools
@@ -113,10 +115,12 @@ async def test_agent_bash_task():
             system_prompt = "You are a helpful AI assistant that can use tools."
 
         # Initialize LLM client
-        llm_client = LLMClient(
+        llm_client = create_model_client(
             api_key=config.llm.api_key,
+            adapter=config.llm.adapter,
             api_base=config.llm.api_base,
             model=config.llm.model,
+            max_output_tokens=config.llm.max_output_tokens,
         )
 
         # Initialize tools

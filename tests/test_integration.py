@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from mini_agent import LLMClient
+from mini_agent import create_model_client
 from mini_agent.agent import AgentSession
 from mini_agent.config import Config
 from mini_agent.tools import BashTool, EditTool, ReadTool, WriteTool
@@ -47,10 +47,12 @@ async def test_basic_agent_usage():
             system_prompt = "You are a helpful AI assistant."
 
         # Initialize LLM client
-        llm_client = LLMClient(
+        llm_client = create_model_client(
             api_key=config.llm.api_key,
+            adapter=config.llm.adapter,
             api_base=config.llm.api_base,
             model=config.llm.model,
+            max_output_tokens=config.llm.max_output_tokens,
         )
 
         # Initialize basic tools
@@ -152,10 +154,12 @@ You have record_note and recall_notes tools:
 """
 
         # Initialize LLM
-        llm_client = LLMClient(
+        llm_client = create_model_client(
             api_key=config.llm.api_key,
+            adapter=config.llm.adapter,
             api_base=config.llm.api_base,
             model=config.llm.model,
+            max_output_tokens=config.llm.max_output_tokens,
         )
 
         # Memory file path

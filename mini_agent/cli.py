@@ -27,11 +27,10 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 
-from mini_agent import LLMClient
+from mini_agent import create_model_client
 from mini_agent.cli_events import CliEventSink
 from mini_agent.config import Config
 from mini_agent.core import AgentSession, TurnHandle, TurnOutcome
-from mini_agent.schema import LLMProvider
 from mini_agent.tools.base import Tool
 from mini_agent.tools.bash_tool import BashKillTool, BashOutputTool, BashTool
 from mini_agent.tools.file_tools import EditTool, ReadTool, WriteTool
@@ -564,15 +563,13 @@ async def run_agent(workspace_dir: Path, task: str = None):
         next_delay = retry_config.calculate_delay(attempt - 1)
         print(f"{Colors.DIM}   Retrying in {next_delay:.1f}s (attempt {attempt + 1})...{Colors.RESET}")
 
-    # Convert provider string to LLMProvider enum
-    provider = LLMProvider.ANTHROPIC if config.llm.provider.lower() == "anthropic" else LLMProvider.OPENAI
-
-    llm_client = LLMClient(
+    llm_client = create_model_client(
         api_key=config.llm.api_key,
-        provider=provider,
+        adapter=config.llm.adapter,
         api_base=config.llm.api_base,
         model=config.llm.model,
-        retry_config=retry_config if config.llm.retry.enabled else None,
+        max_output_tokens=config.llm.max_output_tokens,
+        retry_config=retry_config,
     )
 
     # Set retry callback

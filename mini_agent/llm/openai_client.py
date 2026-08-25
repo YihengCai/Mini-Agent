@@ -8,42 +8,43 @@ from openai import AsyncOpenAI
 
 from ..retry import RetryConfig, async_retry
 from ..schema import FunctionCall, LLMResponse, Message, TokenUsage, ToolCall
-from .base import LLMClientBase
+from .base import LLMAdapter
 from .protocol import ToolDefinition
 
 logger = logging.getLogger(__name__)
 
 
-class OpenAIClient(LLMClientBase):
-    """LLM client using OpenAI's protocol.
+class OpenAIAdapter(LLMAdapter):
+    """Adapter for the OpenAI-compatible chat completions protocol.
 
-    This client uses the official OpenAI SDK and supports:
-    - Reasoning content (via reasoning_split=True)
-    - Tool calling
-    - Retry logic
+    The adapter uses the OpenAI SDK for transport, but does not enable
+    unprobed vendor extensions or imply use of the OpenAI service.
     """
 
     def __init__(
         self,
         api_key: str,
-        api_base: str = "https://api.minimaxi.com/v1",
-        model: str = "MiniMax-M2.5",
+        api_base: str,
+        model: str,
+        max_output_tokens: int,
         retry_config: RetryConfig | None = None,
     ):
         """Initialize OpenAI client.
 
         Args:
             api_key: API key for authentication
-            api_base: Base URL for the API (default: MiniMax OpenAI endpoint)
-            model: Model name to use (default: MiniMax-M2.5)
+            api_base: Exact base URL for the API
+            model: Model name to use
+            max_output_tokens: Maximum output tokens requested from the API
             retry_config: Optional retry configuration
         """
-        super().__init__(api_key, api_base, model, retry_config)
+        super().__init__(api_key, api_base, model, max_output_tokens, retry_config)
 
         # Initialize OpenAI client
         self.client = AsyncOpenAI(
             api_key=api_key,
             base_url=api_base,
+            max_retries=0,
         )
 
     async def _make_api_request(
@@ -66,8 +67,7 @@ class OpenAIClient(LLMClientBase):
         params = {
             "model": self.model,
             "messages": api_messages,
-            # Enable reasoning_split to separate thinking content
-            "extra_body": {"reasoning_split": True},
+            "max_tokens": self.max_output_tokens,
         }
 
         if tools:
@@ -145,14 +145,6 @@ class OpenAIClient(LLMClientBase):
                         )
                     assistant_msg["tool_calls"] = tool_calls_list
 
-                # IMPORTANT: Add reasoning_details if thinking is present
-                # This is CRITICAL for Interleaved Thinking to work properly!
-                # The complete response_message (including reasoning_details) must be
-                # preserved in Message History and passed back to the model in the next turn.
-                # This ensures the model's chain of thought is not interrupted.
-                if msg.thinking:
-                    assistant_msg["reasoning_details"] = [{"text": msg.thinking}]
-
                 api_messages.append(assistant_msg)
 
             # For tool result messages
@@ -197,19 +189,11 @@ class OpenAIClient(LLMClientBase):
         Returns:
             LLMResponse object
         """
-        # Get message from response
-        message = response.choices[0].message
+        choice = response.choices[0]
+        message = choice.message
 
         # Extract text content
         text_content = message.content or ""
-
-        # Extract thinking content from reasoning_details
-        thinking_content = ""
-        if hasattr(message, "reasoning_details") and message.reasoning_details:
-            # reasoning_details is a list of reasoning blocks
-            for detail in message.reasoning_details:
-                if hasattr(detail, "text"):
-                    thinking_content += detail.text
 
         # Extract tool calls
         tool_calls = []
@@ -240,9 +224,9 @@ class OpenAIClient(LLMClientBase):
 
         return LLMResponse(
             content=text_content,
-            thinking=thinking_content if thinking_content else None,
+            thinking=None,
             tool_calls=tool_calls if tool_calls else None,
-            finish_reason="stop",  # OpenAI doesn't provide finish_reason in the message
+            finish_reason=choice.finish_reason or "stop",
             usage=usage,
         )
 
@@ -251,7 +235,7 @@ class OpenAIClient(LLMClientBase):
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
     ) -> LLMResponse:
-        """Generate response from OpenAI LLM.
+        """Generate a response through the OpenAI-compatible adapter.
 
         Args:
             messages: List of conversation messages

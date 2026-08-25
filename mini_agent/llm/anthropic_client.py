@@ -7,43 +7,42 @@ import anthropic
 
 from ..retry import RetryConfig, async_retry
 from ..schema import FunctionCall, LLMResponse, Message, TokenUsage, ToolCall
-from .base import LLMClientBase
+from .base import LLMAdapter
 from .protocol import ToolDefinition
 
 logger = logging.getLogger(__name__)
 
 
-class AnthropicClient(LLMClientBase):
-    """LLM client using Anthropic's protocol.
+class AnthropicAdapter(LLMAdapter):
+    """Adapter for the Anthropic-compatible messages protocol.
 
-    This client uses the official Anthropic SDK and supports:
-    - Extended thinking content
-    - Tool calling
-    - Retry logic
+    The adapter uses the Anthropic SDK for transport, but does not enable
+    unprobed vendor extensions.
     """
 
     def __init__(
         self,
         api_key: str,
-        api_base: str = "https://api.minimaxi.com/anthropic",
-        model: str = "MiniMax-M2.5",
+        api_base: str,
+        model: str,
+        max_output_tokens: int,
         retry_config: RetryConfig | None = None,
     ):
         """Initialize Anthropic client.
 
         Args:
             api_key: API key for authentication
-            api_base: Base URL for the API (default: MiniMax Anthropic endpoint)
-            model: Model name to use (default: MiniMax-M2.5)
+            api_base: Exact base URL for the API
+            model: Model name to use
+            max_output_tokens: Maximum output tokens requested from the API
             retry_config: Optional retry configuration
         """
-        super().__init__(api_key, api_base, model, retry_config)
+        super().__init__(api_key, api_base, model, max_output_tokens, retry_config)
 
-        # Initialize Anthropic async client
         self.client = anthropic.AsyncAnthropic(
             base_url=api_base,
             api_key=api_key,
-            default_headers={"Authorization": f"Bearer {api_key}"},
+            max_retries=0,
         )
 
     async def _make_api_request(
@@ -67,7 +66,7 @@ class AnthropicClient(LLMClientBase):
         """
         params = {
             "model": self.model,
-            "max_tokens": 16384,
+            "max_tokens": self.max_output_tokens,
             "messages": api_messages,
         }
 
@@ -129,30 +128,21 @@ class AnthropicClient(LLMClientBase):
 
             # For user and assistant messages
             if msg.role in ["user", "assistant"]:
-                # Handle assistant messages with thinking or tool calls
-                if msg.role == "assistant" and (msg.thinking or msg.tool_calls):
-                    # Build content blocks for assistant with thinking and/or tool calls
+                if msg.role == "assistant" and msg.tool_calls:
                     content_blocks = []
 
-                    # Add thinking block if present
-                    if msg.thinking:
-                        content_blocks.append({"type": "thinking", "thinking": msg.thinking})
-
-                    # Add text content if present
                     if msg.content:
                         content_blocks.append({"type": "text", "text": msg.content})
 
-                    # Add tool use blocks
-                    if msg.tool_calls:
-                        for tool_call in msg.tool_calls:
-                            content_blocks.append(
-                                {
-                                    "type": "tool_use",
-                                    "id": tool_call.id,
-                                    "name": tool_call.function.name,
-                                    "input": tool_call.function.arguments,
-                                }
-                            )
+                    for tool_call in msg.tool_calls:
+                        content_blocks.append(
+                            {
+                                "type": "tool_use",
+                                "id": tool_call.id,
+                                "name": tool_call.function.name,
+                                "input": tool_call.function.arguments,
+                            }
+                        )
 
                     api_messages.append({"role": "assistant", "content": content_blocks})
                 else:
@@ -207,16 +197,14 @@ class AnthropicClient(LLMClientBase):
         Returns:
             LLMResponse object
         """
-        # Extract text content, thinking, and tool calls
+        # Extract text content and tool calls. Thinking continuation requires
+        # opaque signed blocks, which are outside this adapter's contract.
         text_content = ""
-        thinking_content = ""
         tool_calls = []
 
         for block in response.content:
             if block.type == "text":
                 text_content += block.text
-            elif block.type == "thinking":
-                thinking_content += block.thinking
             elif block.type == "tool_use":
                 # Parse Anthropic tool_use block
                 tool_calls.append(
@@ -230,24 +218,20 @@ class AnthropicClient(LLMClientBase):
                     )
                 )
 
-        # Extract token usage from response
-        # Anthropic usage includes: input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens
+        # Only map the base protocol fields. Cache accounting is vendor-specific.
         usage = None
         if hasattr(response, "usage") and response.usage:
             input_tokens = response.usage.input_tokens or 0
             output_tokens = response.usage.output_tokens or 0
-            cache_read_tokens = getattr(response.usage, "cache_read_input_tokens", 0) or 0
-            cache_creation_tokens = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
-            total_input_tokens = input_tokens + cache_read_tokens + cache_creation_tokens
             usage = TokenUsage(
-                prompt_tokens=total_input_tokens,
+                prompt_tokens=input_tokens,
                 completion_tokens=output_tokens,
-                total_tokens=total_input_tokens + output_tokens,
+                total_tokens=input_tokens + output_tokens,
             )
 
         return LLMResponse(
             content=text_content,
-            thinking=thinking_content if thinking_content else None,
+            thinking=None,
             tool_calls=tool_calls if tool_calls else None,
             finish_reason=response.stop_reason or "stop",
             usage=usage,
@@ -258,7 +242,7 @@ class AnthropicClient(LLMClientBase):
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
     ) -> LLMResponse:
-        """Generate response from Anthropic LLM.
+        """Generate a response through the Anthropic-compatible adapter.
 
         Args:
             messages: List of conversation messages

@@ -2,7 +2,6 @@
 
 from .schema import (
     FunctionCall,
-    LLMProvider,
     LLMResponse,
     Message,
     TokenUsage,
@@ -11,7 +10,6 @@ from .schema import (
 
 __all__ = [
     "FunctionCall",
-    "LLMProvider",
     "LLMResponse",
     "Message",
     "TokenUsage",

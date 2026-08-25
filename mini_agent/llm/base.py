@@ -8,11 +8,11 @@ from ..schema import LLMResponse, Message
 from .protocol import ToolDefinition
 
 
-class LLMClientBase(ABC):
-    """Abstract base class for LLM clients.
+class LLMAdapter(ABC):
+    """Shared mechanics for one concrete model API adapter.
 
-    This class defines the interface that all LLM clients must implement,
-    regardless of the underlying API protocol (Anthropic, OpenAI, etc.).
+    Each subclass owns one wire contract. The core agent loop depends only on
+    ``ModelClient`` from ``protocol.py``.
     """
 
     def __init__(
@@ -20,6 +20,7 @@ class LLMClientBase(ABC):
         api_key: str,
         api_base: str,
         model: str,
+        max_output_tokens: int,
         retry_config: RetryConfig | None = None,
     ):
         """Initialize the LLM client.
@@ -28,11 +29,15 @@ class LLMClientBase(ABC):
             api_key: API key for authentication
             api_base: Base URL for the API
             model: Model name to use
+            max_output_tokens: Maximum output tokens requested from the API
             retry_config: Optional retry configuration
         """
+        if max_output_tokens <= 0:
+            raise ValueError("max_output_tokens must be greater than zero")
         self.api_key = api_key
         self.api_base = api_base
         self.model = model
+        self.max_output_tokens = max_output_tokens
         self.retry_config = retry_config or RetryConfig()
 
         # Callback for tracking retry count

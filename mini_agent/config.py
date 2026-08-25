@@ -8,6 +8,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
+from .llm.factory import AdapterName
+
 
 class RetryConfig(BaseModel):
     """Retry configuration"""
@@ -23,9 +25,10 @@ class LLMConfig(BaseModel):
     """LLM configuration"""
 
     api_key: str
-    api_base: str = "https://api.minimax.io"
-    model: str = "MiniMax-M2.5"
-    provider: str = "anthropic"  # "anthropic" or "openai"
+    adapter: AdapterName
+    api_base: str
+    model: str
+    max_output_tokens: int = Field(gt=0)
     retry: RetryConfig = Field(default_factory=RetryConfig)
 
 
@@ -103,9 +106,20 @@ class Config(BaseModel):
         if not data:
             raise ValueError("Configuration file is empty")
 
-        # Parse LLM configuration
-        if "api_key" not in data:
-            raise ValueError("Configuration file missing required field: api_key")
+        # Model endpoint selection is explicit; no vendor defaults are inferred.
+        required_llm_fields = (
+            "api_key",
+            "adapter",
+            "api_base",
+            "model",
+            "max_output_tokens",
+        )
+        missing_fields = [field for field in required_llm_fields if field not in data]
+        if missing_fields:
+            raise ValueError(
+                "Configuration file missing required field(s): "
+                + ", ".join(missing_fields)
+            )
 
         if not data["api_key"] or data["api_key"] == "YOUR_API_KEY_HERE":
             raise ValueError("Please configure a valid API Key")
@@ -122,9 +136,10 @@ class Config(BaseModel):
 
         llm_config = LLMConfig(
             api_key=data["api_key"],
-            api_base=data.get("api_base", "https://api.minimax.io"),
-            model=data.get("model", "MiniMax-M2.5"),
-            provider=data.get("provider", "anthropic"),
+            adapter=data["adapter"],
+            api_base=data["api_base"],
+            model=data["model"],
+            max_output_tokens=data["max_output_tokens"],
             retry=retry_config,
         )
 

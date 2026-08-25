@@ -1,14 +1,6 @@
-from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel
-
-
-class LLMProvider(str, Enum):
-    """LLM provider types."""
-
-    ANTHROPIC = "anthropic"
-    OPENAI = "openai"
 
 
 class FunctionCall(BaseModel):
@@ -51,5 +43,5 @@ class LLMResponse(BaseModel):
     content: str
     thinking: str | None = None  # Extended thinking blocks
     tool_calls: list[ToolCall] | None = None
-    finish_reason: str
+    finish_reason: str  # Adapter-native metadata; the core does not branch on it
     usage: TokenUsage | None = None  # Token usage from API response
