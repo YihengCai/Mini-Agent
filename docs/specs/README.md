@@ -8,4 +8,4 @@
 
 最近完成的规格包括 [LLM 测试替身与模型请求结构检查](00-test-harness.md) 和 [Session、Turn、Step 生命周期与 CLI 观察边界](01-core-agent-loop.md)；实际接口和行为以其中链接的代码、测试和 ADR 为准。
 
-下一项工作尚未创建规格。未来问题只保留在 [`BUILD_LIST.md`](../BUILD_LIST.md)；进入相应实现时，再根据当时的代码、回归测试和端点探测结果写短规格。
+当前工作是[模型调用 contract 与协议 adapter](02-model-adapters.md)。未来问题只保留在 [`BUILD_LIST.md`](../BUILD_LIST.md)；进入相应实现时，再根据当时的代码、回归测试和端点探测结果写短规格。

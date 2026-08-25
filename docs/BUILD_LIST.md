@@ -6,11 +6,11 @@
 
 选择一个主题时，先为它找到当前代码中的失败证据和一分钟内可运行的离线验证，再写改动前简报。具体接口、类名和文件布局到实现时再决定，不为候选主题提前创建规格或 ADR。
 
-## 当前工作：待选择
+## 当前工作：模型调用 contract 与协议 adapter
 
-Session、Turn、Step 生命周期已经落地并完成离线验证，见 [`decisions/0004-session-turn-step-lifecycle.md`](decisions/0004-session-turn-step-lifecycle.md)。它为日志、统计、轨迹和基准评测提供了稳定执行身份，但不自动证明其中任何一个是下一优先级。
+`LLMClient` 目前把协议选择、MiniMax 域名识别、URL 改写、客户端构造和请求转发放在同一层；配置还会给缺失字段注入 MiniMax 端点与模型，并把任何非 `anthropic` 值静默路由到 OpenAI-compatible 客户端（`mini_agent/llm/llm_wrapper.py:18-101`；`mini_agent/config.py:22-29,123-129`；`mini_agent/cli.py:567-576`）。
 
-下一项工作尚未选择。选择时仍需先找到当前失败证据和一分钟内离线验证，不因为某模块现在“可以消费事件”就提前采用设计。
+本轮把 core 已实际使用的 `generate(messages, tools) -> LLMResponse` 固化为 vendor-neutral contract，让协议 adapter 独占 SDK、认证与 wire 编解码。端点、模型、输出上限和 adapter 必须显式配置；不会按域名猜测路径，也不会在通用 adapter 中默认启用未经探测的 vendor 扩展。问题证据、不变量和离线验证见 [`specs/02-model-adapters.md`](specs/02-model-adapters.md)。
 
 ## 可选研究主题
 
