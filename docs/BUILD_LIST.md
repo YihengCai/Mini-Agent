@@ -6,9 +6,11 @@
 
 选择一个主题时，先为它找到当前代码中的失败证据和一分钟内可运行的离线验证，再写改动前简报。具体接口、类名和文件布局到实现时再决定，不为候选主题提前创建规格或 ADR。
 
-## 当前工作：收拢后台 shell 的状态与资源所有权
+## 当前工作：约束工具输出进入模型消息的预算
 
-`BackgroundShellManager` 把 shell 与监控任务放在进程级类变量中，所有工具实例和 Session 共享同一可变表（`mini_agent/tools/bash_tool.py:108-127`）；监控用裸 `asyncio.create_task()` 启动，取消时只调用 `task.cancel()` 并立刻从表中删除，没有等待任务收敛，也没有 owner 级关闭入口（`mini_agent/tools/bash_tool.py:136-188`）。CLI 分开构造 `bash_output`、`bash_kill` 与工作区相关的 `bash`，`/clear` 又只替换 AgentSession（`mini_agent/cli.py:346-371,442-459,714-722`）。当前工作先用离线故障注入证明跨运行时可见性和清理泄漏，再让一次运行时组装显式持有并关闭一个共享 manager；不顺手改 shell 语法、输出预算、权限、操作系统沙箱、进程组策略或 MCP 生命周期。
+`BashOutputResult` 把 stdout 与 stderr 原样拼入 `content`，没有字节或行数上限（`mini_agent/tools/bash_tool.py:18-49`）；`ToolBatchExecutor` 随后把成功结果的 `content` 直接写入模型可见工具消息（`mini_agent/core/tool_execution.py:120-129`）。离线探针 `.venv/bin/python -c 'from mini_agent.tools.bash_tool import BashOutputResult; r=BashOutputResult(success=True, stdout="x"*200000, stderr="", exit_code=0); print("content_bytes", len(r.content.encode()))'` 实测输出 `content_bytes 200000`，证明当前没有截断。
+
+当前工作先用一分钟内的离线回归覆盖成功、失败、多字节字符、边界值和截断元数据，再根据事实所有权决定由单个工具还是模型调度边界强制。不顺手实现自动摘要、持久化 artifact、流式输出、并行调用、权限、沙箱或上下文压缩。
 
 ## 可选研究主题
 
@@ -52,6 +54,7 @@
 
 ## 最近完成
 
+- **后台 shell 状态与资源所有权**：配置和模型客户端成功后，一次 CLI runtime 持有显式注入三个 shell 工具的 manager；`/clear` 保留它，退出才按 shell、MCP 顺序关闭。manager 隔离状态，拒绝重复与关闭后登记，串行化并发 `close()`，等待 monitor 和强杀后 subprocess，并保留失败项供重试。25 项定向回归与显式排除 `external` 的完整集合实测为 `227 passed, 9 deselected in 14.00s`，取舍见 [`decisions/0009-runtime-owned-background-shells.md`](decisions/0009-runtime-owned-background-shells.md)。
 - **模型工具批次强制点**：Session 持有冻结注册与调用标识符账本；模型批次在首个副作用前完整预检，再逐项认领并串行执行。结构错误使用 `tool_protocol_error`，工具自身失败保留为同序结果，参数、事件和历史使用独立快照，assistant 调用与全部结果成组提交。19 项定向回归覆盖重名、跨 Step/Turn 重放、非法批次零副作用、取消、串行中断和参数变异；默认入口实测 `202 passed, 9 deselected in 13.34s`。取舍见 [`decisions/0008-session-owned-tool-batch-executor.md`](decisions/0008-session-owned-tool-batch-executor.md)。
 - **默认测试入口安全、离线**：真实模型、用户 MCP 配置和网络测试统一使用 `external` marker；默认配置与根级收集门双层排除，只有显式 `--run-external` 才放行。MCP 混合模块的 24 项离线测试保留在默认集合，入口回归能检出漏标、普通 `-m` 绕过和 marker 拼错；完整默认入口实测 `183 passed, 9 deselected in 13.82s`。取舍见 [`decisions/0007-explicit-opt-in-for-external-tests.md`](decisions/0007-explicit-opt-in-for-external-tests.md)。
 - **删除旧本地压缩**：Session 暂以完整模型历史直传；本地 token 估算、摘要替换、四类压缩事件、配置字段、摘要用途标签和 `tiktoken`/`regex` 依赖已经删除，旧配置键明确失败。64 项定向回归与锁文件校验通过，标准离线集合共 `157 passed`。取舍见 [`decisions/0006-remove-legacy-local-compaction.md`](decisions/0006-remove-legacy-local-compaction.md)。

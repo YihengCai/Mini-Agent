@@ -190,6 +190,41 @@
 - 教训：任何 agent 工具执行器都要把“整批验证”和“逐项副作用所有权”分开；最多执行一次账本应在每项真正开始前认领，不能把尚未启动的合法后项当成已执行事实。
 - 关联：`mini_agent/core/tool_execution.py:90-158`、`tests/test_tool_execution.py:566-612`、[ADR-0008](decisions/0008-session-owned-tool-batch-executor.md)、提交 `528da1f`。
 
+## P-010 · 统一 finally 不等于资源边界和主异常都正确
+
+- 日期：2026-08-25
+- 原以为：用一个 `try/finally` 包住整个 `run_agent()`，在里面依次关闭 shell manager 和 MCP，就同时覆盖了所有退出路径和异常优先级。
+- 实际是：初版 wrapper 连配置缺失和解析失败都包在 owner 内，这些尚未取得资源的早退也会清理全局 MCP 并永久替换事件循环异常处理器。同时，`_quiet_cleanup()` 抛出的 `CancelledError` 会覆盖正在重抛的 runtime 主异常。
+- 根因：`finally` 只保证控制流会进入清理，不能自动定义“从哪里开始拥有资源”，也不会保留正在传播的异常；任何后续 `await` 抛出 `BaseException` 都可以成为新主因。
+- 复现：下列回归分别锁定配置早退和 runtime/MCP 双失败；把 manager 创建移回配置读取之前，或删除 MCP `BaseException` 的显式收集，对应测试会转红。
+
+  ```bash
+  .venv/bin/python -m pytest -q \
+    tests/test_background_shell_lifecycle.py::test_invalid_config_returns_before_runtime_resources_exist \
+    tests/test_background_shell_lifecycle.py::test_runtime_error_wins_over_mcp_cleanup_cancellation
+  ```
+
+  修复后实测为 `3 passed in 0.61s`。
+- 教训：agent 宿主要把资源取得边界、清理顺序和失败优先级分别写成可验证的 contract；一个外层 `finally` 不能替代这三个决定。
+- 关联：`mini_agent/cli.py:512-666`、`tests/test_background_shell_lifecycle.py`、[ADR-0009](decisions/0009-runtime-owned-background-shells.md)、提交 `9a088b6`。
+
+## P-011 · 串行幂等不等于并发关闭安全
+
+- 日期：2026-08-25
+- 原以为：`close()` 遍历当前 shell，等待全部 terminate 和 monitor，且第二次串行调用不重复终止，就已经证明 manager 可幂等关闭。
+- 实际是：初版 `close()` 在首个 `await` 前没有封闭 `track()`，关闭途中可以加入不在快照里的新 shell；两个并发 `close()` 还会同时 terminate 同一进程。
+- 根因：幂等的对象不只是“返回后的最终表”，还包括关闭期间的接纳门和多个调用者对同一副作用的所有权。串行重复测试没有产生这两种交错。
+- 复现：下列故障注入在首个 terminate 中设置门，关闭途中同时尝试新登记和第二个 `close()`。删除 `_closed` 门或 `_close_lock` 会稳定转红。
+
+  ```bash
+  .venv/bin/python -m pytest -q \
+    tests/test_background_shell_lifecycle.py::test_close_seals_registration_and_serializes_concurrent_callers
+  ```
+
+  修复后实测为 `1 passed in 0.42s`。
+- 教训：任何拥有 agent 副作用的管理器都要在首个可重入边界前封闭新接纳，并用交错调度测试证明多个关闭调用者只触发一次副作用。
+- 关联：`mini_agent/tools/bash_tool.py:109-238`、`tests/test_background_shell_lifecycle.py`、[ADR-0009](decisions/0009-runtime-owned-background-shells.md)、提交 `9a088b6`。
+
 ## 模板
 
 ```markdown

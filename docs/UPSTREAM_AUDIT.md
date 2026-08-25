@@ -76,6 +76,14 @@ cli.run_agent()
 
 代码使用 Anthropic 兼容协议，不等于当前端点支持所有 vendor 扩展。缓存、流式输出、`thinking` 签名、并行工具调用与上下文上限都必须按 [PROVIDER_CAPABILITIES.md](PROVIDER_CAPABILITIES.md) 探测后再依赖。
 
+### 8. 后台 shell 没有宿主资源所有权
+
+`BackgroundShellManager` 把 shell 和 monitor 任务放在类变量，不同工具实例、CLI runtime 和事件循环因而共享可变状态（`mini_agent/tools/bash_tool.py:108-127`）。monitor 取消只调用 `task.cancel()` 就删除登记，没有等待取消清理收敛；温和终止超时后强杀，也没有再次等待 subprocess（`mini_agent/tools/bash_tool.py:96-105,135-188`）。
+
+CLI 分别构造启动、读取与终止工具，退出路径却只调用 MCP 清理（`mini_agent/cli.py:303-328,399-448,805-806`）。这使后台进程和监控任务无法与创建它们的宿主生命周期对齐。
+
+实现结果没有改写以上 baseline 证据：当前由一次 CLI runtime 持有实例 manager，显式注入三个工具，并在 shell、MCP 统一退出边界中等待收敛，见 [ADR-0009](decisions/0009-runtime-owned-background-shells.md)。
+
 ## 已确认缺陷索引
 
 | 缺陷 | 证据 | 去向 |
@@ -87,6 +95,9 @@ cli.run_agent()
 | 取消操作会截断已完成记录 | `mini_agent/agent.py:73-94,397-398,477-478` | 清理逻辑不检查工具调用标识符是否已经配对 |
 | 测试返回值不会让 pytest 失败 | `tests/test_agent.py:72-94,146-161` | 测试返回布尔值并吞掉异常，而不是断言 |
 | Note 读取工具未进入运行时注册表 | `mini_agent/cli.py:429-432`、`mini_agent/acp/__init__.py:100-102` | CLI 与 ACP 都经共享组装得到写入工具，但都没有注册 `RecallNoteTool` |
+| 后台 shell 使用进程级共享表 | `mini_agent/tools/bash_tool.py:108-127` | 当前已改为 CLI runtime 持有的实例 manager；隔离回归见 `tests/test_background_shell_lifecycle.py` |
+| monitor 取消和强杀不等待收敛 | `mini_agent/tools/bash_tool.py:96-105,181-188` | 当前 terminate/close 会等待 monitor，强杀后再次等待 subprocess |
+| CLI 没有后台 shell 关闭入口 | `mini_agent/cli.py:805-806` | 当前正常、异常和取消路径都按 shell、MCP 顺序清理；取舍见 ADR-0009 |
 
 ## 审计不直接决定实现
 
