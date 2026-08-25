@@ -48,5 +48,6 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0011](0011-runtime-owned-mcp-connections.md) | MCP 超时与连接由一次 CLI runtime 显式持有并统一关闭 | 已采纳 |
 | [0012](0012-strict-single-source-config-loading.md) | 配置模型同时持有默认值与未知字段边界 | 已采纳 |
 | [0013](0013-fail-closed-note-storage.md) | 损坏的 Note 存储失败关闭并保留原字节 | 已采纳 |
+| [0014](0014-positive-step-budget-at-config-and-core.md) | 配置与 core 共同拒绝非正 Step 预算 | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。

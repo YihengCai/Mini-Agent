@@ -1,6 +1,6 @@
 # Session、Turn、Step 生命周期与 CLI 观察边界
 
-> 状态：已实现并通过离线回归验证。实现位于 `mini_agent/core/` 与 `mini_agent/cli_events.py`，取舍见 [ADR-0003](../decisions/0003-remove-acp-and-extract-core-loop.md)、[ADR-0004](../decisions/0004-session-turn-step-lifecycle.md)；旧压缩的后续删除见 [ADR-0006](../decisions/0006-remove-legacy-local-compaction.md)。
+> 状态：已实现并通过离线回归验证。实现位于 `mini_agent/core/` 与 `mini_agent/cli_events.py`，取舍见 [ADR-0003](../decisions/0003-remove-acp-and-extract-core-loop.md)、[ADR-0004](../decisions/0004-session-turn-step-lifecycle.md)；旧压缩的后续删除见 [ADR-0006](../decisions/0006-remove-legacy-local-compaction.md)，正数 Step 预算边界见 [ADR-0014](../decisions/0014-positive-step-budget-at-config-and-core.md)。
 
 ## 问题证据
 
@@ -32,6 +32,7 @@ git show fdcd945^:mini_agent/cli.py
 6. 接收器首个异常会禁用该接收器。若它阻止循环继续，Turn 在安全边界以 `observer_error` 失败；若模型或内部失败已发生，则保留原主因并附观察错误。已成功交给接收器的 `TurnFinished.outcome` 与 `wait()` 返回同一个对象。
 7. `TurnHandle.wait()` 屏蔽等待者取消，CLI 必须先请求中断并等待 runner 收敛，再传播应用取消或开始下一次输入（`mini_agent/cli.py:273-291,830-854`）。
 8. CLI 必须把一次 Turn 中的多个 Step 显示为层级关系；`end_turn` 只显示控制权交还，不使用成功或完成标记。`max_steps` 的用户可见定义是“一个 Turn 内允许的 agent 模型请求数”。
+9. `max_steps` 必须是正整数；配置入口在 runtime 组装前拒绝，`AgentSession` 在工具检查、工作区创建和 Turn 接纳前独立拒绝。
 
 ## 未包含
 
@@ -43,9 +44,10 @@ git show fdcd945^:mini_agent/cli.py
 
 ## 已验证行为
 
-- `tests/test_agent_session_offline.py:113-227`：跨 Turn 完整历史、唯一身份、单活动 Turn、可重入接纳和创建失败回滚；
-- `tests/test_agent_session_offline.py:228-339`：等待者取消、CLI 收敛、配置快照和工具驱动的多 Step；
-- `tests/test_agent_session_offline.py:340-588`：观察数据隔离、接收器错误、消息配对、内部错误和结构化停止原因；
-- `tests/test_agent_session_offline.py:589-643`：完整 Step 中断与终止优先级；
+- `tests/test_agent_session_offline.py:112-135` 与 `tests/test_llm_adapters.py`：配置和公开 core 入口分别拒绝非正 Step 预算，且不创建工作区；
+- `tests/test_agent_session_offline.py:134-247`：跨 Turn 完整历史、唯一身份、单活动 Turn、可重入接纳和创建失败回滚；
+- `tests/test_agent_session_offline.py:249-359`：等待者取消、CLI 收敛、配置快照和工具驱动的多 Step；
+- `tests/test_agent_session_offline.py:361-608`：观察数据隔离、接收器错误、消息配对、内部错误和结构化停止原因；
+- `tests/test_agent_session_offline.py:610-663`：完整 Step 中断与终止优先级；
 - `tests/test_agent_loop_offline.py:381-519`：一个多 Step Turn 的 CLI 层级、中性结束标记、失败去重和帮助文案；
-- README 的离线命令在 2026-08-25 实测为 `157 passed in 10.08s`，没有 warning。
+- README 的离线命令在 2026-08-25 实测为 `261 passed, 9 deselected in 13.85s`，没有 warning。
