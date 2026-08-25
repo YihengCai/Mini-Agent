@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-项目已在上游 baseline 上完成二十六项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收，后台 shell 自然完成前还会读到 stdout EOF；每条模型可见工具结果现在还有统一的 UTF-8 字节预算；配置模型现在拒绝未知字段并单独持有默认值，运行时工作区则由 CLI 单一选择，不再保留无效配置状态；Note 存储损坏时会失败关闭并保留原字节；MCP server 的错误正文会归一化到内部失败结果；显式非法 MCP transport 会在连接前隔离；配置与 core 都拒绝非正 Step 预算；配置与运行时都约束重试次数和退避数值，并由重试模块单一解释 enabled 开关；core 不再把模型异常的总调用次数改写成重试次数；每个 Session 的模型请求都包含本次真实工作区事实；相对系统提示词与 MCP 配置现在绑定到已选主配置的目录；每个 Turn 的人类可读日志都排他占用新文件；Skill 发现会以完整快照替换注册表并拒绝重名来源。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
+项目已在上游 baseline 上完成二十七项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器，合法工具返回值在接纳时取得独立快照；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收，后台 shell 自然完成前还会读到 stdout EOF；每条模型可见工具结果现在还有统一的 UTF-8 字节预算；配置模型现在拒绝未知字段并单独持有默认值，运行时工作区则由 CLI 单一选择，不再保留无效配置状态；Note 存储损坏时会失败关闭并保留原字节；MCP server 的错误正文会归一化到内部失败结果；显式非法 MCP transport 会在连接前隔离；配置与 core 都拒绝非正 Step 预算；配置与运行时都约束重试次数和退避数值，并由重试模块单一解释 enabled 开关；core 不再把模型异常的总调用次数改写成重试次数；每个 Session 的模型请求都包含本次真实工作区事实；相对系统提示词与 MCP 配置现在绑定到已选主配置的目录；每个 Turn 的人类可读日志都排他占用新文件；Skill 发现会以完整快照替换注册表并拒绝重名来源。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
 
 `read_file` 现在返回 1-based 行窗口，编号正文最多 2000 个完整行或 50 KiB，并给出下一次 `offset`；`edit_file` 仅把 LF/CRLF 视为等价，其他文本必须精确匹配且只能出现一次。写入和编辑通过同目录临时文件和 `os.replace()` 提交，已有文件保留 CRLF 约定与权限位。代码可以运行，但仍保留重要限制：
 
@@ -41,7 +41,7 @@ Turn 日志也不再以秒级名称覆写已有证据：普通文件名保持不
 
 执行生命周期改造也已经落地：`AgentSession.start_turn()` 原子接纳输入并返回 `TurnHandle`，同一 Session 只允许一个活动 Turn；`TurnOutcome` 区分模型交回控制权、用户中断、Step 上限和失败，但没有 `success` 或 `completed`。工具调用继续同一 Turn；事件载荷使用独立快照，Turn 配置在接纳时固化，接收器失败也不会留下缺少工具结果的历史。配置与公开 Session 构造入口都要求 `max_steps > 0`，并在 runtime 资源或工作区副作用之前失败，因此不存在零模型请求的合法 Turn。Session 还会在调用者提示词后附加本次绝对工作区的完整事实块；普通标题或旧路径不能抑制它，已含准确块时不重复。CLI 分别显示 Turn 的控制权边界和内部 Step，把 `end_turn` 写成中性的“交还控制权”，不显示任务成功标记。生命周期取舍与中断延迟见 [ADR-0004](docs/decisions/0004-session-turn-step-lifecycle.md)，预算边界见 [ADR-0014](docs/decisions/0014-positive-step-budget-at-config-and-core.md)。
 
-工具批次强制点已经落地：Session 创建时拒绝空名、重名和不合 contract 的工具元数据，并冻结模型定义与调度键；agent loop 在 `ModelClient` 返回处先深拷贝整个响应，再让事件、预检、执行器和历史消费。每个模型批次在首个副作用前完成结构预检，再按模型顺序串行执行。跨 Step/Turn 重复调用标识符会以 `tool_protocol_error` 拒绝，未知工具、普通异常和非法返回则各自产生同序失败结果；assistant 工具调用与全部结果仍一次性提交。模型客户端、工具参数、事件和历史互不共享可变批次对象。这个入口只约束模型响应触发的调用；可信宿主仍持有原始 Tool 引用，因此它不是权限或沙箱。取舍见 [ADR-0008](docs/decisions/0008-session-owned-tool-batch-executor.md)。
+工具批次强制点已经落地：Session 创建时拒绝空名、重名和不合 contract 的工具元数据，并冻结模型定义与调度键；agent loop 在 `ModelClient` 返回处先深拷贝整个响应，再让事件、预检、执行器和历史消费。每个模型批次在首个副作用前完成结构预检，再按模型顺序串行执行。跨 Step/Turn 重复调用标识符会以 `tool_protocol_error` 拒绝，未知工具、普通异常和非法返回则各自产生同序失败结果；合法 `ToolResult` 在接纳处立即深拷贝，工具保留的返回别名不能改写事件或历史。assistant 工具调用与全部结果仍一次性提交。模型客户端、工具参数、工具结果、事件和历史互不共享可变批次对象。这个入口只约束模型响应触发的调用；可信宿主仍持有原始 Tool 引用，因此它不是权限或沙箱。批次取舍见 [ADR-0008](docs/decisions/0008-session-owned-tool-batch-executor.md)，返回值所有权见 [ADR-0025](docs/decisions/0025-executor-owns-admitted-tool-results.md)。
 
 模型可见工具输出预算已经落地：批次执行器在完整 `ToolFinished` 发出后，才把成功内容或带 `Error: ` 前缀的失败文本投影成最多 64 KiB 的模型消息；超限时保留合法 UTF-8 首尾，并报告原始、保留、省略和上限字节数。Session 历史与下一次模型请求使用同一个有界视图，原始工具结果、事件和日志不被改写。该预算逐条生效，不限制整批合计，也没有让省略正文可恢复；取舍见 [ADR-0010](docs/decisions/0010-model-facing-tool-output-budget.md)。
 
@@ -160,7 +160,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-26 实测为 `314 passed, 9 deselected in 13.18s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-26 实测为 `315 passed, 9 deselected in 13.33s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 
