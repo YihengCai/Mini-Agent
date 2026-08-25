@@ -351,15 +351,7 @@ class _AgentLoop:
                     )
                 ).model_copy(deep=True)
             except Exception as error:
-                from ..retry import RetryExhaustedError
-
-                if isinstance(error, RetryExhaustedError):
-                    error_message = (
-                        f"LLM call failed after {error.attempts} retries\n"
-                        f"Last error: {error.last_exception}"
-                    )
-                else:
-                    error_message = f"LLM call failed: {error}"
+                error_message = f"LLM call failed: {error}"
                 emitter.emit(
                     ModelCallFailed(
                         error=error,

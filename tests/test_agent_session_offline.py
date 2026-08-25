@@ -16,6 +16,7 @@ from mini_agent.core.events import (
     TurnFinished,
     TurnStarted,
 )
+from mini_agent.retry import RetryExhaustedError
 from mini_agent.schema import FunctionCall, LLMResponse, Message, TokenUsage, ToolCall
 from mini_agent.tools.base import Tool, ToolResult
 from tests.llm_test_double import ScriptedCall, ScriptedLLM
@@ -511,6 +512,36 @@ async def test_terminal_delivery_failure_cannot_rewrite_the_published_outcome(
     assert terminal == [outcome]
     assert terminal[0] is outcome
     assert outcome.stop_reason == "end_turn"
+
+
+@pytest.mark.asyncio
+async def test_model_failure_preserves_retry_exception_attempt_semantics(tmp_path):
+    last_error = OSError("endpoint unavailable")
+    exhausted = RetryExhaustedError(last_error, attempts=1)
+    llm = ScriptedLLM([ScriptedCall(exhausted)])
+    session = build_session(tmp_path, llm, [])
+    observed = []
+
+    with llm:
+        outcome = await session.start_turn(
+            "call the model",
+            event_sink=observed.append,
+        ).wait()
+
+    failures = [
+        envelope.event
+        for envelope in observed
+        if isinstance(envelope.event, ModelCallFailed)
+    ]
+    expected_message = f"LLM call failed: {exhausted}"
+    assert failures == [ModelCallFailed(error=exhausted, result=expected_message)]
+    assert failures[0].error is exhausted
+    assert outcome.stop_reason == "failed"
+    assert outcome.error is not None
+    assert outcome.error.kind == "model_error"
+    assert outcome.error.message == expected_message
+    assert "1 attempts" in expected_message
+    assert "1 retries" not in expected_message
 
 
 @pytest.mark.asyncio
