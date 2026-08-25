@@ -2,6 +2,7 @@
 
 import pytest
 
+import mini_agent.retry as retry_module
 from mini_agent.retry import RetryConfig, RetryExhaustedError, async_retry
 
 
@@ -92,6 +93,42 @@ def test_delay_calculation_is_finite_and_bounded(
     expected_delay,
 ) -> None:
     assert config.calculate_delay(attempt) == expected_delay
+
+
+@pytest.mark.asyncio
+async def test_disabled_retry_calls_once_and_preserves_original_error(
+    monkeypatch,
+) -> None:
+    calls = 0
+    retries = []
+    sleeps = []
+    failure = RuntimeError("model failed")
+
+    async def record_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(retry_module.asyncio, "sleep", record_sleep)
+
+    @async_retry(
+        RetryConfig(
+            enabled=False,
+            max_retries=2,
+            initial_delay=0,
+        ),
+        on_retry=lambda error, attempt: retries.append((error, attempt)),
+    )
+    async def fail() -> None:
+        nonlocal calls
+        calls += 1
+        raise failure
+
+    with pytest.raises(RuntimeError) as raised:
+        await fail()
+
+    assert raised.value is failure
+    assert calls == 1
+    assert retries == []
+    assert sleeps == []
 
 
 @pytest.mark.asyncio

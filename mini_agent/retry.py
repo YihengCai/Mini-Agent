@@ -111,6 +111,9 @@ def async_retry(
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            if not config.enabled:
+                return await func(*args, **kwargs)
+
             for attempt in range(config.max_retries + 1):
                 try:
                     # Try to execute function
