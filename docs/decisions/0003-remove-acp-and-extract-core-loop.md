@@ -4,7 +4,7 @@
 - 状态：已采纳
 - 关联：`mini_agent/core/`、`mini_agent/cli_events.py`、`tests/test_agent_loop_offline.py`、提交 `fe6a682`、`cd9ae14`
 
-> 后续修订： [ADR-0004](0004-session-turn-step-lifecycle.md) 替换了本 ADR 为缩小迁移范围而保留的 `Agent.run() -> str`、借用事件对象和接收器异常直接传播 contract；删除 ACP、CLI 直连 core 与同步进程内观察边界的决定继续有效。以下正文保留当时决定，不作追写。
+> 后续修订：[ADR-0004](0004-session-turn-step-lifecycle.md) 替换了本 ADR 为缩小迁移范围而保留的 `Agent.run() -> str`、借用事件对象和接收器异常直接传播 contract；[ADR-0006](0006-remove-legacy-local-compaction.md) 又删除了 core 中的旧压缩状态、摘要调用与事件。删除 ACP、CLI 直连 core 与同步进程内观察边界的决定继续有效。以下正文保留当时决定，不作追写。
 
 ## 背景
 
@@ -52,3 +52,5 @@ ACP 的测试也没有跨协议边界：`git show cd9ae14^:tests/test_acp.py | n
 本轮事件只证明可以观察当前执行，不证明可持久化、可回放或可作为基准评测轨迹。`AgentLogger` 仍由 CLI 接收器调用，统计仍读取当前消息状态；等它们成为当前工作时，再依据真实消费需求决定是否拆成独立接收器。没有出现重新引入 ACP 的证据。
 
 后续审查删除了 `tests/test_architecture_boundaries.py`：它检查文件布局、禁止导入列表和 ACP 的缺席，固化的是当前实现形状而不是业务 contract。core 静默运行、事件顺序和 CLI 行为仍由 `tests/test_agent_loop_offline.py` 验证；ACP 的去留由本 ADR、发行配置和 Git 历史表达。
+
+ADR-0006 删除压缩后，本 ADR 关于“唯一 core loop”和“CLI 只消费事件”的主决定未变；当时把压缩一并移入 core 只是迁移事实，不再是当前能力。摘要事件验证已经删除，普通模型、工具与生命周期事件仍覆盖同一观察边界。

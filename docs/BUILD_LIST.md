@@ -6,9 +6,9 @@
 
 选择一个主题时，先为它找到当前代码中的失败证据和一分钟内可运行的离线验证，再写改动前简报。具体接口、类名和文件布局到实现时再决定，不为候选主题提前创建规格或 ADR。
 
-## 当前工作：待选择
+## 当前工作：让默认测试入口安全、离线
 
-模型调用 contract 与协议 adapter 已完成并移入“最近完成”。下一项仍按本页的选择条件，从当前代码的可复现失败进入；这里不提前展开规格或承诺实现顺序。
+仓库仍不能安全运行默认 `pytest`：`tests/test_agent.py` 和 `tests/test_integration.py` 会读取本地配置并调用真实端点，AGENTS 与 README 只能靠人工维护白名单避开它们。当前工作只收拢测试分类与默认入口，使误运行不会访问真实 API；不重写业务测试、模型 adapter 或 agent loop。完成后才进入统一工具批次强制点。
 
 ## 可选研究主题
 
@@ -16,17 +16,17 @@
 
 | 主题 | 当前证据与研究问题 | 什么时候值得选择 |
 |---|---|---|
-| 会话事实记录与模型请求视图 | 可选压缩会直接替换模型可见消息（`mini_agent/core/agent.py:296-401`）。研究已经发生的事实、模型请求视图、持久化和恢复是否应分开；append-only session log（仅追加的会话日志）只是候选方案之一。 | 准备替换消息状态或处理恢复、审计问题时。 |
+| 会话事实记录与模型请求视图 | Session 当前只持有一份模型可见 `_messages`，每个 Step 把它完整复制给模型（`mini_agent/core/agent.py:122-127,329-349`），没有把已发生事实、请求视图、持久化和恢复分开；append-only session log（仅追加的会话日志）只是候选方案之一。 | 准备替换消息状态或处理恢复、审计问题时。 |
 | 模型调用扩展 | 基础 `ModelClient` contract、显式注册表和两种 wire adapter 已落地，但仍没有流式响应、统一错误分类或真实端点能力记录（`mini_agent/llm/protocol.py:9-25`；`mini_agent/llm/factory.py:11-50`；`docs/PROVIDER_CAPABILITIES.md:20`）。 | 出现流式消费或可复现错误语义需求，或当前端点的新能力必须进入请求时。 |
-| 上下文管理 | 自动压缩默认关闭；显式启用的旧本地估算会直接重写消息，可能破坏工具调用结构，失败降级还可能扩大输入（`mini_agent/core/agent.py:239-497`）。研究 token 预算、选择、压缩和失败行为需要哪些不变量。 | 选定一个可以稳定复现的压缩失败案例时；依赖 vendor 能力前先做端点探测。 |
+| 上下文管理 | 旧本地压缩已由 [ADR-0006](decisions/0006-remove-legacy-local-compaction.md) 删除；当前完整历史无预算直传，`usage` 仅供观察。研究 token 预算、选择、压缩和失败行为需要哪些不变量。 | 事实记录与请求视图边界稳定、工具输出有预算后；依赖 vendor 能力前先做端点探测。 |
 | 任务模式与意图边界 | 研究“讨论、规划、修改、审查”等意图应由显式模式、确定性规则还是模型判断，以及能力边界是否要通过工具和权限强制。这里不预设需要单独的意图分类模型。 | 先复现仅靠提示词导致错误动作的案例；没有案例就继续保留为问题。 |
 | 代码搜索与上下文选择 | 项目没有专用 Glob/Grep，shell 输出也没有统一上限（`docs/UPSTREAM_AUDIT.md:61-65`）。研究搜索、忽略规则、截断信息和 token 预算；直接使用 `rg` 与仓库地图都只是候选。 | 出现可复现的代码定位失败或搜索结果挤占上下文时。 |
-| 工具执行与输出边界 | 工具现在只由 core 串行执行，但 shell 输出仍可不受限地进入模型消息（`mini_agent/core/agent.py:712-784`；`mini_agent/tools/bash_tool.py:18-49`）。研究参数校验、失败隔离、长运行进程、并行调用和输出预算。 | 从一个具体工具失败或输出失控案例进入。 |
+| 工具执行与输出边界 | 工具现在只由 core 串行执行，但 shell 输出仍可不受限地进入模型消息（`mini_agent/core/agent.py:413-485`；`mini_agent/tools/bash_tool.py:18-49`）。研究参数校验、失败隔离、长运行进程、并行调用和输出预算。 | 从一个具体工具失败或输出失控案例进入。 |
 | 可靠的代码编辑与恢复 | 当前已完成唯一精确匹配、单文件原子替换和提交前失败不改目标（`mini_agent/tools/file_tools.py:81-126,468-573`）；仍没有读取版本回执或并发覆盖检测，也不能一起恢复多个文件、工具副作用和模型状态。 | 先复现读取后并发变化造成的丢失更新，或需要跨文件恢复的具体失败；检查点只有在能完成恢复验证时才进入实现。 |
-| 权限与执行隔离 | 工具当前直接执行，文件与 shell 没有统一策略或强制隔离（`mini_agent/core/agent.py:712-784`；`docs/UPSTREAM_AUDIT.md:49-53`）。研究用户批准负责什么、操作系统沙箱负责什么，以及工作区、网络、进程和资源边界怎样验证。 | 能够一次完成真实拒绝测试矩阵时。 |
+| 权限与执行隔离 | 工具当前直接执行，文件与 shell 没有统一策略或强制隔离（`mini_agent/core/agent.py:413-485`；`docs/UPSTREAM_AUDIT.md:49-53`）。研究用户批准负责什么、操作系统沙箱负责什么，以及工作区、网络、进程和资源边界怎样验证。 | 能够一次完成真实拒绝测试矩阵时。 |
 | 指令、skills 与 MCP 的信任边界 | 系统提示词、skills 元数据和 MCP 工具分别在 `mini_agent/cli.py:304-398,547-567` 组装。研究加入仓库指令后，各来源如何确定优先级，外部内容怎样避免获得额外权限。 | 出现可复现的指令冲突、提示词注入或外部工具数据污染案例时。 |
 | subagent 隔离与并发 | 研究 subagent 是否真的减少父级上下文，以及预算、工具权限、结果大小和并发文件修改怎样隔离。 | 能先定义可量化收益和冲突案例时；仅仅“能启动另一个 agent”不算完成。 |
-| 轨迹、回放与任务级评测 | core 已提供带 Session、Turn、Step 身份的进程内同步事件，但没有持久化或回放语义（`mini_agent/core/events.py:20-146`）。研究怎样从执行事件生成调试轨迹和回放，并在模块回归之外度量任务完成、错误修改、调用次数、token、延迟与成本。 | 积累了单模块测试覆盖不了的真实回归，并能先定义任务结果判定时。 |
+| 轨迹、回放与任务级评测 | core 已提供带 Session、Turn、Step 身份的进程内同步事件，但没有持久化或回放语义（`mini_agent/core/events.py:20-103`）。研究怎样从执行事件生成调试轨迹和回放，并在模块回归之外度量任务完成、错误修改、调用次数、token、延迟与成本。 | 积累了单模块测试覆盖不了的真实回归，并能先定义任务结果判定时。 |
 
 本轮选题范围参考了 Codex、Gemini CLI、OpenHands、aider、SWE-agent 和 goose 的一手资料；外部项目拥有某项能力不构成本项目实现它的理由，真正选择主题时重新核对当时源码。
 
@@ -52,11 +52,12 @@
 
 ## 最近完成
 
-- **模型 API adapter 边界**：core 通过 `ModelClient` 调用模型并使用中性 `ToolDefinition`；显式注册表选择具体 wire adapter，端点、模型和输出上限不再由域名或 vendor 默认值推断。19 项 adapter 定向离线测试覆盖配置迁移、逐字端点传递、SDK 请求、工具历史、基础响应和单一重试所有权；未探测 `usage` 不再控制压缩，自动压缩没有显式本地预算时关闭。标准离线集合共 `162 passed`。取舍见 [`decisions/0005-explicit-model-api-adapters.md`](decisions/0005-explicit-model-api-adapters.md)。
+- **删除旧本地压缩**：Session 暂以完整模型历史直传；本地 token 估算、摘要替换、四类压缩事件、配置字段、摘要用途标签和 `tiktoken`/`regex` 依赖已经删除，旧配置键明确失败。64 项定向回归与锁文件校验通过，标准离线集合共 `157 passed`。取舍见 [`decisions/0006-remove-legacy-local-compaction.md`](decisions/0006-remove-legacy-local-compaction.md)。
+- **模型 API adapter 边界**：core 通过 `ModelClient` 调用模型并使用中性 `ToolDefinition`；显式注册表选择具体 wire adapter，端点、模型和输出上限不再由域名或 vendor 默认值推断。18 项 adapter 定向离线测试覆盖配置迁移、逐字端点传递、SDK 请求、工具历史、基础响应和单一重试所有权；未探测 `usage` 只供观察。取舍见 [`decisions/0005-explicit-model-api-adapters.md`](decisions/0005-explicit-model-api-adapters.md)。
 - **显式执行生命周期**：`AgentSession` 表示一段逻辑对话，`TurnHandle` 表示一次控制权交接，Step 表示一次 agent 模型请求及其完整工具批次；结构化停止原因不判断任务成功。44 项 agent loop 与生命周期定向离线测试覆盖原子接纳、状态快照、中断、错误、观察隔离及 CLI 层级；标准离线集合共 `144 passed`。取舍见 [`decisions/0004-session-turn-step-lifecycle.md`](decisions/0004-session-turn-step-lifecycle.md)。
-- **core agent loop 边界**：模型—工具控制流、消息与压缩状态移入 `mini_agent/core/`，CLI 通过同步事件完成终端渲染和原有日志；没有真实客户端与端到端协议测试的 ACP 已删除。122 项离线测试覆盖事件顺序、无 UI 运行和 CLI 适配。取舍见 [`decisions/0003-remove-acp-and-extract-core-loop.md`](decisions/0003-remove-acp-and-extract-core-loop.md)。
+- **core agent loop 边界**：模型—工具控制流与消息状态移入 `mini_agent/core/`，CLI 通过同步事件完成终端渲染和原有日志；没有真实客户端与端到端协议测试的 ACP 已删除。122 项离线测试覆盖事件顺序、无 UI 运行和 CLI 适配。取舍见 [`decisions/0003-remove-acp-and-extract-core-loop.md`](decisions/0003-remove-acp-and-extract-core-loop.md)。
 - **文件工具重写**：`read_file` 采用有界完整行窗口，`edit_file` 始终要求唯一精确匹配，写入以同目录原子替换提交；27 项定向离线测试覆盖预算、续读、歧义、CRLF、权限位和故障注入。取舍见 [`decisions/0002-bounded-and-atomic-file-tools.md`](decisions/0002-bounded-and-atomic-file-tools.md)。
-- **LLM 测试替身**：`tests/llm_test_double.py` 与 `tests/test_agent_loop_offline.py` 已提供确定、离线的真实 agent loop 测试入口；全局调用序列的取舍见 [`decisions/0001-strict-global-llm-call-script.md`](decisions/0001-strict-global-llm-call-script.md)。
+- **LLM 测试替身**：`tests/llm_test_double.py` 与 `tests/test_agent_loop_offline.py` 已提供确定、离线的真实 agent loop 测试入口；严格 FIFO 保留，用途标签已由 [`ADR-0006`](decisions/0006-remove-legacy-local-compaction.md) 随摘要调用删除。
 
 ## 一项改造的完成标准
 

@@ -29,7 +29,7 @@ git archive 157928f mini_agent | tar -x -C "$repro_dir"
 - `api_key`、`adapter`、`api_base`、`model` 与 `max_output_tokens` 显式配置；未知名称和旧 `provider` 字段立即失败，`api_base` 原样交给 adapter。
 - Anthropic-compatible 与 OpenAI-compatible 表示本地 wire adapter，不表示已采用或验证对应 vendor 服务；未经探测的推理状态续传、缓存用量和服务端上下文扩展不进入默认请求。
 
-不在本轮范围：流式输出、错误分类、动态插件发现、真实端点能力探测、设计新的上下文策略、重写 agent loop，或切换本地 `config.yaml` 中的服务。本轮只从旧压缩路径移除隐藏模型预算和未探测 `usage` 控制，默认降级为不自动压缩。
+不在本轮范围：流式输出、错误分类、动态插件发现、真实端点能力探测、设计新的上下文策略、重写 agent loop，或切换本地 `config.yaml` 中的服务。本轮只让 `usage` 保持观察数据，并在当时默认关闭旧压缩；该实现后续由 [ADR-0006](../decisions/0006-remove-legacy-local-compaction.md) 完全删除。
 
 ## 实际实现
 
@@ -39,7 +39,7 @@ git archive 157928f mini_agent | tar -x -C "$repro_dir"
 - 共享 adapter 基类只保留当前两种实现共用的设置、重试回调与 `generate()`，不再规定 system message 或请求结构（`mini_agent/llm/base.py:10-60`）。
 - 配置不再提供 vendor 端点、模型或输出上限默认值；旧 `provider` 字段在 YAML 与直接构造 `LLMConfig` 时都会失败，示例配置也已移除它并由离线测试同步验证（`mini_agent/config.py:24-42,112-163`；`tests/test_llm_adapters.py:41-150`）。
 - 两个 adapter 显式关闭 SDK 内建重试，项目重试层是唯一策略所有者；产生这一修正的实测见 [P-006](../PITFALLS.md#p-006--关闭项目重试不等于-sdk-不会重试)。
-- adapter 保留可空的原生 `finish_reason`，不在字段缺失时伪造 `stop`；基础 `usage` 只供观察，不在未经探测时控制压缩。没有显式 `local_compaction_token_limit` 时，旧本地压缩估算关闭（`mini_agent/schema/schema.py:40-47`；`mini_agent/core/agent.py:107-111,136-140,296-326,678-681`）。
+- adapter 保留可空的原生 `finish_reason`，不在字段缺失时伪造 `stop`；基础 `usage` 只供观察，不在未经探测时控制任何上下文策略（`mini_agent/schema/schema.py:40-47`；`mini_agent/core/agent.py:125-127,380-383`）。core 当前没有自动上下文预算或压缩。
 
 ## 离线验证
 
@@ -47,4 +47,4 @@ git archive 157928f mini_agent | tar -x -C "$repro_dir"
 .venv/bin/python -m pytest -q tests/test_llm_adapters.py
 ```
 
-2026-08-25 实测为 `19 passed in 0.38s`。缺少字段、旧字段迁移、未知名称、端点逐字传递（可检出改写）、SDK 隐式重试、wire 工具包装、历史工具调用、未探测推理状态回传、可空终止原因和基础用量映射都由离线断言覆盖。标准离线集合实测为 `162 passed in 9.87s`，继续覆盖未探测 `usage` 不控制压缩、摘要与 Step 共用同一模型、Session/Turn/Step 生命周期及消息隔离不变量。
+2026-08-25 删除旧压缩后的实测为 `18 passed in 0.49s`。缺少字段、旧字段迁移、未知名称、端点逐字传递（可检出改写）、SDK 隐式重试、wire 工具包装、历史工具调用、未探测推理状态回传、可空终止原因和基础用量映射都由离线断言覆盖。标准离线集合实测为 `157 passed in 10.08s`，继续覆盖 `usage` 仅供观察、Session/Turn/Step 生命周期及消息隔离不变量。

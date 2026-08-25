@@ -61,19 +61,18 @@
 
 - 日期：2026-08-24
 - 原以为：把事件定义成 frozen dataclass，并用 tuple 保存消息和工具，就足以让 `AgentEventSink` 成为只读观察者。
-- 实际是：tuple 里的 Pydantic 消息、工具实例和参数字典仍可修改。初版实现中，接收器能改写随后发送给真实模型的摘要消息，也能通过 `ModelRequest.tools` 修改 Session 中实际使用的工具。
+- 实际是：tuple 里的 Pydantic 消息、工具实例和参数字典仍可修改。初版实现中，接收器能改写随后发送给真实模型的消息，也能通过 `ModelRequest.tools` 修改 Session 中实际使用的工具。
 - 根因：浅层不可变容器不提供所有权隔离；只要事件和执行路径共享任意可变嵌套对象，观察者就仍是隐式写入者。
-- 复现：下列测试故意修改 agent 与摘要请求事件；实现必须让真实模型请求、Session 历史和工具定义保持原值。
+- 复现：下列测试故意修改普通模型请求与响应事件；实现必须让真实模型请求、Session 历史和工具定义保持原值。
 
   ```bash
-  .venv/bin/python -m pytest -q -p no:cacheprovider \
-    tests/test_agent_session_offline.py::test_event_observer_cannot_mutate_model_input_or_session_state \
-    tests/test_agent_session_offline.py::test_summary_model_call_is_turn_maintenance_not_a_step
+  .venv/bin/python -m pytest -q \
+    tests/test_agent_session_offline.py::test_event_observer_cannot_mutate_model_input_or_session_state
   ```
 
-  修复后实测输出为 `2 passed, 1 warning in 0.65s`；警告仍是既有的未知 `cache_dir` 配置。
+  删除旧压缩后的实测输出为 `1 passed in 0.74s`。测试继续覆盖消息、响应与工具定义的深快照；摘要专属用例已由 ADR-0006 随该调用一起删除。
 - 教训：agent 事件边界要验证嵌套对象的所有权，而不只看最外层类型；观察接口应发送独立快照或真正的不可变值，尤其不能把同一消息对象同时交给日志接收器和模型客户端。
-- 关联：`mini_agent/core/agent.py:404-498,609-681`、`mini_agent/core/events.py:42-81`、`tests/test_agent_session_offline.py:353-380,669-724`、[ADR-0004](decisions/0004-session-turn-step-lifecycle.md)、提交 `fdcd945`。
+- 关联：`mini_agent/core/agent.py:312-390`、`mini_agent/core/events.py:42-69`、`tests/test_agent_session_offline.py:340-367`、[ADR-0004](decisions/0004-session-turn-step-lifecycle.md)、[ADR-0006](decisions/0006-remove-legacy-local-compaction.md)、提交 `fdcd945`。
 
 ## P-004 · 事件分层正确不等于 CLI 已表达分层
 
@@ -132,6 +131,25 @@
 
 - 教训：任何 agent 的外部调用只能有一个可观察的重试策略所有者；采用 SDK 时要显式关闭或纳入它的默认重试，并用客户端构造参数测试锁住这个边界。
 - 关联：`mini_agent/llm/anthropic_client.py:42-46`、`mini_agent/llm/openai_client.py:44-48`、`tests/test_llm_adapters.py:220-426`、[ADR-0005](decisions/0005-explicit-model-api-adapters.md)、提交 `204c022`。
+
+## P-007 · `uv lock --check` 不会清理不可达包块
+
+- 日期：2026-08-25
+- 原以为：从项目依赖删除 `tiktoken` 后，只要 `uv lock --check` 通过，就能证明锁文件没有残留它和独占依赖 `regex` 的包块。
+- 实际是：在已经一致的锁文件末尾追加一个没有任何依赖者的 `unused-orphan` 包块后，`uv lock --check` 仍以退出码 0 报告 `Resolved 60 packages in 21ms`；删除该包块后当前项目实际解析 59 个包。
+- 根因：`--check` 验证项目依赖能否由锁文件一致解析，不负责把锁文件规范化为只含从项目根可达的包；额外包块可以同时满足检查。
+- 复现：下列命令在临时目录重放提交 `3cbf242` 的依赖文件，追加一个不可达包块，不修改当前工作树也不访问模型 API。
+
+  ```bash
+  repro_dir="$(mktemp -d)"
+  git archive 3cbf242 pyproject.toml uv.lock README.md | tar -x -C "$repro_dir"
+  printf '\n[[package]]\nname = "unused-orphan"\nversion = "1.0.0"\nsource = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }\n' >> "$repro_dir/uv.lock"
+  (cd "$repro_dir" && UV_CACHE_DIR="$repro_dir/.uv-cache" uv lock --check)
+  ```
+
+  2026-08-25 实测输出为 `Resolved 60 packages in 21ms`，退出码为 0。
+- 教训：agent 项目删除依赖时，锁文件一致性检查必须再配合依赖图、针对包名的搜索和完整 diff；不能把 `lock --check` 当成不可达包垃圾回收器。
+- 关联：`pyproject.toml:11-23`、`uv.lock`、[ADR-0006](decisions/0006-remove-legacy-local-compaction.md)、提交 `3cbf242`。
 
 ## 模板
 

@@ -4,6 +4,8 @@
 - 状态：已采纳
 - 关联：`mini_agent/core/agent.py`、`mini_agent/core/turn.py`、`mini_agent/core/events.py`、`tests/test_agent_session_offline.py`、提交 `fdcd945`
 
+> 后续修订：[ADR-0006](0006-remove-legacy-local-compaction.md) 删除了 token 限额快照、摘要维护调用及相应事件；Session、Turn、Step 的生命周期和所有权 contract 继续有效。以下正文保留当时决定，不作追写。
+
 ## 背景
 
 ADR-0003 把唯一模型—工具循环移入 core，但当时为了缩小迁移范围，保留了“长期消息对象 + `await Agent.run() -> str`”的公开 contract。可用 `git show fdcd945^:mini_agent/core/agent.py | rg -n "add_user_message|async def run|RunFinished"` 复查旧实现。旧 CLI 丢弃字符串，只消费事件；模型不再请求工具又被命名为 `completed`。这只能证明一次执行交回控制权，不能证明代码任务正确，也没有表达活动执行的身份和所有权。
@@ -57,3 +59,5 @@ Session 身份、模型引用、工具映射、步数和 token 上限在接纳�
 2026-08-25 的 CLI 复查又证明事件类型接线正确不等于用户可见语义正确：初版适配器突出显示 Step，却不显示正常 Turn 结束，还把 Step 写成 `completed`。提交 `6147f7d` 因此把事件作为唯一生命周期来源，分别显示 Turn 与 Step，并用中性符号表达 `end_turn`；这没有改变本 ADR 的 core contract。
 
 当前结果建立了可消费的执行生命周期，但没有建立仅追加的会话事实、真正取消正在等待的模型或工具、任务完成判定、持久化轨迹或基准评测分数。下一项研究仍需从 `docs/BUILD_LIST.md` 单独选择，不能把这些缺口宣称为本轮能力。
+
+ADR-0006 删除摘要维护后，Step 现在覆盖全部模型调用，不再需要 `step=None` 的模型事件；Turn 事件仍使用可选 Step 身份。跨 Turn 完整历史、配置快照、工具批次提交和中断边界回归保持绿色，因此生命周期主 contract 没有随压缩删除而变化。

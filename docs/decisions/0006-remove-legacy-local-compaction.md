@@ -2,7 +2,7 @@
 
 - 日期：2026-08-25
 - 状态：已采纳
-- 关联：`mini_agent/core/agent.py:90-127,227-390`、`mini_agent/core/events.py:11-82`、`mini_agent/config.py:111-164`、`tests/test_agent_session_offline.py:112-143`、`tests/test_llm_adapters.py:100-107`
+- 关联：`mini_agent/core/agent.py:90-127,227-390`、`mini_agent/core/events.py:11-82`、`mini_agent/config.py:111-164`、`tests/test_agent_session_offline.py:113-143`、`tests/test_llm_adapters.py:100-107`、提交 `3cbf242`
 
 ## 背景
 
@@ -47,6 +47,6 @@ rg -n 'tiktoken|^name = "regex"$|\{ name = "regex"' pyproject.toml uv.lock
 
 ## 回头看
 
-实现实际删除了生产路径中的本地估算与摘要状态，也删除了只为区分摘要调用存在的事件和测试用途标签；普通模型事件、严格 FIFO、工具调用配对与报告用量观察均保持。定向离线回归和锁文件校验已通过，没有引入替代压缩实现，也没有探测真实端点。
+实现实际删除了生产路径中的本地估算与摘要状态，也删除了只为区分摘要调用存在的事件和测试用途标签；普通模型事件、严格 FIFO、工具调用配对与报告用量观察均保持。定向回归、锁文件校验和标准离线集合 `157 passed in 10.08s` 均通过，没有引入替代压缩实现，也没有探测真实端点。
 
 本次偏差是旧配置键不能随字段一起简单消失：`Config.from_yaml()` 会忽略未手工读取的根级键，所以最终增加了定向迁移错误，避免旧配置静默失效。通用未知字段治理仍留给后续配置单一真源工作。

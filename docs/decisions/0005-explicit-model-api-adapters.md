@@ -4,6 +4,8 @@
 - 状态：已采纳
 - 关联：`mini_agent/llm/protocol.py`、`mini_agent/llm/factory.py`、`mini_agent/llm/anthropic_client.py`、`mini_agent/llm/openai_client.py`、`tests/test_llm_adapters.py`、提交 `e92b28c`、`204c022`、`23e0521`、`fe04ae8`、`39f7cab`、`ad2f12f`、[P-006](../PITFALLS.md#p-006--关闭项目重试不等于-sdk-不会重试)
 
+> 后续修订：[ADR-0006](0006-remove-legacy-local-compaction.md) 从“默认关闭”推进为完全删除 `local_compaction_token_limit` 与旧本地压缩；`usage` 仅供观察和 adapter 隔离决定继续有效。以下正文保留当时决定，不作追写。
+
 ## 背景
 
 实现前的 `LLMClient` 同时负责协议选择、MiniMax 域名识别、URL 改写和客户端构造。2026-08-25 离线实测把用户输入的 `https://api.minimax.io.evil/v1proxy` 改成了 `https://api.minimax.io.evilproxy/anthropic`；`provider="typo"` 还会被 CLI 的二分分支当成 OpenAI-compatible。可重复运行的历史代码提取命令与输出见 [`docs/specs/02-model-adapters.md`](../specs/02-model-adapters.md#问题证据)；当前回归用同一历史 URL 验证两个注册表项都逐字传递端点（`tests/test_llm_adapters.py:153-206`）。
@@ -46,3 +48,5 @@ core 实际只需要 `generate(messages, tools) -> LLMResponse`，却由工具�
 实现时还发现项目层关闭重试后，两个 SDK 仍各自默认重试两次。最终显式设置 `max_retries=0`，避免重试层相乘；可复现过程见 [P-006](../PITFALLS.md#p-006--关闭项目重试不等于-sdk-不会重试)。终审又发现共享基类泄漏 Anthropic 请求形状、固定模型预算和未探测 `usage` 仍影响控制流；最终删除共享 wire 抽象、默认关闭本地压缩，并用离线回归锁住“报告用量不触发压缩”。
 
 没有运行真实端点，因此当前只宣称两种基础 wire adapter 通过离线 contract 测试，不宣称任何 vendor 服务兼容性。统一认证输入目前仍是 `api_key`；无认证、OAuth 或签名认证需要出现实际目标 API 后再扩展 factory contract。
+
+ADR-0006 删除压缩后，adapter contract、静态注册表、端点逐字传递和单一重试所有权均未变化；只移除了 core 对本地估算的可选控制路径。基础 `usage` 映射仍由 adapter 离线测试覆盖，Session 只把它保存为观察数据。
