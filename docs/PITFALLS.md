@@ -225,6 +225,30 @@
 - 教训：任何拥有 agent 副作用的管理器都要在首个可重入边界前封闭新接纳，并用交错调度测试证明多个关闭调用者只触发一次副作用。
 - 关联：`mini_agent/tools/bash_tool.py:109-238`、`tests/test_background_shell_lifecycle.py`、[ADR-0009](decisions/0009-runtime-owned-background-shells.md)、提交 `9a088b6`。
 
+## P-012 · 统一投影边界仍会改变叶子工具的模型承诺
+
+- 日期：2026-08-25
+- 原以为：只在 `ToolBatchExecutor` 的模型消息投影处截断，不改原始 `ToolResult`、事件或各工具实现，就完全不需要检查具体工具的公开 contract。
+- 实际是：`get_skill` 的模型描述明确承诺 `complete content`；即使工具直接返回仍完整，超过统一预算的模型可见结果也会带截断标记。若只加批次执行器挂钩，这句描述就会向模型承诺实际无法保证的行为。
+- 根因：统一强制点能集中执行策略，却不能自动修正叶子能力的说明；模型工具描述本身也是 contract 消费面，不等同于 Python 返回对象。
+- 复现：下列命令先显示实现前的工具描述，再把首个超限文本投影到当前预算：
+
+  ```bash
+  git show 07e272b^:mini_agent/tools/skill_tool.py | sed -n '23,26p'
+  .venv/bin/python - <<'PY'
+  from mini_agent.core.tool_output import MAX_TOOL_MESSAGE_BYTES, truncate_tool_message
+  raw = "x" * (MAX_TOOL_MESSAGE_BYTES + 1)
+  projected = truncate_tool_message(raw)
+  print("raw_bytes", len(raw.encode("utf-8")))
+  print("projected_bytes", len(projected.encode("utf-8")))
+  print("has_marker", "[Tool output truncated:" in projected)
+  PY
+  ```
+
+  本次实测旧描述包含 `Get complete content`，随后输出 `raw_bytes 65537`、`projected_bytes 65534` 和 `has_marker True`。
+- 教训：agent 项目新增统一策略边界时，除了检查数据所有权，还要反向审计所有模型可见工具描述与错误文案；实现集中不代表 contract 只存在于集中点。
+- 关联：`mini_agent/core/tool_execution.py:114-132`、`mini_agent/core/tool_output.py:6-69`、`mini_agent/tools/skill_tool.py:23-28`、`tests/test_skill_tool.py:92-111`、[ADR-0010](decisions/0010-model-facing-tool-output-budget.md)、提交 `07e272b`。
+
 ## 模板
 
 ```markdown

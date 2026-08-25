@@ -64,6 +64,8 @@ cli.run_agent()
 
 要研究的问题：结构化搜索、忽略规则、显式截断元数据，以及成功与错误输出的统一限制。
 
+实现结果没有改写以上 baseline 证据：当前在原始 `ToolFinished` 之后统一生成每条最多 64 KiB 的模型可见投影，成功与失败共用 UTF-8 字节预算，见 [ADR-0010](decisions/0010-model-facing-tool-output-budget.md)。原始事件、日志、工具缓冲与整批合计仍不受该预算限制。
+
 ### 6. 测试无法证明 agent loop 正确
 
 现有测试混入真实 API，部分测试以 `return True/False` 代替断言并吞掉异常；离线测试集也包含已知 ACP 故障。
@@ -98,6 +100,7 @@ CLI 分别构造启动、读取与终止工具，退出路径却只调用 MCP �
 | 后台 shell 使用进程级共享表 | `mini_agent/tools/bash_tool.py:108-127` | 当前已改为 CLI runtime 持有的实例 manager；隔离回归见 `tests/test_background_shell_lifecycle.py` |
 | monitor 取消和强杀不等待收敛 | `mini_agent/tools/bash_tool.py:96-105,181-188` | 当前 terminate/close 会等待 monitor，强杀后再次等待 subprocess |
 | CLI 没有后台 shell 关闭入口 | `mini_agent/cli.py:805-806` | 当前正常、异常和取消路径都按 shell、MCP 顺序清理；取舍见 ADR-0009 |
+| 成功与失败工具输出可无界进入模型历史 | `mini_agent/tools/bash_tool.py:32-49`、`mini_agent/agent.py:436-469` | 当前由批次执行器统一生成每条最多 64 KiB 的模型投影；原始事件与日志保持完整，取舍见 ADR-0010 |
 
 ## 审计不直接决定实现
 

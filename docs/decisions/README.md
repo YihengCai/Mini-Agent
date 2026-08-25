@@ -43,5 +43,7 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0006](0006-remove-legacy-local-compaction.md) | 删除旧本地压缩，暂以完整历史直传 | 已采纳 |
 | [0007](0007-explicit-opt-in-for-external-tests.md) | 外部测试必须通过 marker 与收集门显式允许 | 已采纳 |
 | [0008](0008-session-owned-tool-batch-executor.md) | Session 以冻结注册与批次执行器统一模型工具调用 | 已采纳 |
+| [0009](0009-runtime-owned-background-shells.md) | 后台 shell 由一次 CLI runtime 显式持有并统一关闭 | 已采纳 |
+| [0010](0010-model-facing-tool-output-budget.md) | 工具原始事实保持完整，模型消息投影按 UTF-8 字节约束 | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。

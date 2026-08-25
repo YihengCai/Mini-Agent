@@ -6,11 +6,9 @@
 
 选择一个主题时，先为它找到当前代码中的失败证据和一分钟内可运行的离线验证，再写改动前简报。具体接口、类名和文件布局到实现时再决定，不为候选主题提前创建规格或 ADR。
 
-## 当前工作：约束工具输出进入模型消息的预算
+## 当前工作：待选择
 
-`BashOutputResult` 把 stdout 与 stderr 原样拼入 `content`，没有字节或行数上限（`mini_agent/tools/bash_tool.py:18-49`）；`ToolBatchExecutor` 随后把成功结果的 `content` 直接写入模型可见工具消息（`mini_agent/core/tool_execution.py:120-129`）。离线探针 `.venv/bin/python -c 'from mini_agent.tools.bash_tool import BashOutputResult; r=BashOutputResult(success=True, stdout="x"*200000, stderr="", exit_code=0); print("content_bytes", len(r.content.encode()))'` 实测输出 `content_bytes 200000`，证明当前没有截断。
-
-当前工作先用一分钟内的离线回归覆盖成功、失败、多字节字符、边界值和截断元数据，再根据事实所有权决定由单个工具还是模型调度边界强制。不顺手实现自动摘要、持久化 artifact、流式输出、并行调用、权限、沙箱或上下文压缩。
+模型可见工具输出预算已经完成并移入“最近完成”。下一项仍按本页的选择条件，从当前代码的可复现失败进入；这里不提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -22,8 +20,8 @@
 | 模型调用扩展 | 基础 `ModelClient` contract、显式注册表和两种 wire adapter 已落地，但仍没有流式响应、统一错误分类或真实端点能力记录（`mini_agent/llm/protocol.py:9-25`；`mini_agent/llm/factory.py:11-50`；`docs/PROVIDER_CAPABILITIES.md:20`）。 | 出现流式消费或可复现错误语义需求，或当前端点的新能力必须进入请求时。 |
 | 上下文管理 | 旧本地压缩已由 [ADR-0006](decisions/0006-remove-legacy-local-compaction.md) 删除；当前完整历史无预算直传，`usage` 仅供观察。研究 token 预算、选择、压缩和失败行为需要哪些不变量。 | 事实记录与请求视图边界稳定、工具输出有预算后；依赖 vendor 能力前先做端点探测。 |
 | 任务模式与意图边界 | 研究“讨论、规划、修改、审查”等意图应由显式模式、确定性规则还是模型判断，以及能力边界是否要通过工具和权限强制。这里不预设需要单独的意图分类模型。 | 先复现仅靠提示词导致错误动作的案例；没有案例就继续保留为问题。 |
-| 代码搜索与上下文选择 | 项目没有专用 Glob/Grep，shell 输出也没有统一上限（`docs/UPSTREAM_AUDIT.md:61-65`）。研究搜索、忽略规则、截断信息和 token 预算；直接使用 `rg` 与仓库地图都只是候选。 | 出现可复现的代码定位失败或搜索结果挤占上下文时。 |
-| 工具执行与输出边界 | 工具现在只由 core 串行执行，但 shell 输出仍可不受限地进入模型消息（`mini_agent/core/agent.py:413-485`；`mini_agent/tools/bash_tool.py:18-49`）。研究参数校验、失败隔离、长运行进程、并行调用和输出预算。 | 从一个具体工具失败或输出失控案例进入。 |
+| 代码搜索与上下文选择 | 项目没有专用 Glob/Grep；搜索依赖 bash，结果只有通用单条 64 KiB 首尾截断，没有忽略规则、结构化匹配或可恢复分页（`mini_agent/core/tool_output.py:6-69`；`docs/UPSTREAM_AUDIT.md:61-65`）。研究搜索、截断信息和 token 预算；直接使用 `rg` 与仓库地图都只是候选。 | 出现可复现的代码定位失败或搜索结果挤占上下文时。 |
+| 工具执行与输出边界 | core 已统一结构预检、串行执行和单条模型消息预算（`mini_agent/core/tool_execution.py:90-195`；`mini_agent/core/tool_output.py:6-69`），但没有 JSON Schema 参数校验、长运行控制、并行执行、整批合计预算或可恢复的超限正文。 | 从一个具体参数、长运行、批次总量或恢复失败案例进入。 |
 | 可靠的代码编辑与恢复 | 当前已完成唯一精确匹配、单文件原子替换和提交前失败不改目标（`mini_agent/tools/file_tools.py:81-126,468-573`）；仍没有读取版本回执或并发覆盖检测，也不能一起恢复多个文件、工具副作用和模型状态。 | 先复现读取后并发变化造成的丢失更新，或需要跨文件恢复的具体失败；检查点只有在能完成恢复验证时才进入实现。 |
 | 权限与执行隔离 | 工具当前直接执行，文件与 shell 没有统一策略或强制隔离（`mini_agent/core/agent.py:413-485`；`docs/UPSTREAM_AUDIT.md:49-53`）。研究用户批准负责什么、操作系统沙箱负责什么，以及工作区、网络、进程和资源边界怎样验证。 | 能够一次完成真实拒绝测试矩阵时。 |
 | 指令、skills 与 MCP 的信任边界 | 系统提示词、skills 元数据和 MCP 工具分别在 `mini_agent/cli.py:304-398,547-567` 组装。研究加入仓库指令后，各来源如何确定优先级，外部内容怎样避免获得额外权限。 | 出现可复现的指令冲突、提示词注入或外部工具数据污染案例时。 |
@@ -54,6 +52,7 @@
 
 ## 最近完成
 
+- **模型可见工具输出预算**：原始 `ToolResult` 与 `ToolFinished` 保持完整，批次执行器只把模型消息投影限制为每条 64 KiB UTF-8 字节；精确边界不变，超限保留首尾并报告原始、保留、省略和上限字节数，失败前缀计入预算。3 项新增回归覆盖 UTF-8、事件所有权、观察者变异、历史、下一次请求与批次顺序；删除挂钩时集成回归实测转红。显式排除 `external` 的完整集合实测 `230 passed, 9 deselected in 13.57s`，取舍见 [`decisions/0010-model-facing-tool-output-budget.md`](decisions/0010-model-facing-tool-output-budget.md)。
 - **后台 shell 状态与资源所有权**：配置和模型客户端成功后，一次 CLI runtime 持有显式注入三个 shell 工具的 manager；`/clear` 保留它，退出才按 shell、MCP 顺序关闭。manager 隔离状态，拒绝重复与关闭后登记，串行化并发 `close()`，等待 monitor 和强杀后 subprocess，并保留失败项供重试。25 项定向回归与显式排除 `external` 的完整集合实测为 `227 passed, 9 deselected in 14.00s`，取舍见 [`decisions/0009-runtime-owned-background-shells.md`](decisions/0009-runtime-owned-background-shells.md)。
 - **模型工具批次强制点**：Session 持有冻结注册与调用标识符账本；模型批次在首个副作用前完整预检，再逐项认领并串行执行。结构错误使用 `tool_protocol_error`，工具自身失败保留为同序结果，参数、事件和历史使用独立快照，assistant 调用与全部结果成组提交。19 项定向回归覆盖重名、跨 Step/Turn 重放、非法批次零副作用、取消、串行中断和参数变异；默认入口实测 `202 passed, 9 deselected in 13.34s`。取舍见 [`decisions/0008-session-owned-tool-batch-executor.md`](decisions/0008-session-owned-tool-batch-executor.md)。
 - **默认测试入口安全、离线**：真实模型、用户 MCP 配置和网络测试统一使用 `external` marker；默认配置与根级收集门双层排除，只有显式 `--run-external` 才放行。MCP 混合模块的 24 项离线测试保留在默认集合，入口回归能检出漏标、普通 `-m` 绕过和 marker 拼错；完整默认入口实测 `183 passed, 9 deselected in 13.82s`。取舍见 [`decisions/0007-explicit-opt-in-for-external-tests.md`](decisions/0007-explicit-opt-in-for-external-tests.md)。

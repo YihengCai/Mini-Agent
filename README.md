@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-项目已在上游 baseline 上完成九项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 改由一次 CLI runtime 持有的 manager 隔离并统一回收。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
+项目已在上游 baseline 上完成十项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 改由一次 CLI runtime 持有的 manager 隔离并统一回收；每条模型可见工具结果现在还有统一的 UTF-8 字节预算。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
 
 `read_file` 现在返回 1-based 行窗口，编号正文最多 2000 个完整行或 50 KiB，并给出下一次 `offset`；`edit_file` 仅把 LF/CRLF 视为等价，其他文本必须精确匹配且只能出现一次。写入和编辑通过同目录临时文件和 `os.replace()` 提交，已有文件保留 CRLF 约定与权限位。代码可以运行，但仍保留重要限制：
 
@@ -16,8 +16,8 @@
 - `TurnOutcome` 只解释 core 为什么交还控制权，不判断用户任务是否完成；目前没有 TaskSupervisor、BenchmarkEvaluator 或 SWE-bench 接入；
 - core 事件目前只是带 Session、Turn、Step 身份的进程内同步通知，不是可持久化、可回放的轨迹格式，也还没有独立统计或基准评测消费者；
 - Esc 没有真正取消正在运行的模型或工具任务；中断只在完整 Step 边界生效，延迟可能覆盖一次模型调用和整批工具执行；
-- 工具批次目前只做结构预检和串行执行，没有 JSON Schema 参数校验、权限、自动重试或输出预算；调用标识符账本只存在于进程内，取消后不生成可恢复的模型可见事实；
-- 后台 shell 现在会在 CLI runtime 退出时收敛 monitor 并回收直接 subprocess，但还没有输出预算、进程组或后代进程清理，也不构成权限或沙箱边界；
+- 工具批次目前只做结构预检、串行执行和单条模型消息预算，没有 JSON Schema 参数校验、权限、自动重试或整批合计预算；调用标识符账本只存在于进程内，取消后不生成可恢复的模型可见事实；
+- 后台 shell 现在会在 CLI runtime 退出时收敛 monitor 并回收直接 subprocess，但内部输出缓冲、原始事件与日志仍无容量预算，也没有进程组或后代进程清理，不构成权限或沙箱边界；
 - 当前只实现 Anthropic-compatible messages 与 OpenAI-compatible chat completions 的非流式基础 adapter；名称只表示 wire 格式，没有运行真实端点验证，也没有统一错误分类，`finish_reason` 是可空的 adapter 原生元数据；
 - `usage` 只作为观察数据，不参与上下文控制；当前没有自动上下文预算或压缩，完整历史会持续增长并可能触及配置端点的上限；
 - 文件工具仍接受绝对路径和解析到工作区外的路径，也没有读取版本回执或并发覆盖检测；
@@ -39,11 +39,13 @@ LLM 测试替身已经落地：所有模型调用共用一条严格 FIFO 脚本�
 
 工具批次强制点已经落地：Session 创建时拒绝空名、重名和不合 contract 的工具元数据，并冻结模型定义与调度键；每个模型批次在首个副作用前完成结构预检，再按模型顺序串行执行。跨 Step/Turn 重复调用标识符会以 `tool_protocol_error` 拒绝，未知工具、普通异常和非法返回则各自产生同序失败结果；assistant 工具调用与全部结果仍一次性提交。工具参数、事件和历史互不共享可变嵌套对象。这个入口只约束模型响应触发的调用；可信宿主仍持有原始 Tool 引用，因此它不是权限或沙箱。取舍见 [ADR-0008](docs/decisions/0008-session-owned-tool-batch-executor.md)。
 
+模型可见工具输出预算已经落地：批次执行器在完整 `ToolFinished` 发出后，才把成功内容或带 `Error: ` 前缀的失败文本投影成最多 64 KiB 的模型消息；超限时保留合法 UTF-8 首尾，并报告原始、保留、省略和上限字节数。Session 历史与下一次模型请求使用同一个有界视图，原始工具结果、事件和日志不被改写。该预算逐条生效，不限制整批合计，也没有让省略正文可恢复；取舍见 [ADR-0010](docs/decisions/0010-model-facing-tool-output-budget.md)。
+
 后台 shell 所有权已经落地：配置与模型客户端构造成功后，CLI 创建一个 manager 并显式注入 `bash`、`bash_output` 和 `bash_kill`；`/clear` 只替换逻辑对话，退出时才按 shell、MCP 顺序清理。manager 拒绝重复标识符和关闭后登记，等待 monitor 取消与强杀后的 subprocess，并保留失败项供后续关闭重试。25 项定向离线回归覆盖跨 runtime 隔离、并发关闭、取消和清理双失败；取舍见 [ADR-0009](docs/decisions/0009-runtime-owned-background-shells.md)。
 
 模型 API 边界改造已经落地：core 只通过 `ModelClient` 调用模型，并把中性 `ToolDefinition` 与现有内部消息结构交给 adapter；静态注册表依据显式 `adapter` 选择具体 wire 编解码。配置必须提供 API key、原样端点、模型和输出上限，未知 adapter 或旧 `provider` 字段会立即失败；项目不会根据域名拼接路径，也不默认启用未经探测的推理状态续传、缓存计量或服务端扩展。Anthropic 与 OpenAI SDK 只作为协议传输实现，具体 adapter 持有认证头与 wire 编解码，SDK 自带重试已关闭，由项目重试层单独持有策略。取舍见 [ADR-0005](docs/decisions/0005-explicit-model-api-adapters.md)。
 
-ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生命周期的端到端测试；继续维护它只会让协议层提前塑造执行框架。因此当前版本主动删除 ACP，而不是把 CLI 改成 ACP 客户端。重新引入协议层的条件见 [ADR-0003](docs/decisions/0003-remove-acp-and-extract-core-loop.md)。下一项工作是约束工具输出进入模型消息的预算与截断信息；证据见 [BUILD_LIST](docs/BUILD_LIST.md)。
+ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生命周期的端到端测试；继续维护它只会让协议层提前塑造执行框架。因此当前版本主动删除 ACP，而不是把 CLI 改成 ACP 客户端。重新引入协议层的条件见 [ADR-0003](docs/decisions/0003-remove-acp-and-extract-core-loop.md)。下一项工作尚未选择；必须先按 [BUILD_LIST](docs/BUILD_LIST.md) 的条件找到当前失败证据和一分钟内的离线验证。
 
 ## 设计原则
 
@@ -72,6 +74,7 @@ ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生�
 ```text
 mini_agent/core/             UI 无关的 agent loop 与进程内事件 contract
 mini_agent/core/tool_execution.py 模型工具的冻结注册、批次预检与串行执行
+mini_agent/core/tool_output.py 模型可见工具结果的 UTF-8 字节预算
 mini_agent/cli.py            终端输入、中断轮询和运行时组装
 mini_agent/cli_events.py     终端渲染与原有文本日志的事件适配器
 mini_agent/agent.py          AgentSession 的公开导入层
@@ -139,7 +142,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-以上命令在 2026-08-25 实测为 `227 passed, 9 deselected in 14.00s`，没有产生 warning。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-25 实测为 `230 passed, 9 deselected in 13.57s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 
