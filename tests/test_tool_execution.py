@@ -136,6 +136,14 @@ class DefinitionDrivenLLM:
         return response(tool_call("metadata-call", "metadata", name=tools[0].name))
 
 
+class RetainingResponseLLM:
+    def __init__(self, retained_response: LLMResponse) -> None:
+        self.retained_response = retained_response
+
+    async def generate(self, messages, tools=None) -> LLMResponse:
+        return self.retained_response
+
+
 def build_session(tmp_path, llm, tools, *, max_steps: int = 1) -> AgentSession:
     return AgentSession(
         llm_client=llm,
@@ -647,6 +655,44 @@ async def test_tool_argument_mutation_cannot_change_events_or_history(tmp_path) 
     assert assistant_call.function.arguments == {
         "payload": {"items": ["original"]}
     }
+
+
+@pytest.mark.asyncio
+async def test_model_client_cannot_mutate_an_admitted_tool_batch(tmp_path) -> None:
+    retained_response = response(
+        tool_call("first-call", "first", name="block"),
+        tool_call("second-call", "second", name="block"),
+    )
+    llm = RetainingResponseLLM(retained_response)
+    tool = BlockingEchoTool("block", block_text="first")
+    session = build_session(tmp_path, llm, [tool])
+
+    handle = session.start_turn("own the model response")
+    await tool.entered.wait()
+    try:
+        retained_response.tool_calls[1].id = "first-call"
+        retained_response.tool_calls[1].function.arguments["text"] = (
+            "mutated-after-validation"
+        )
+    finally:
+        tool.release.set()
+    outcome = await handle.wait()
+
+    assert outcome.stop_reason == "max_steps"
+    assert tool.calls == ["first", "second"]
+    assistant_message, *tool_messages = session.get_history()[-3:]
+    assert [call.id for call in assistant_message.tool_calls] == [
+        "first-call",
+        "second-call",
+    ]
+    assert [call.function.arguments for call in assistant_message.tool_calls] == [
+        {"text": "first"},
+        {"text": "second"},
+    ]
+    assert [message.tool_call_id for message in tool_messages] == [
+        "first-call",
+        "second-call",
+    ]
 
 
 @pytest.mark.asyncio

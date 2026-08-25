@@ -337,10 +337,12 @@ class _AgentLoop:
                 return self._observer_failed_step(emitter.error)
 
             try:
-                response = await context.llm.generate(
-                    messages=model_messages,
-                    tools=model_tools,
-                )
+                response = (
+                    await context.llm.generate(
+                        messages=model_messages,
+                        tools=model_tools,
+                    )
+                ).model_copy(deep=True)
             except Exception as error:
                 from ..retry import RetryExhaustedError
 
