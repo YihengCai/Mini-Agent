@@ -46,5 +46,6 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0009](0009-runtime-owned-background-shells.md) | 后台 shell 由一次 CLI runtime 显式持有并统一关闭 | 已采纳 |
 | [0010](0010-model-facing-tool-output-budget.md) | 工具原始事实保持完整，模型消息投影按 UTF-8 字节约束 | 已采纳 |
 | [0011](0011-runtime-owned-mcp-connections.md) | MCP 超时与连接由一次 CLI runtime 显式持有并统一关闭 | 已采纳 |
+| [0012](0012-strict-single-source-config-loading.md) | 配置模型同时持有默认值与未知字段边界 | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。

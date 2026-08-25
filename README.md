@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-项目已在上游 baseline 上完成十一项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收；每条模型可见工具结果现在还有统一的 UTF-8 字节预算。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
+项目已在上游 baseline 上完成十二项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收；每条模型可见工具结果现在还有统一的 UTF-8 字节预算；配置模型现在拒绝未知字段并单独持有默认值。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
 
 `read_file` 现在返回 1-based 行窗口，编号正文最多 2000 个完整行或 50 KiB，并给出下一次 `offset`；`edit_file` 仅把 LF/CRLF 视为等价，其他文本必须精确匹配且只能出现一次。写入和编辑通过同目录临时文件和 `os.replace()` 提交，已有文件保留 CRLF 约定与权限位。代码可以运行，但仍保留重要限制：
 
@@ -45,6 +45,8 @@ LLM 测试替身已经落地：所有模型调用共用一条严格 FIFO 脚本�
 后台 shell 所有权已经落地：配置与模型客户端构造成功后，CLI 创建一个 manager 并显式注入 `bash`、`bash_output` 和 `bash_kill`；`/clear` 只替换逻辑对话，退出时才按 shell、MCP 顺序清理。manager 拒绝重复标识符和关闭后登记，等待 monitor 取消与强杀后的 subprocess，并保留失败项供后续关闭重试。25 项定向离线回归覆盖跨 runtime 隔离、并发关闭、取消和清理双失败；取舍见 [ADR-0009](docs/decisions/0009-runtime-owned-background-shells.md)。
 
 MCP 运行时所有权也已经落地：CLI 用配置构造不可变超时快照，并把同一个 `MCPManager` 交给 loader 与最终清理；不同 runtime 不共享超时或连接。manager 在连接建立前登记所有权，串行化加载与关闭，尝试全部连接并保留失败项；叶子连接只有在 transport 关闭成功后才丢弃句柄，所以取消后的关闭可以真实重试。它不改变 transport、配置查找、工具结果语义或权限；取舍见 [ADR-0011](docs/decisions/0011-runtime-owned-mcp-connections.md)。
+
+配置解析也已经收紧：根级扁平 YAML 仍映射到 `llm`、`agent` 和 `tools`，但所有配置模型现在共享未知字段拒绝策略；根级允许集合、必填字段与分片从模型字段派生，解析器不再重复 18 个默认值。拼错的根级、重试、工具或 MCP 键会在启动时指出原字段，合法缺省值只由模型补全；数值语义和配置文件来源不属于这次改造。取舍见 [ADR-0012](docs/decisions/0012-strict-single-source-config-loading.md)。
 
 模型 API 边界改造已经落地：core 只通过 `ModelClient` 调用模型，并把中性 `ToolDefinition` 与现有内部消息结构交给 adapter；静态注册表依据显式 `adapter` 选择具体 wire 编解码。配置必须提供 API key、原样端点、模型和输出上限，未知 adapter 或旧 `provider` 字段会立即失败；项目不会根据域名拼接路径，也不默认启用未经探测的推理状态续传、缓存计量或服务端扩展。Anthropic 与 OpenAI SDK 只作为协议传输实现，具体 adapter 持有认证头与 wire 编解码，SDK 自带重试已关闭，由项目重试层单独持有策略。取舍见 [ADR-0005](docs/decisions/0005-explicit-model-api-adapters.md)。
 
@@ -105,7 +107,7 @@ uv sync
 cp mini_agent/config/config-example.yaml mini_agent/config/config.yaml
 ```
 
-编辑 `mini_agent/config/config.yaml`，删除旧 `provider` 与 `local_compaction_token_limit` 字段，并显式填写 `adapter`、`api_key`、`api_base`、`model` 和正整数 `max_output_tokens`。这两个旧字段都会明确报错，不会被静默忽略。`adapter` 当前可选 `anthropic` 或 `openai`，只选择 wire 格式；`api_base` 会逐字交给对应 adapter，因此需要包含目标端点要求的完整基础路径。模板中的占位值故意不能直接运行，避免把任一 vendor 的端点、模型或输出上限伪装成通用默认值。`config.yaml` 与 `mcp.json` 包含密钥，已被 `.gitignore` 排除，不要提交。
+编辑 `mini_agent/config/config.yaml`，删除旧 `provider` 与 `local_compaction_token_limit` 字段，并显式填写 `adapter`、`api_key`、`api_base`、`model` 和正整数 `max_output_tokens`。这两个旧字段有定向错误，其他未知根级或嵌套字段也会拒绝加载，不会静默采用默认值。`adapter` 当前可选 `anthropic` 或 `openai`，只选择 wire 格式；`api_base` 会逐字交给对应 adapter，因此需要包含目标端点要求的完整基础路径。模板中的占位值故意不能直接运行，避免把任一 vendor 的端点、模型或输出上限伪装成通用默认值。`config.yaml` 与 `mcp.json` 包含密钥，已被 `.gitignore` 排除，不要提交。
 
 ### 交互式手动体验
 
@@ -145,7 +147,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-25 实测为 `237 passed, 9 deselected in 13.10s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-25 实测为 `250 passed, 9 deselected in 13.82s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 
