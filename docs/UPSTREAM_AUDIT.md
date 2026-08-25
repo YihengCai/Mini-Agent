@@ -114,6 +114,7 @@ CLI 分别构造启动、读取与终止工具，退出路径却只调用 MCP �
 | 非正 `max_steps` 会接纳零模型请求的伪 Turn | `git show 768dd64^:mini_agent/core/agent.py` 的 `91-121,161-216,229-286` | 当前配置与公开 Session 构造入口都要求正数，且在 runtime 或文件副作用前失败；取舍见 ADR-0014 |
 | 任意 `Current Workspace` 子串可抑制真实工作区事实 | `git show 95dfaa7^:mini_agent/core/agent.py` 的 `113-119` | 当前只有含本次绝对路径的完整事实块能抑制追加；模型请求回归见 `tests/test_agent_session_offline.py:153-188` |
 | 主配置与系统提示词、MCP 配置会混用不同搜索来源 | `git show 167a839^:mini_agent/cli.py` 的 `544-680` | 当前相对伴随路径绑定已选主配置父目录，绝对路径保持；来源隔离回归见 `tests/test_config_provenance.py`，取舍见 ADR-0015 |
+| 未知显式 MCP `type` 会被推断成其他 transport | `git show 3fe5709^:mini_agent/tools/mcp_loader.py` 的 `163-177,267-275,345-388` | 当前只对缺失字段自动推断，非法显式值隔离当前 server；回归见 `tests/test_mcp.py:67-76,297-348`，取舍见 ADR-0016 |
 
 ## 审计不直接决定实现
 

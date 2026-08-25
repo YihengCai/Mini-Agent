@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-配置伴随文件来源绑定已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
+MCP transport 显式校验已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **MCP transport 显式校验**：只有完全缺少 `type` 时才按 URL 推断；四个已知名称保持大小写不敏感，未知、空、`null` 与非字符串会在连接构造前隔离当前 server，并让合法后续项继续加载。6 项新增或扩展回归覆盖显式值、连接入口和 loader 隔离；恢复宽松推断与移除连接守卫时分别有 5 项和 1 项转红。完整离线集合实测 `274 passed, 9 deselected in 13.12s`，取舍见 [`decisions/0016-reject-explicit-invalid-mcp-transports.md`](decisions/0016-reject-explicit-invalid-mcp-transports.md)。
 - **配置伴随文件来源绑定**：CLI 把已选 `config.yaml` 路径显式传入同一次 runtime；相对系统提示词与 MCP 配置只从其词法父目录解析，绝对路径原样保留，缺失时使用内置提示词或保持 MCP 未加载，不再借用其他来源的同名文件。5 项新回归覆盖纯路径函数、相对存在、相对缺失与绝对路径；恢复旧全局搜索时 3 项转红。完整离线集合实测 `269 passed, 9 deselected in 13.12s`，取舍见 [`decisions/0015-bind-config-companions-to-selected-source.md`](decisions/0015-bind-config-companions-to-selected-source.md)。
 - **Session 工作区事实精确注入**：Session 先生成含本次绝对路径的完整事实块，只有同一块已存在时才跳过；调用者提示词中的偶然 `Current Workspace` 文字和旧路径继续作为前缀保留，但不能阻止真实路径进入模型请求。2 类干扰输入与 1 项准确块幂等回归通过；恢复旧子串门时两项转红。完整离线集合实测 `264 passed, 9 deselected in 13.65s`。
 - **正数 Step 预算双边界**：`AgentConfig` 在 CLI runtime 组装前要求 `max_steps > 0`，公开 `AgentSession` 在工具检查与工作区创建前独立执行同一守卫；`0/-1` 不能再接纳用户消息后以零模型请求返回 `max_steps`。配置与 core 各 2 项回归分别验证字段错误、无目录副作用和无模型请求；移除任一层时对应测试转红。完整离线集合实测 `261 passed, 9 deselected in 13.85s`，取舍见 [`decisions/0014-positive-step-budget-at-config-and-core.md`](decisions/0014-positive-step-budget-at-config-and-core.md)。
