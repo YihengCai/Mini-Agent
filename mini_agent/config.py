@@ -107,6 +107,12 @@ class Config(BaseModel):
         if not data:
             raise ValueError("Configuration file is empty")
 
+        if "provider" in data:
+            raise ValueError(
+                "Configuration field 'provider' was replaced by 'adapter'; "
+                "remove 'provider' and configure 'adapter' explicitly"
+            )
+
         # Model endpoint selection is explicit; no vendor defaults are inferred.
         required_llm_fields = (
             "api_key",

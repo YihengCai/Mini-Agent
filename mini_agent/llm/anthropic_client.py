@@ -233,7 +233,7 @@ class AnthropicAdapter(LLMAdapter):
             content=text_content,
             thinking=None,
             tool_calls=tool_calls if tool_calls else None,
-            finish_reason=response.stop_reason or "stop",
+            finish_reason=response.stop_reason,
             usage=usage,
         )
 

@@ -62,6 +62,16 @@ def test_config_rejects_unknown_adapter(tmp_path):
         Config.from_yaml(path)
 
 
+def test_config_rejects_legacy_provider_field(tmp_path):
+    data = config_data()
+    data["provider"] = "openai"
+    path = tmp_path / "config.yaml"
+    write_config(path, data)
+
+    with pytest.raises(ValueError, match="'provider'.*'adapter'"):
+        Config.from_yaml(path)
+
+
 def test_config_preserves_explicit_model_adapter_fields(tmp_path):
     data = config_data()
     path = tmp_path / "config.yaml"
@@ -476,3 +486,26 @@ def test_default_adapters_do_not_rebuild_unprobed_thinking_state():
             "content": "hi",
         },
     ]
+
+
+def test_adapters_do_not_invent_missing_finish_reason():
+    anthropic_response = SimpleNamespace(
+        content=[],
+        stop_reason=None,
+        usage=None,
+    )
+    openai_response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                finish_reason=None,
+                message=SimpleNamespace(content=None, tool_calls=None),
+            )
+        ],
+        usage=None,
+    )
+
+    anthropic_result = AnthropicAdapter._parse_response(None, anthropic_response)
+    openai_result = OpenAIAdapter._parse_response(None, openai_response)
+
+    assert anthropic_result.finish_reason is None
+    assert openai_result.finish_reason is None

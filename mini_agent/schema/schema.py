@@ -43,5 +43,5 @@ class LLMResponse(BaseModel):
     content: str
     thinking: str | None = None  # Extended thinking blocks
     tool_calls: list[ToolCall] | None = None
-    finish_reason: str  # Adapter-native metadata; the core does not branch on it
+    finish_reason: str | None = None  # Adapter metadata; core does not branch on it
     usage: TokenUsage | None = None  # Token usage from API response
