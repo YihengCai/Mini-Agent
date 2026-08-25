@@ -7,7 +7,6 @@ import pytest
 from mini_agent.cli import wait_for_turn
 from mini_agent.core import AgentSession, TurnAlreadyActiveError
 from mini_agent.core.events import (
-    CompactionFinished,
     ModelCallFailed,
     ModelRequest,
     ModelResponse,
@@ -94,36 +93,31 @@ class BlockingLLM:
 
 
 def build_session(
-    monkeypatch,
     tmp_path,
     llm,
     tools,
     *,
     max_steps: int = 3,
-    token_limit: int = 80_000,
 ) -> AgentSession:
-    session = AgentSession(
+    return AgentSession(
         llm_client=llm,
         system_prompt="You are a test agent.",
         tools=tools,
         max_steps=max_steps,
         workspace_dir=str(tmp_path),
-        token_limit=token_limit,
         session_id="test-session",
     )
-    monkeypatch.setattr(session, "_estimate_tokens", lambda: 0)
-    return session
 
 
 @pytest.mark.asyncio
-async def test_session_keeps_history_across_distinct_turns(monkeypatch, tmp_path):
+async def test_session_keeps_history_across_distinct_turns(tmp_path):
     llm = ScriptedLLM(
         [
-            ScriptedCall("agent", response("first answer")),
-            ScriptedCall("agent", response("second answer")),
+            ScriptedCall(response("first answer")),
+            ScriptedCall(response("second answer")),
         ]
     )
-    session = build_session(monkeypatch, tmp_path, llm, [])
+    session = build_session(tmp_path, llm, [])
     first_events = []
     second_events = []
 
@@ -150,9 +144,9 @@ async def test_session_keeps_history_across_distinct_turns(monkeypatch, tmp_path
 
 
 @pytest.mark.asyncio
-async def test_session_rejects_a_second_active_turn_atomically(monkeypatch, tmp_path):
+async def test_session_rejects_a_second_active_turn_atomically(tmp_path):
     llm = BlockingLLM(response("released"))
-    session = build_session(monkeypatch, tmp_path, llm, [])
+    session = build_session(tmp_path, llm, [])
     events = []
 
     first = session.start_turn("first", event_sink=events.append)
@@ -179,8 +173,8 @@ async def test_turn_admission_reserves_before_reentrant_task_creation(
     monkeypatch,
     tmp_path,
 ):
-    llm = ScriptedLLM([ScriptedCall("agent", response("outer reply"))])
-    session = build_session(monkeypatch, tmp_path, llm, [])
+    llm = ScriptedLLM([ScriptedCall(response("outer reply"))])
+    session = build_session(tmp_path, llm, [])
     running_loop = asyncio.get_running_loop()
     create_task = running_loop.create_task
     reentry_checked = False
@@ -206,8 +200,8 @@ async def test_turn_admission_reserves_before_reentrant_task_creation(
 
 @pytest.mark.asyncio
 async def test_failed_task_creation_rolls_back_turn_admission(monkeypatch, tmp_path):
-    llm = ScriptedLLM([ScriptedCall("agent", response("admitted later"))])
-    session = build_session(monkeypatch, tmp_path, llm, [])
+    llm = ScriptedLLM([ScriptedCall(response("admitted later"))])
+    session = build_session(tmp_path, llm, [])
     running_loop = asyncio.get_running_loop()
     create_task = running_loop.create_task
     history_before = session.get_history()
@@ -232,11 +226,10 @@ async def test_failed_task_creation_rolls_back_turn_admission(monkeypatch, tmp_p
 
 @pytest.mark.asyncio
 async def test_caller_cancellation_does_not_cancel_the_active_turn(
-    monkeypatch,
     tmp_path,
 ):
     llm = BlockingLLM(response("finished after waiter cancellation"))
-    session = build_session(monkeypatch, tmp_path, llm, [])
+    session = build_session(tmp_path, llm, [])
     handle = session.start_turn("keep running")
     waiter = asyncio.create_task(handle.wait())
     await llm.entered.wait()
@@ -255,11 +248,10 @@ async def test_caller_cancellation_does_not_cancel_the_active_turn(
 
 @pytest.mark.asyncio
 async def test_cli_wait_settles_the_turn_before_propagating_cancellation(
-    monkeypatch,
     tmp_path,
 ):
     llm = BlockingLLM(response("finished at the safe boundary"))
-    session = build_session(monkeypatch, tmp_path, llm, [])
+    session = build_session(tmp_path, llm, [])
     handle = session.start_turn("keep session owned until settled")
     cli_waiter = asyncio.create_task(wait_for_turn(handle, poll_interval=0))
     await llm.entered.wait()
@@ -278,11 +270,11 @@ async def test_cli_wait_settles_the_turn_before_propagating_cancellation(
 
 
 @pytest.mark.asyncio
-async def test_active_turn_uses_an_admission_time_tool_snapshot(monkeypatch, tmp_path):
+async def test_active_turn_uses_an_admission_time_tool_snapshot(tmp_path):
     call = tool_call("snapshotted-call")
     llm = BlockingLLM(response("", tool_calls=[call], finish_reason="tool_use"))
     tool = EchoTool()
-    session = build_session(monkeypatch, tmp_path, llm, [tool], max_steps=1)
+    session = build_session(tmp_path, llm, [tool], max_steps=1)
 
     handle = session.start_turn("use the admitted tools")
     await llm.entered.wait()
@@ -304,19 +296,18 @@ async def test_active_turn_uses_an_admission_time_tool_snapshot(monkeypatch, tmp
 
 
 @pytest.mark.asyncio
-async def test_tool_calls_continue_the_same_turn_across_steps(monkeypatch, tmp_path):
+async def test_tool_calls_continue_the_same_turn_across_steps(tmp_path):
     call = tool_call("call-1")
     llm = ScriptedLLM(
         [
             ScriptedCall(
-                "agent",
                 response("", tool_calls=[call], finish_reason="tool_use"),
             ),
-            ScriptedCall("agent", response("finished")),
+            ScriptedCall(response("finished")),
         ]
     )
     tool = EchoTool()
-    session = build_session(monkeypatch, tmp_path, llm, [tool])
+    session = build_session(tmp_path, llm, [tool])
     events = []
 
     with llm:
@@ -342,21 +333,16 @@ async def test_tool_calls_continue_the_same_turn_across_steps(monkeypatch, tmp_p
         event.step is not None
         for event in events
         if isinstance(event.event, (ModelRequest, ToolFinished))
-        and (
-            not isinstance(event.event, ModelRequest)
-            or event.event.purpose == "agent"
-        )
     )
 
 
 @pytest.mark.asyncio
 async def test_event_observer_cannot_mutate_model_input_or_session_state(
-    monkeypatch,
     tmp_path,
 ):
-    llm = ScriptedLLM([ScriptedCall("agent", response("original answer"))])
+    llm = ScriptedLLM([ScriptedCall(response("original answer"))])
     tool = EchoTool()
-    session = build_session(monkeypatch, tmp_path, llm, [tool])
+    session = build_session(tmp_path, llm, [tool])
 
     def mutating_observer(envelope):
         if isinstance(envelope.event, ModelRequest):
@@ -379,19 +365,18 @@ async def test_event_observer_cannot_mutate_model_input_or_session_state(
 
 
 @pytest.mark.asyncio
-async def test_observer_failure_stops_at_a_valid_step_boundary(monkeypatch, tmp_path):
+async def test_observer_failure_stops_at_a_valid_step_boundary(tmp_path):
     call = tool_call("observed-call")
     llm = ScriptedLLM(
         [
             ScriptedCall(
-                "agent",
                 response("", tool_calls=[call], finish_reason="tool_use"),
             ),
-            ScriptedCall("agent", response("next turn still works")),
+            ScriptedCall(response("next turn still works")),
         ]
     )
     tool = EchoTool()
-    session = build_session(monkeypatch, tmp_path, llm, [tool])
+    session = build_session(tmp_path, llm, [tool])
     observed = []
 
     def failing_observer(envelope):
@@ -423,11 +408,10 @@ async def test_observer_failure_stops_at_a_valid_step_boundary(monkeypatch, tmp_
 
 @pytest.mark.asyncio
 async def test_terminal_delivery_failure_cannot_rewrite_the_published_outcome(
-    monkeypatch,
     tmp_path,
 ):
-    llm = ScriptedLLM([ScriptedCall("agent", response("finished"))])
-    session = build_session(monkeypatch, tmp_path, llm, [])
+    llm = ScriptedLLM([ScriptedCall(response("finished"))])
+    session = build_session(tmp_path, llm, [])
     observed = []
 
     def record_then_fail(envelope):
@@ -453,11 +437,10 @@ async def test_terminal_delivery_failure_cannot_rewrite_the_published_outcome(
 
 @pytest.mark.asyncio
 async def test_reporting_failure_does_not_hide_the_model_failure(
-    monkeypatch,
     tmp_path,
 ):
-    llm = ScriptedLLM([ScriptedCall("agent", RuntimeError("model unavailable"))])
-    session = build_session(monkeypatch, tmp_path, llm, [])
+    llm = ScriptedLLM([ScriptedCall(RuntimeError("model unavailable"))])
+    session = build_session(tmp_path, llm, [])
 
     def fail_while_reporting(envelope):
         if isinstance(envelope.event, ModelCallFailed):
@@ -479,21 +462,19 @@ async def test_reporting_failure_does_not_hide_the_model_failure(
 
 @pytest.mark.asyncio
 async def test_invalid_tool_return_becomes_a_paired_failed_observation(
-    monkeypatch,
     tmp_path,
 ):
     call = tool_call("invalid-result")
     llm = ScriptedLLM(
         [
             ScriptedCall(
-                "agent",
                 response("", tool_calls=[call], finish_reason="tool_use"),
             ),
-            ScriptedCall("agent", response("handled invalid result")),
+            ScriptedCall(response("handled invalid result")),
         ]
     )
     tool = InvalidResultTool()
-    session = build_session(monkeypatch, tmp_path, llm, [tool])
+    session = build_session(tmp_path, llm, [tool])
 
     with llm:
         outcome = await session.start_turn("run invalid tool").wait()
@@ -508,19 +489,19 @@ async def test_internal_failure_returns_an_outcome_and_releases_the_session(
     monkeypatch,
     tmp_path,
 ):
-    llm = ScriptedLLM([ScriptedCall("agent", response("recovered"))])
-    session = build_session(monkeypatch, tmp_path, llm, [])
-    summarize = session._summarize_messages
+    llm = ScriptedLLM([ScriptedCall(response("recovered"))])
+    session = build_session(tmp_path, llm, [])
+    run_step = session._loop._run_step
     fail_once = True
 
-    async def failing_summary(context, emitter):
+    async def failing_step(**kwargs):
         nonlocal fail_once
         if fail_once:
             fail_once = False
-            raise RuntimeError("compaction invariant failed")
-        await summarize(context, emitter)
+            raise RuntimeError("step invariant failed")
+        return await run_step(**kwargs)
 
-    monkeypatch.setattr(session, "_summarize_messages", failing_summary)
+    monkeypatch.setattr(session._loop, "_run_step", failing_step)
     first_events = []
 
     with llm:
@@ -533,7 +514,7 @@ async def test_internal_failure_returns_an_outcome_and_releases_the_session(
     assert first.stop_reason == "failed"
     assert first.error is not None
     assert first.error.kind == "internal_error"
-    assert "compaction invariant failed" in first.error.message
+    assert "step invariant failed" in first.error.message
     assert [
         event.event.outcome
         for event in first_events
@@ -544,11 +525,11 @@ async def test_internal_failure_returns_an_outcome_and_releases_the_session(
 
 
 @pytest.mark.asyncio
-async def test_turn_outcomes_report_control_flow_not_task_success(monkeypatch, tmp_path):
+async def test_turn_outcomes_report_control_flow_not_task_success(tmp_path):
     call = tool_call("only-step")
     cases = [
         (
-            ScriptedLLM([ScriptedCall("agent", response("I cannot finish this task."))]),
+            ScriptedLLM([ScriptedCall(response("I cannot finish this task."))]),
             [],
             3,
             "end_turn",
@@ -558,7 +539,6 @@ async def test_turn_outcomes_report_control_flow_not_task_success(monkeypatch, t
             ScriptedLLM(
                 [
                     ScriptedCall(
-                        "agent",
                         response("", tool_calls=[call], finish_reason="tool_use"),
                     )
                 ]
@@ -569,7 +549,7 @@ async def test_turn_outcomes_report_control_flow_not_task_success(monkeypatch, t
             None,
         ),
         (
-            ScriptedLLM([ScriptedCall("agent", RuntimeError("model unavailable"))]),
+            ScriptedLLM([ScriptedCall(RuntimeError("model unavailable"))]),
             [],
             3,
             "failed",
@@ -579,7 +559,6 @@ async def test_turn_outcomes_report_control_flow_not_task_success(monkeypatch, t
 
     for llm, tools, max_steps, reason, error_kind in cases:
         session = build_session(
-            monkeypatch,
             tmp_path,
             llm,
             tools,
@@ -608,13 +587,12 @@ async def test_turn_outcomes_report_control_flow_not_task_success(monkeypatch, t
 
 @pytest.mark.asyncio
 async def test_interrupt_finishes_the_current_step_without_starting_another(
-    monkeypatch,
     tmp_path,
 ):
     call = tool_call("cancelled-call")
     llm = BlockingLLM(response("", tool_calls=[call], finish_reason="tool_use"))
     tool = EchoTool()
-    session = build_session(monkeypatch, tmp_path, llm, [tool])
+    session = build_session(tmp_path, llm, [tool])
     events = []
 
     handle = session.start_turn("interrupt me", event_sink=events.append)
@@ -638,11 +616,10 @@ async def test_interrupt_finishes_the_current_step_without_starting_another(
 
 @pytest.mark.asyncio
 async def test_terminal_response_and_model_failure_win_over_pending_interrupt(
-    monkeypatch,
     tmp_path,
 ):
     terminal_llm = BlockingLLM(response("terminal reply"))
-    terminal_session = build_session(monkeypatch, tmp_path, terminal_llm, [])
+    terminal_session = build_session(tmp_path, terminal_llm, [])
     terminal_handle = terminal_session.start_turn("finish while interrupted")
     await terminal_llm.entered.wait()
     assert terminal_handle.interrupt() is True
@@ -653,7 +630,7 @@ async def test_terminal_response_and_model_failure_win_over_pending_interrupt(
     assert terminal_outcome.last_assistant_message == "terminal reply"
 
     error_llm = BlockingLLM(RuntimeError("provider failed"))
-    error_session = build_session(monkeypatch, tmp_path, error_llm, [])
+    error_session = build_session(tmp_path, error_llm, [])
     error_handle = error_session.start_turn("fail while interrupted")
     await error_llm.entered.wait()
     assert error_handle.interrupt() is True
@@ -663,67 +640,3 @@ async def test_terminal_response_and_model_failure_win_over_pending_interrupt(
     assert error_outcome.stop_reason == "failed"
     assert error_outcome.error is not None
     assert error_outcome.error.kind == "model_error"
-
-
-@pytest.mark.asyncio
-async def test_summary_model_call_is_turn_maintenance_not_a_step(monkeypatch, tmp_path):
-    llm = ScriptedLLM(
-        [
-            ScriptedCall(
-                "agent",
-                response("first answer"),
-            ),
-            ScriptedCall("summary", response("compressed first turn")),
-            ScriptedCall("agent", response("second answer")),
-        ]
-    )
-    session = build_session(
-        monkeypatch,
-        tmp_path,
-        llm,
-        [],
-        max_steps=1,
-        token_limit=1,
-    )
-    monkeypatch.setattr(
-        session,
-        "_estimate_tokens",
-        lambda: 2 if len(session.get_history()) >= 4 else 0,
-    )
-
-    with llm:
-        assert (
-            await session.start_turn("first question").wait()
-        ).stop_reason == "end_turn"
-        second_events = []
-
-        def mutate_summary_request(envelope):
-            second_events.append(envelope)
-            if (
-                isinstance(envelope.event, ModelRequest)
-                and envelope.event.purpose == "summary"
-            ):
-                envelope.event.messages[-1].content = "mutated summary request"
-
-        outcome = await session.start_turn(
-            "second question",
-            event_sink=mutate_summary_request,
-        ).wait()
-
-    assert outcome.stop_reason == "end_turn"
-    assert [request.purpose for request in llm.requests] == [
-        "agent",
-        "summary",
-        "agent",
-    ]
-    summary_requests = [
-        event
-        for event in second_events
-        if isinstance(event.event, ModelRequest) and event.event.purpose == "summary"
-    ]
-    assert len(summary_requests) == 1
-    assert summary_requests[0].step is None
-    assert llm.requests[1].messages[-1].content != "mutated summary request"
-    assert "Round 1 execution process" in llm.requests[1].messages[-1].content
-    assert [event.step for event in second_events if isinstance(event.event, StepStarted)] == [1]
-    assert any(isinstance(event.event, CompactionFinished) for event in second_events)

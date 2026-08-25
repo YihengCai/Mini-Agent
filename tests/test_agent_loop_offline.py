@@ -11,9 +11,6 @@ from mini_agent.cli_events import CliEventSink
 from mini_agent.core import TurnError, TurnOutcome
 from mini_agent.core.events import (
     AgentEventEnvelope,
-    CompactionFinished,
-    CompactionRoundFinished,
-    CompactionStarted,
     ModelRequest,
     ModelResponse,
     StepFinished,
@@ -80,24 +77,19 @@ class ExplodingTool(EchoTool):
 
 
 def build_agent(
-    monkeypatch,
     tmp_path,
     llm,
     tools,
     *,
     max_steps: int = 3,
-    token_limit: int = 80_000,
 ) -> AgentSession:
-    agent = AgentSession(
+    return AgentSession(
         llm_client=llm,
         system_prompt="You are a test agent.",
         tools=tools,
         max_steps=max_steps,
         workspace_dir=str(tmp_path),
-        token_limit=token_limit,
     )
-    monkeypatch.setattr(agent, "_estimate_tokens", lambda: 0)
-    return agent
 
 
 async def run_turn(agent, user_input: str, event_sink=None):
@@ -127,8 +119,8 @@ async def test_scripted_llm_records_stable_requests_and_returns_in_order():
     ]
     llm = ScriptedLLM(
         [
-            ScriptedCall("agent", response("first")),
-            ScriptedCall("agent", response("second")),
+            ScriptedCall(response("first")),
+            ScriptedCall(response("second")),
         ]
     )
 
@@ -183,14 +175,14 @@ def test_unconsumed_response_fails_context_exit():
     )
 
     with pytest.raises(AssertionError) as error:
-        with ScriptedLLM([ScriptedCall("agent", response("unused"))]):
+        with ScriptedLLM([ScriptedCall(response("unused"))]):
             pass
     assert str(error.value) == verification_error
 
 
 @pytest.mark.asyncio
 async def test_scripted_exception_is_consumed_without_becoming_a_violation():
-    llm = ScriptedLLM([ScriptedCall("agent", RuntimeError("planned failure"))])
+    llm = ScriptedLLM([ScriptedCall(RuntimeError("planned failure"))])
 
     with pytest.raises(RuntimeError) as error:
         await llm.generate([Message(role="user", content="fail")], tools=[])
@@ -203,8 +195,8 @@ async def test_scripted_exception_is_consumed_without_becoming_a_violation():
 async def test_context_exit_checks_leftovers_when_scripted_exception_escapes():
     llm = ScriptedLLM(
         [
-            ScriptedCall("agent", RuntimeError("planned failure")),
-            ScriptedCall("agent", response("unused")),
+            ScriptedCall(RuntimeError("planned failure")),
+            ScriptedCall(response("unused")),
         ]
     )
     verification_error = (
@@ -276,7 +268,7 @@ async def test_scripted_llm_rejects_invalid_tool_call_pairs(
     messages,
     expected_violation,
 ):
-    llm = ScriptedLLM([ScriptedCall("agent", response("unused"))])
+    llm = ScriptedLLM([ScriptedCall(response("unused"))])
     verification_error = (
         "Scripted LLM verification failed:\n"
         f"- {expected_violation}\n"
@@ -293,7 +285,7 @@ async def test_scripted_llm_rejects_invalid_tool_call_pairs(
 
 
 @pytest.mark.asyncio
-async def test_real_agent_loop_executes_tool_and_sends_result_to_model(monkeypatch, tmp_path):
+async def test_real_agent_loop_executes_tool_and_sends_result_to_model(tmp_path):
     call = ToolCall(
         id="call-1",
         type="function",
@@ -302,14 +294,13 @@ async def test_real_agent_loop_executes_tool_and_sends_result_to_model(monkeypat
     llm = ScriptedLLM(
         [
             ScriptedCall(
-                "agent",
                 response("", tool_calls=[call], finish_reason="tool_use"),
             ),
-            ScriptedCall("agent", response("finished")),
+            ScriptedCall(response("finished")),
         ]
     )
     tool = EchoTool()
-    agent = build_agent(monkeypatch, tmp_path, llm, [tool])
+    agent = build_agent(tmp_path, llm, [tool])
     events = []
 
     with llm:
@@ -361,13 +352,10 @@ async def test_real_agent_loop_executes_tool_and_sends_result_to_model(monkeypat
         if isinstance(envelope.event, ToolStarted)
     ] == [(1, 1, "call-1")]
     assert [
-        envelope.event.purpose
+        envelope.step
         for envelope in events
         if isinstance(envelope.event, ModelRequest)
-    ] == [
-        "agent",
-        "agent",
-    ]
+    ] == [1, 2]
     assert isinstance(events[-1].event, TurnFinished)
     assert events[-1].event.outcome is outcome
     assert outcome.stop_reason == "end_turn"
@@ -375,8 +363,8 @@ async def test_real_agent_loop_executes_tool_and_sends_result_to_model(monkeypat
 
 @pytest.mark.asyncio
 async def test_core_agent_run_is_silent_without_an_event_sink(monkeypatch, tmp_path):
-    llm = ScriptedLLM([ScriptedCall("agent", response("quietly finished"))])
-    agent = build_agent(monkeypatch, tmp_path, llm, [])
+    llm = ScriptedLLM([ScriptedCall(response("quietly finished"))])
+    agent = build_agent(tmp_path, llm, [])
 
     def reject_print(*_args, **_kwargs):
         raise AssertionError("core agent loop attempted terminal output")
@@ -391,7 +379,6 @@ async def test_core_agent_run_is_silent_without_an_event_sink(monkeypatch, tmp_p
 
 @pytest.mark.asyncio
 async def test_cli_event_sink_preserves_rendering_and_run_logging(
-    monkeypatch,
     tmp_path,
     capsys,
 ):
@@ -403,13 +390,12 @@ async def test_cli_event_sink_preserves_rendering_and_run_logging(
     llm = ScriptedLLM(
         [
             ScriptedCall(
-                "agent",
                 response("", tool_calls=[call], finish_reason="tool_use"),
             ),
-            ScriptedCall("agent", response("visible finish")),
+            ScriptedCall(response("visible finish")),
         ]
     )
-    agent = build_agent(monkeypatch, tmp_path, llm, [EchoTool()])
+    agent = build_agent(tmp_path, llm, [EchoTool()])
     logger = MagicMock()
     logger.get_log_file_path.return_value = Path("/tmp/agent-run.log")
 
@@ -491,12 +477,11 @@ def test_cli_event_sink_renders_step_and_turn_stop_facts(capsys):
 
 @pytest.mark.asyncio
 async def test_cli_event_sink_does_not_repeat_model_failure_details(
-    monkeypatch,
     tmp_path,
     capsys,
 ):
-    llm = ScriptedLLM([ScriptedCall("agent", RuntimeError("model unavailable"))])
-    agent = build_agent(monkeypatch, tmp_path, llm, [])
+    llm = ScriptedLLM([ScriptedCall(RuntimeError("model unavailable"))])
+    agent = build_agent(tmp_path, llm, [])
     logger = MagicMock()
     logger.get_log_file_path.return_value = Path("/tmp/agent-run.log")
 
@@ -549,28 +534,12 @@ def test_cli_reports_an_event_observer_failure_without_the_broken_sink(capsys):
 
 
 @pytest.mark.asyncio
-async def test_call_purpose_mismatch_remains_visible_after_caller_catches_error():
-    llm = ScriptedLLM([ScriptedCall("summary", response("summary"))])
-    violation = "Unexpected LLM call #1: expected 'summary', got 'agent'"
-    verification_error = (
-        "Scripted LLM verification failed:\n"
-        f"- {violation}\n"
-        "- 1 scripted call(s) were not consumed"
-    )
-
-    with pytest.raises(AssertionError) as call_error:
-        await llm.generate([Message(role="user", content="main")], tools=[])
-    assert str(call_error.value) == violation
-
-    with pytest.raises(AssertionError) as completion_error:
-        llm.assert_complete()
-    assert str(completion_error.value) == verification_error
-
-
-@pytest.mark.asyncio
 async def test_first_violation_prevents_later_script_consumption():
-    llm = ScriptedLLM([ScriptedCall("summary", response("summary"))])
-    violation = "Unexpected LLM call #1: expected 'summary', got 'agent'"
+    llm = ScriptedLLM([ScriptedCall(response("unused"))])
+    violation = (
+        "Invalid LLM request #1: tool call(s) missing results: "
+        "'sticky' (message 0)"
+    )
     verification_error = (
         "Scripted LLM verification failed:\n"
         f"- {violation}\n"
@@ -578,11 +547,20 @@ async def test_first_violation_prevents_later_script_consumption():
     )
 
     with pytest.raises(AssertionError) as first_error:
-        await llm.generate([Message(role="user", content="wrong")], tools=[])
+        await llm.generate(
+            [
+                Message(
+                    role="assistant",
+                    content="",
+                    tool_calls=[tool_call("sticky")],
+                )
+            ],
+            tools=[],
+        )
     assert str(first_error.value) == violation
 
     with pytest.raises(AssertionError) as repeated_error:
-        await llm.generate([Message(role="user", content="now correct")])
+        await llm.generate([Message(role="user", content="valid")], tools=[])
     assert str(repeated_error.value) == violation
 
     with pytest.raises(AssertionError) as completion_error:
@@ -591,94 +569,11 @@ async def test_first_violation_prevents_later_script_consumption():
 
 
 @pytest.mark.asyncio
-async def test_summary_and_agent_calls_follow_one_global_sequence(monkeypatch, tmp_path):
-    first_call = tool_call("first")
-    llm = ScriptedLLM(
-        [
-            ScriptedCall(
-                "agent",
-                response("", tool_calls=[first_call], finish_reason="tool_use"),
-            ),
-            ScriptedCall(
-                "agent",
-                response("first finished"),
-            ),
-            ScriptedCall("summary", response("compressed first turn")),
-            ScriptedCall("agent", response("second finished")),
-        ]
-    )
-    agent = build_agent(
-        monkeypatch,
-        tmp_path,
-        llm,
-        [EchoTool()],
-        token_limit=1,
-    )
-    monkeypatch.setattr(
-        agent,
-        "_estimate_tokens",
-        lambda: 2 if len(agent.get_history()) >= 6 else 0,
-    )
-    second_run_events = []
-
-    with llm:
-        first_outcome = await run_turn(agent, "Complete the first turn.")
-        second_outcome = await run_turn(
-            agent,
-            "Complete the second turn.",
-            event_sink=second_run_events.append,
-        )
-
-    assert first_outcome.last_assistant_message == "first finished"
-    assert second_outcome.last_assistant_message == "second finished"
-    assert [request.purpose for request in llm.requests] == [
-        "agent",
-        "agent",
-        "summary",
-        "agent",
-    ]
-    assert llm.requests[2].tools is None
-    assert [message.role for message in llm.requests[2].messages] == ["system", "user"]
-    final_messages = llm.requests[3].messages
-    assert any(
-        "compressed first turn" in str(message.content)
-        for message in final_messages
-    )
-    assert [type(envelope.event) for envelope in second_run_events] == [
-        TurnStarted,
-        CompactionStarted,
-        ModelRequest,
-        ModelResponse,
-        CompactionRoundFinished,
-        CompactionFinished,
-        StepStarted,
-        ModelRequest,
-        ModelResponse,
-        StepFinished,
-        TurnFinished,
-    ]
-    assert [
-        envelope.event.purpose
-        for envelope in second_run_events
-        if isinstance(envelope.event, ModelRequest)
-    ] == ["summary", "agent"]
-    assert [
-        envelope.step
-        for envelope in second_run_events
-        if isinstance(envelope.event, ModelRequest)
-    ] == [None, 1]
-
-
-@pytest.mark.asyncio
-async def test_unprobed_reported_usage_does_not_control_compaction(
-    monkeypatch,
-    tmp_path,
-):
+async def test_reported_usage_is_recorded_as_observation_data(tmp_path):
     call = tool_call("reported-usage")
     llm = ScriptedLLM(
         [
             ScriptedCall(
-                "agent",
                 response(
                     "",
                     tool_calls=[call],
@@ -686,27 +581,17 @@ async def test_unprobed_reported_usage_does_not_control_compaction(
                     usage=TokenUsage(total_tokens=999_999),
                 ),
             ),
-            ScriptedCall("agent", response("finished")),
+            ScriptedCall(response("finished")),
         ]
     )
-    agent = build_agent(
-        monkeypatch,
-        tmp_path,
-        llm,
-        [EchoTool()],
-        token_limit=1,
-    )
-    events = []
+    agent = build_agent(tmp_path, llm, [EchoTool()])
 
     with llm:
-        outcome = await run_turn(agent, "Ignore unprobed usage.", events.append)
+        outcome = await run_turn(agent, "Record reported usage.")
 
     assert outcome.last_assistant_message == "finished"
-    assert [request.purpose for request in llm.requests] == ["agent", "agent"]
+    assert len(llm.requests) == 2
     assert agent.api_total_tokens == 999_999
-    assert not any(
-        isinstance(envelope.event, CompactionStarted) for envelope in events
-    )
 
 
 @pytest.mark.asyncio
@@ -718,7 +603,6 @@ async def test_unprobed_reported_usage_does_not_control_compaction(
     ],
 )
 async def test_tool_failures_are_returned_to_the_next_model_call(
-    monkeypatch,
     tmp_path,
     mode,
     tool_name,
@@ -728,14 +612,13 @@ async def test_tool_failures_are_returned_to_the_next_model_call(
     llm = ScriptedLLM(
         [
             ScriptedCall(
-                "agent",
                 response("", tool_calls=[call], finish_reason="tool_use"),
             ),
-            ScriptedCall("agent", response("recovered")),
+            ScriptedCall(response("recovered")),
         ]
     )
     tools = [] if mode == "unknown" else [ExplodingTool()]
-    agent = build_agent(monkeypatch, tmp_path, llm, tools)
+    agent = build_agent(tmp_path, llm, tools)
 
     with llm:
         outcome = await run_turn(agent, "Exercise a failing tool.")
@@ -748,18 +631,17 @@ async def test_tool_failures_are_returned_to_the_next_model_call(
 
 
 @pytest.mark.asyncio
-async def test_max_steps_is_distinct_from_normal_completion(monkeypatch, tmp_path):
+async def test_max_steps_is_distinct_from_normal_completion(tmp_path):
     call = tool_call("only-step")
     llm = ScriptedLLM(
         [
             ScriptedCall(
-                "agent",
                 response("", tool_calls=[call], finish_reason="tool_use"),
             )
         ]
     )
     tool = EchoTool()
-    agent = build_agent(monkeypatch, tmp_path, llm, [tool], max_steps=1)
+    agent = build_agent(tmp_path, llm, [tool], max_steps=1)
     events = []
 
     with llm:
@@ -786,17 +668,16 @@ async def test_max_steps_is_distinct_from_normal_completion(monkeypatch, tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_agent_cannot_hide_script_exhaustion(monkeypatch, tmp_path):
+async def test_agent_cannot_hide_script_exhaustion(tmp_path):
     call = tool_call("needs-another-call")
     llm = ScriptedLLM(
         [
             ScriptedCall(
-                "agent",
                 response("", tool_calls=[call], finish_reason="tool_use"),
             )
         ]
     )
-    agent = build_agent(monkeypatch, tmp_path, llm, [EchoTool()])
+    agent = build_agent(tmp_path, llm, [EchoTool()])
     outcome = None
     verification_error = (
         "Scripted LLM verification failed:\n"
@@ -813,43 +694,4 @@ async def test_agent_cannot_hide_script_exhaustion(monkeypatch, tmp_path):
     assert outcome.error is not None
     assert outcome.error.message == (
         "LLM call failed: Unexpected LLM call #2: scripted calls exhausted"
-    )
-
-
-@pytest.mark.asyncio
-async def test_summary_fallback_cannot_hide_call_order_violation(monkeypatch, tmp_path):
-    llm = ScriptedLLM(
-        [
-            ScriptedCall(
-                "agent",
-                response("first finished"),
-            ),
-            ScriptedCall("agent", response("should not run")),
-        ]
-    )
-    agent = build_agent(monkeypatch, tmp_path, llm, [], token_limit=1)
-    monkeypatch.setattr(
-        agent,
-        "_estimate_tokens",
-        lambda: 2 if len(agent.get_history()) >= 4 else 0,
-    )
-    outcome = None
-    verification_error = (
-        "Scripted LLM verification failed:\n"
-        "- Unexpected LLM call #2: expected 'agent', got 'summary'\n"
-        "- 1 scripted call(s) were not consumed"
-    )
-
-    with pytest.raises(AssertionError) as error:
-        with llm:
-            first = await run_turn(agent, "Complete the first turn.")
-            assert first.last_assistant_message == "first finished"
-            outcome = await run_turn(agent, "Trigger summary before the next turn.")
-    assert str(error.value) == verification_error
-
-    assert outcome is not None
-    assert outcome.stop_reason == "failed"
-    assert outcome.error is not None
-    assert outcome.error.message == (
-        "LLM call failed: Unexpected LLM call #2: expected 'agent', got 'summary'"
     )

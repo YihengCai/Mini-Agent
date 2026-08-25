@@ -609,7 +609,6 @@ async def run_agent(workspace_dir: Path, task: str = None):
             system_prompt=system_prompt,
             tools=tools,
             max_steps=config.agent.max_steps,
-            token_limit=config.agent.local_compaction_token_limit,
             workspace_dir=str(workspace_dir),
         )
 

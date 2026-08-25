@@ -35,10 +35,11 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 
 | ADR | 决定 | 状态 |
 |---|---|---|
-| [0001](0001-strict-global-llm-call-script.md) | LLM 测试替身使用带用途标签的全局调用序列 | 已采纳 |
+| [0001](0001-strict-global-llm-call-script.md) | LLM 测试替身使用带用途标签的全局调用序列 | 已推翻（见 ADR-0006） |
 | [0002](0002-bounded-and-atomic-file-tools.md) | 文件工具采用有界读取、唯一匹配和单文件原子替换 | 已采纳 |
 | [0003](0003-remove-acp-and-extract-core-loop.md) | 删除无真实客户端验证的 ACP，以同步事件连接 core 与 CLI | 已采纳 |
 | [0004](0004-session-turn-step-lifecycle.md) | 以 Session、Turn、Step 分开对话、控制权交接与模型—工具执行 | 已采纳 |
 | [0005](0005-explicit-model-api-adapters.md) | 以中性 contract、静态注册表和具体 adapter 隔离模型 API 差异 | 已采纳 |
+| [0006](0006-remove-legacy-local-compaction.md) | 删除旧本地压缩，暂以完整历史直传 | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。

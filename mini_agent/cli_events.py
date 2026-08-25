@@ -4,10 +4,6 @@ import json
 
 from .core.events import (
     AgentEventEnvelope,
-    CompactionFinished,
-    CompactionRoundFinished,
-    CompactionSkipped,
-    CompactionStarted,
     ModelCallFailed,
     ModelRequest,
     ModelResponse,
@@ -52,30 +48,27 @@ class CliEventSink:
             return
 
         if isinstance(event, ModelRequest):
-            if event.purpose == "agent":
-                self.logger.log_request(
-                    messages=list(event.messages),
-                    tools=list(event.tools),
-                )
+            self.logger.log_request(
+                messages=list(event.messages),
+                tools=list(event.tools),
+            )
             return
 
         if isinstance(event, ModelResponse):
-            if event.purpose == "agent":
-                self._render_model_response(event)
+            self._render_model_response(event)
             return
 
         if isinstance(event, ModelCallFailed):
-            if event.purpose == "agent":
-                if isinstance(event.error, RetryExhaustedError):
-                    print(
-                        f"\n{Colors.BRIGHT_RED}❌ Retry failed:{Colors.RESET} "
-                        f"{event.result}"
-                    )
-                else:
-                    print(
-                        f"\n{Colors.BRIGHT_RED}❌ Error:{Colors.RESET} "
-                        f"{event.result}"
-                    )
+            if isinstance(event.error, RetryExhaustedError):
+                print(
+                    f"\n{Colors.BRIGHT_RED}❌ Retry failed:{Colors.RESET} "
+                    f"{event.result}"
+                )
+            else:
+                print(
+                    f"\n{Colors.BRIGHT_RED}❌ Error:{Colors.RESET} "
+                    f"{event.result}"
+                )
             return
 
         if isinstance(event, ToolStarted):
@@ -99,53 +92,6 @@ class CliEventSink:
                 f"\n{Colors.DIM}⏱️  Step {envelope.step} {status_text} in "
                 f"{event.elapsed_seconds:.2f}s "
                 f"(total: {event.total_elapsed_seconds:.2f}s){Colors.RESET}"
-            )
-            return
-
-        if isinstance(event, CompactionStarted):
-            print(
-                f"\n{Colors.BRIGHT_YELLOW}📊 Token usage - Local estimate: "
-                f"{event.estimated_tokens}, API reported: {event.reported_tokens}, "
-                f"Limit: {event.token_limit}{Colors.RESET}"
-            )
-            print(
-                f"{Colors.BRIGHT_YELLOW}🔄 Triggering message history "
-                f"summarization...{Colors.RESET}"
-            )
-            return
-
-        if isinstance(event, CompactionSkipped):
-            print(
-                f"{Colors.BRIGHT_YELLOW}⚠️  Insufficient messages, "
-                f"cannot summarize{Colors.RESET}"
-            )
-            return
-
-        if isinstance(event, CompactionRoundFinished):
-            if event.used_fallback:
-                print(
-                    f"{Colors.BRIGHT_RED}✗ Summary generation failed for round "
-                    f"{event.round_number}: {event.error}{Colors.RESET}"
-                )
-            else:
-                print(
-                    f"{Colors.BRIGHT_GREEN}✓ Summary for round "
-                    f"{event.round_number} generated successfully{Colors.RESET}"
-                )
-            return
-
-        if isinstance(event, CompactionFinished):
-            print(
-                f"{Colors.BRIGHT_GREEN}✓ Summary completed, local tokens: "
-                f"{event.previous_tokens} → {event.current_tokens}{Colors.RESET}"
-            )
-            print(
-                f"{Colors.DIM}  Structure: system + {event.user_message_count} "
-                f"user messages + {event.summary_count} summaries{Colors.RESET}"
-            )
-            print(
-                f"{Colors.DIM}  Note: API token count will update on next "
-                f"LLM call{Colors.RESET}"
             )
             return
 

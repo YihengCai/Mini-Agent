@@ -3,20 +3,16 @@
 from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Iterable, Literal
+from typing import Iterable
 
 from mini_agent.llm.protocol import ToolDefinition
 from mini_agent.schema import LLMResponse, Message
-
-
-CallPurpose = Literal["agent", "summary"]
 
 
 @dataclass(frozen=True)
 class LLMRequestSnapshot:
     """Immutable-at-capture view of one internal LLM request."""
 
-    purpose: CallPurpose
     messages: tuple[Message, ...]
     tools: tuple[ToolDefinition, ...] | None
 
@@ -28,7 +24,6 @@ ScriptedResult = LLMResponse | Exception
 class ScriptedCall:
     """One expected call in the global model-call sequence."""
 
-    purpose: CallPurpose
     result: ScriptedResult
 
 
@@ -89,9 +84,7 @@ class ScriptedLLM:
         tools: list[ToolDefinition] | None = None,
     ) -> LLMResponse:
         """Record the request and consume exactly one scripted result."""
-        actual_purpose: CallPurpose = "summary" if tools is None else "agent"
         request = LLMRequestSnapshot(
-            purpose=actual_purpose,
             messages=tuple(deepcopy(messages)),
             tools=self._snapshot_tools(tools),
         )
@@ -109,15 +102,6 @@ class ScriptedLLM:
 
         if not self._calls:
             violation = f"Unexpected LLM call #{len(self.requests)}: scripted calls exhausted"
-            self._violation = violation
-            raise AssertionError(violation)
-
-        expected_call = self._calls[0]
-        if actual_purpose != expected_call.purpose:
-            violation = (
-                f"Unexpected LLM call #{len(self.requests)}: expected "
-                f"{expected_call.purpose!r}, got {actual_purpose!r}"
-            )
             self._violation = violation
             raise AssertionError(violation)
 

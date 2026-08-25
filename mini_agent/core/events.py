@@ -8,7 +8,6 @@ from ..schema import LLMResponse, Message, ToolCall
 from ..tools.base import ToolResult
 from .turn import TurnOutcome
 
-ModelCallPurpose: TypeAlias = Literal["agent", "summary"]
 StepStatus: TypeAlias = Literal[
     "continued",
     "end_turn",
@@ -42,20 +41,17 @@ class StepFinished:
 
 @dataclass(frozen=True)
 class ModelRequest:
-    purpose: ModelCallPurpose
     messages: tuple[Message, ...]
     tools: tuple[ToolDefinition, ...]
 
 
 @dataclass(frozen=True)
 class ModelResponse:
-    purpose: ModelCallPurpose
     response: LLMResponse
 
 
 @dataclass(frozen=True)
 class ModelCallFailed:
-    purpose: ModelCallPurpose
     error: Exception
     result: str
 
@@ -73,33 +69,6 @@ class ToolFinished:
     result: ToolResult
 
 
-@dataclass(frozen=True)
-class CompactionStarted:
-    estimated_tokens: int
-    reported_tokens: int
-    token_limit: int
-
-
-@dataclass(frozen=True)
-class CompactionSkipped:
-    reason: Literal["insufficient_messages"]
-
-
-@dataclass(frozen=True)
-class CompactionRoundFinished:
-    round_number: int
-    used_fallback: bool
-    error: Exception | None = None
-
-
-@dataclass(frozen=True)
-class CompactionFinished:
-    previous_tokens: int
-    current_tokens: int
-    user_message_count: int
-    summary_count: int
-
-
 AgentEvent: TypeAlias = (
     TurnStarted
     | TurnFinished
@@ -110,10 +79,6 @@ AgentEvent: TypeAlias = (
     | ModelCallFailed
     | ToolStarted
     | ToolFinished
-    | CompactionStarted
-    | CompactionSkipped
-    | CompactionRoundFinished
-    | CompactionFinished
 )
 
 
@@ -142,12 +107,7 @@ __all__ = [
     "AgentEvent",
     "AgentEventEnvelope",
     "AgentEventSink",
-    "CompactionFinished",
-    "CompactionRoundFinished",
-    "CompactionSkipped",
-    "CompactionStarted",
     "ModelCallFailed",
-    "ModelCallPurpose",
     "ModelRequest",
     "ModelResponse",
     "StepStatus",

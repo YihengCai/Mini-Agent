@@ -15,7 +15,6 @@ dependencies = [
     "mcp>=1.0.0",
     "pytest>=8.4.2",
     "requests>=2.31.0",
-    "tiktoken>=0.5.0",
     "prompt-toolkit>=3.0.0",
     "pip>=25.3",
     "pipx>=1.8.0",

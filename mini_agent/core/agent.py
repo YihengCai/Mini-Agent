@@ -11,8 +11,6 @@ from types import MappingProxyType
 from typing import Mapping
 from uuid import uuid4
 
-import tiktoken
-
 from ..llm.protocol import ModelClient, ToolDefinition
 from ..schema import Message
 from ..tools.base import Tool, ToolResult
@@ -20,10 +18,6 @@ from .events import (
     AgentEvent,
     AgentEventEnvelope,
     AgentEventSink,
-    CompactionFinished,
-    CompactionRoundFinished,
-    CompactionSkipped,
-    CompactionStarted,
     ModelCallFailed,
     ModelRequest,
     ModelResponse,
@@ -52,7 +46,6 @@ class _TurnContext:
     llm: ModelClient
     tools: Mapping[str, Tool]
     max_steps: int
-    token_limit: int | None
 
 
 @dataclass(frozen=True)
@@ -104,16 +97,12 @@ class AgentSession:
         tools: list[Tool],
         max_steps: int = 50,
         workspace_dir: str = "./workspace",
-        token_limit: int | None = None,
         session_id: str | None = None,
     ):
-        if token_limit is not None and token_limit <= 0:
-            raise ValueError("token_limit must be greater than zero when enabled")
         self._session_id = session_id or uuid4().hex
         self._llm = llm_client
         self._tools = {tool.name: tool for tool in tools}
         self._max_steps = max_steps
-        self._token_limit = token_limit
         self.workspace_dir = Path(workspace_dir)
         self._turn_counter = 0
         self._active_turn_id: str | None = None
@@ -136,8 +125,6 @@ class AgentSession:
         # Last adapter-reported usage is observation data only. It cannot drive
         # context policy until the configured endpoint's semantics are probed.
         self._api_total_tokens: int = 0
-        # Flag to skip token check right after summary (avoid consecutive triggers)
-        self._skip_next_token_check: bool = False
 
     @property
     def active_turn(self) -> TurnHandle | None:
@@ -166,10 +153,6 @@ class AgentSession:
         return self._max_steps
 
     @property
-    def token_limit(self) -> int | None:
-        return self._token_limit
-
-    @property
     def api_total_tokens(self) -> int:
         return self._api_total_tokens
 
@@ -196,7 +179,6 @@ class AgentSession:
             llm=self._llm,
             tools=MappingProxyType(dict(self._tools)),
             max_steps=self._max_steps,
-            token_limit=self._token_limit,
         )
         self._turn_counter = next_turn_number
         self._active_turn_id = turn_id
@@ -236,266 +218,6 @@ class AgentSession:
             self._active_turn_id = None
             self._active_turn = None
 
-    def _estimate_tokens(self) -> int:
-        """Estimate history size for the opt-in local compaction heuristic.
-
-        ``cl100k_base`` is a legacy local approximation, not a claim about the
-        configured model's tokenizer or context window.
-        """
-        try:
-            encoding = tiktoken.get_encoding("cl100k_base")
-        except Exception:
-            # Fallback: if tiktoken initialization fails, use simple estimation
-            return self._estimate_tokens_fallback()
-
-        total_tokens = 0
-
-        for msg in self._messages:
-            # Count text content
-            if isinstance(msg.content, str):
-                total_tokens += len(encoding.encode(msg.content))
-            elif isinstance(msg.content, list):
-                for block in msg.content:
-                    if isinstance(block, dict):
-                        # Convert dict to string for calculation
-                        total_tokens += len(encoding.encode(str(block)))
-
-            # Count thinking
-            if msg.thinking:
-                total_tokens += len(encoding.encode(msg.thinking))
-
-            # Count tool_calls
-            if msg.tool_calls:
-                total_tokens += len(encoding.encode(str(msg.tool_calls)))
-
-            # Metadata overhead per message (approximately 4 tokens)
-            total_tokens += 4
-
-        return total_tokens
-
-    def _estimate_tokens_fallback(self) -> int:
-        """Fallback token estimation method (when tiktoken is unavailable)"""
-        total_chars = 0
-        for msg in self._messages:
-            if isinstance(msg.content, str):
-                total_chars += len(msg.content)
-            elif isinstance(msg.content, list):
-                for block in msg.content:
-                    if isinstance(block, dict):
-                        total_chars += len(str(block))
-
-            if msg.thinking:
-                total_chars += len(msg.thinking)
-
-            if msg.tool_calls:
-                total_chars += len(str(msg.tool_calls))
-
-        # Rough estimation: average 2.5 characters = 1 token
-        return int(total_chars / 2.5)
-
-    async def _summarize_messages(
-        self,
-        context: _TurnContext,
-        emitter: _TurnEmitter,
-    ) -> None:
-        """Message history summarization: summarize conversations between user messages when tokens exceed limit
-
-        Strategy (Agent mode):
-        - Keep all user messages (these are user intents)
-        - Summarize content between each user-user pair (agent execution process)
-        - If last round is still executing (has agent/tool messages but no next user), also summarize
-        - Structure: system -> user1 -> summary1 -> user2 -> summary2 -> user3 -> summary3 (if executing)
-
-        Summary is triggered only when the opt-in local estimate exceeds its
-        configured limit. Adapter-reported usage remains observation data.
-        """
-        if context.token_limit is None:
-            return
-
-        # Avoid immediately evaluating the rewritten history again.
-        if self._skip_next_token_check:
-            self._skip_next_token_check = False
-            return
-
-        estimated_tokens = self._estimate_tokens()
-
-        should_summarize = estimated_tokens > context.token_limit
-
-        # If the local estimate is within budget, no summary is needed.
-        if not should_summarize:
-            return
-
-        emitter.emit(
-            CompactionStarted(
-                estimated_tokens=estimated_tokens,
-                reported_tokens=self._api_total_tokens,
-                token_limit=context.token_limit,
-            ),
-        )
-        if emitter.error is not None:
-            return
-
-        # Find all user message indices (skip system prompt)
-        user_indices = [
-            i
-            for i, msg in enumerate(self._messages)
-            if msg.role == "user" and i > 0
-        ]
-
-        # Need at least 1 user message to perform summary
-        if len(user_indices) < 1:
-            emitter.emit(CompactionSkipped(reason="insufficient_messages"))
-            return
-
-        # Build new message list
-        new_messages = [self._messages[0]]  # Keep system prompt
-        summary_count = 0
-
-        # Iterate through each user message and summarize the execution process after it
-        for i, user_idx in enumerate(user_indices):
-            # Add current user message
-            new_messages.append(self._messages[user_idx])
-
-            # Determine message range to summarize
-            # If last user, go to end of message list; otherwise to before next user
-            if i < len(user_indices) - 1:
-                next_user_idx = user_indices[i + 1]
-            else:
-                next_user_idx = len(self._messages)
-
-            # Extract execution messages for this round
-            execution_messages = self._messages[user_idx + 1 : next_user_idx]
-
-            # If there are execution messages in this round, summarize them
-            if execution_messages:
-                summary_text = await self._create_summary(
-                    execution_messages,
-                    i + 1,
-                    context,
-                    emitter,
-                )
-                if emitter.error is not None:
-                    return
-                if summary_text:
-                    summary_message = Message(
-                        role="user",
-                        content=f"[Assistant Execution Summary]\n\n{summary_text}",
-                    )
-                    new_messages.append(summary_message)
-                    summary_count += 1
-
-        # Replace message list
-        self._messages = new_messages
-
-        # Skip one check to avoid consecutive summary triggers.
-        self._skip_next_token_check = True
-
-        new_tokens = self._estimate_tokens()
-        emitter.emit(
-            CompactionFinished(
-                previous_tokens=estimated_tokens,
-                current_tokens=new_tokens,
-                user_message_count=len(user_indices),
-                summary_count=summary_count,
-            ),
-        )
-
-    async def _create_summary(
-        self,
-        messages: list[Message],
-        round_num: int,
-        context: _TurnContext,
-        emitter: _TurnEmitter,
-    ) -> str:
-        """Create summary for one execution round
-
-        Args:
-            messages: List of messages to summarize
-            round_num: Round number
-
-        Returns:
-            Summary text
-        """
-        if not messages:
-            return ""
-
-        # Build summary content
-        summary_content = f"Round {round_num} execution process:\n\n"
-        for msg in messages:
-            if msg.role == "assistant":
-                content_text = msg.content if isinstance(msg.content, str) else str(msg.content)
-                summary_content += f"Assistant: {content_text}\n"
-                if msg.tool_calls:
-                    tool_names = [tc.function.name for tc in msg.tool_calls]
-                    summary_content += f"  → Called tools: {', '.join(tool_names)}\n"
-            elif msg.role == "tool":
-                result_preview = msg.content if isinstance(msg.content, str) else str(msg.content)
-                summary_content += f"  ← Tool returned: {result_preview}...\n"
-
-        summary_prompt = f"""Please provide a concise summary of the following Agent execution process:
-
-{summary_content}
-
-Requirements:
-1. Focus on what tasks were completed and which tools were called
-2. Keep key execution results and important findings
-3. Be concise and clear, within 1000 words
-4. Use English
-5. Do not include "user" related content, only summarize the Agent's execution process"""
-
-        summary_messages = [
-            Message(
-                role="system",
-                content="You are an assistant skilled at summarizing Agent execution processes.",
-            ),
-            Message(role="user", content=summary_prompt),
-        ]
-        emitter.emit(
-            ModelRequest(
-                purpose="summary",
-                messages=tuple(
-                    message.model_copy(deep=True) for message in summary_messages
-                ),
-                tools=(),
-            )
-        )
-        if emitter.error is not None:
-            return ""
-        try:
-            response = await context.llm.generate(messages=summary_messages)
-        except Exception as e:
-            error_msg = f"Summary generation failed for round {round_num}: {e}"
-            emitter.emit(
-                ModelCallFailed(
-                    purpose="summary",
-                    error=e,
-                    result=error_msg,
-                ),
-            )
-            emitter.emit(
-                CompactionRoundFinished(
-                    round_number=round_num,
-                    used_fallback=True,
-                    error=e,
-                ),
-            )
-            # Use simple text summary on failure
-            return summary_content
-
-        emitter.emit(
-            ModelResponse(
-                purpose="summary",
-                response=response.model_copy(deep=True),
-            )
-        )
-        emitter.emit(
-            CompactionRoundFinished(
-                round_number=round_num,
-                used_fallback=False,
-            )
-        )
-        return response.content
-
     def get_history(self) -> list[Message]:
         """Return an owned snapshot of the current model-visible history."""
 
@@ -503,7 +225,7 @@ Requirements:
 
 
 class _AgentLoop:
-    """Drive one admitted Turn as ordered agent-purpose Steps."""
+    """Drive one admitted Turn as ordered Steps."""
 
     async def run_turn(
         self,
@@ -528,24 +250,6 @@ class _AgentLoop:
                 )
 
             for step_number in range(1, context.max_steps + 1):
-                if context.interrupt_event.is_set():
-                    return self._finish_turn(
-                        emitter=emitter,
-                        context=context,
-                        stop_reason="interrupted",
-                        last_assistant_message=last_assistant_message,
-                    )
-
-                # Compaction is Turn maintenance, not an agent-purpose Step.
-                await session._summarize_messages(context, emitter)
-                if emitter.error is not None:
-                    return self._finish_turn(
-                        emitter=emitter,
-                        context=context,
-                        stop_reason="failed",
-                        last_assistant_message=last_assistant_message,
-                        error=self._observer_error(emitter.error),
-                    )
                 if context.interrupt_event.is_set():
                     return self._finish_turn(
                         emitter=emitter,
@@ -630,7 +334,6 @@ class _AgentLoop:
             )
             emitter.emit(
                 ModelRequest(
-                    purpose="agent",
                     messages=event_messages,
                     tools=event_tools,
                 ),
@@ -656,7 +359,6 @@ class _AgentLoop:
                     error_message = f"LLM call failed: {error}"
                 emitter.emit(
                     ModelCallFailed(
-                        purpose="agent",
                         error=error,
                         result=error_message,
                     ),
@@ -676,12 +378,11 @@ class _AgentLoop:
                 )
 
             if response.usage:
-                # Telemetry only; compaction must not depend on unprobed usage
+                # Telemetry only; no control policy depends on unprobed usage
                 # semantics from a compatible endpoint.
                 session._api_total_tokens = response.usage.total_tokens
             emitter.emit(
                 ModelResponse(
-                    purpose="agent",
                     response=response.model_copy(deep=True),
                 ),
                 step=step_number,
