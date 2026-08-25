@@ -97,6 +97,9 @@ class AgentSession:
         workspace_dir: str = "./workspace",
         session_id: str | None = None,
     ):
+        if max_steps <= 0:
+            raise ValueError("max_steps must be greater than zero")
+
         self._session_id = session_id or uuid4().hex
         self._llm = llm_client
         self._tool_executor = ToolBatchExecutor(tools)

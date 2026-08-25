@@ -241,6 +241,17 @@ def test_config_rejects_nonpositive_output_limit(tmp_path):
         Config.from_yaml(path)
 
 
+@pytest.mark.parametrize("max_steps", [0, -1])
+def test_config_rejects_nonpositive_max_steps(tmp_path, max_steps):
+    data = config_data()
+    data["max_steps"] = max_steps
+    path = tmp_path / "config.yaml"
+    write_config(path, data)
+
+    with pytest.raises(ValueError, match="max_steps"):
+        Config.from_yaml(path)
+
+
 def test_config_example_tracks_explicit_adapter_schema(tmp_path):
     template_path = Path("mini_agent/config/config-example.yaml")
     data = yaml.safe_load(template_path.read_text(encoding="utf-8"))

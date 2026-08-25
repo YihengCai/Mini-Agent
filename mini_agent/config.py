@@ -41,7 +41,7 @@ class LLMConfig(_StrictConfigModel):
 class AgentConfig(_StrictConfigModel):
     """Agent configuration"""
 
-    max_steps: int = 50
+    max_steps: int = Field(default=50, gt=0)
     workspace_dir: str = "./workspace"
     system_prompt_path: str = "system_prompt.md"
 

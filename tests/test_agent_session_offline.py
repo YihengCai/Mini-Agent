@@ -109,6 +109,27 @@ def build_session(
     )
 
 
+@pytest.mark.parametrize("max_steps", [0, -1])
+def test_session_rejects_nonpositive_max_steps_before_workspace_creation(
+    tmp_path,
+    max_steps,
+):
+    workspace = tmp_path / "must-not-exist"
+    llm = ScriptedLLM([])
+
+    with pytest.raises(ValueError, match="max_steps.*greater than zero"):
+        AgentSession(
+            llm_client=llm,
+            system_prompt="You are a test agent.",
+            tools=[],
+            max_steps=max_steps,
+            workspace_dir=str(workspace),
+        )
+
+    assert not workspace.exists()
+    assert llm.requests == []
+
+
 @pytest.mark.asyncio
 async def test_session_keeps_history_across_distinct_turns(tmp_path):
     llm = ScriptedLLM(
