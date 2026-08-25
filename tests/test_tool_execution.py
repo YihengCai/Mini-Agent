@@ -126,6 +126,17 @@ class MutatingArgumentsTool(Tool):
         return ToolResult(success=True, content="mutated private input")
 
 
+class RetainingResultTool(MutableEchoTool):
+    def __init__(self) -> None:
+        super().__init__()
+        self.retained_result: ToolResult | None = None
+
+    async def execute(self, text: str) -> ToolResult:
+        self.calls.append(text)
+        self.retained_result = ToolResult(success=True, content="original")
+        return self.retained_result
+
+
 class DefinitionDrivenLLM:
     def __init__(self) -> None:
         self.tool_snapshots: list[list[ToolDefinition]] = []
@@ -655,6 +666,33 @@ async def test_tool_argument_mutation_cannot_change_events_or_history(tmp_path) 
     assert assistant_call.function.arguments == {
         "payload": {"items": ["original"]}
     }
+
+
+@pytest.mark.asyncio
+async def test_tool_result_alias_cannot_change_events_or_history(tmp_path) -> None:
+    llm = ScriptedLLM([ScriptedCall(response(tool_call("result", "value")))])
+    tool = RetainingResultTool()
+    session = build_session(tmp_path, llm, [tool])
+    finished_results: list[ToolResult] = []
+
+    def mutate_retained_result(envelope) -> None:
+        if not isinstance(envelope.event, ToolFinished):
+            return
+        finished_results.append(envelope.event.result)
+        assert tool.retained_result is not None
+        tool.retained_result.content = "mutated-after-event"
+
+    with llm:
+        outcome = await session.start_turn(
+            "own the tool result",
+            event_sink=mutate_retained_result,
+        ).wait()
+
+    assert outcome.stop_reason == "max_steps"
+    assert [result.content for result in finished_results] == ["original"]
+    assert tool.retained_result is not None
+    assert tool.retained_result.content == "mutated-after-event"
+    assert session.get_history()[-1].content == "original"
 
 
 @pytest.mark.asyncio

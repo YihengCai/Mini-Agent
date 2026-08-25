@@ -174,7 +174,7 @@ class ToolBatchExecutor:
                 **deepcopy(tool_call.function.arguments)
             )
             if isinstance(raw_result, ToolResult):
-                return raw_result
+                return raw_result.model_copy(deep=True)
             return ToolResult(
                 success=False,
                 content="",
