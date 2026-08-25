@@ -1,5 +1,6 @@
 """Offline contract tests for configured model API adapters."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -82,6 +83,26 @@ def test_config_rejects_nonpositive_output_limit(tmp_path):
 
     with pytest.raises(ValueError, match="max_output_tokens"):
         Config.from_yaml(path)
+
+
+def test_config_example_tracks_explicit_adapter_schema(tmp_path):
+    template_path = Path("mini_agent/config/config-example.yaml")
+    data = yaml.safe_load(template_path.read_text(encoding="utf-8"))
+    assert "provider" not in data
+
+    data.update(
+        api_key="test-key",
+        api_base="https://model.example.test/messages",
+        model="test-model",
+        max_output_tokens=61,
+    )
+    path = tmp_path / "config.yaml"
+    write_config(path, data)
+
+    config = Config.from_yaml(path)
+
+    assert config.llm.adapter is AdapterName.ANTHROPIC
+    assert config.llm.max_output_tokens == 61
 
 
 @pytest.mark.asyncio

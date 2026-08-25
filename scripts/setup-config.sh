@@ -14,6 +14,8 @@ NC='\033[0m' # No Color
 
 # Configuration directory
 CONFIG_DIR="$HOME/.mini-agent/config"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE_CONFIG_DIR="$SCRIPT_DIR/../mini_agent/config"
 
 echo -e "${CYAN}╔════════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║   Mini Agent Configuration Setup              ║${NC}"
@@ -34,38 +36,18 @@ else
     echo -e "${GREEN}   ✓ Created: $CONFIG_DIR${NC}"
 fi
 
-# Step 2: Download configuration files from GitHub
-echo -e "${BLUE}[2/2]${NC} Downloading configuration files..."
+# Step 2: Copy the configuration shipped with this checkout
+echo -e "${BLUE}[2/2]${NC} Copying configuration templates..."
 
-FILES_COPIED=0
-GITHUB_RAW_URL="https://raw.githubusercontent.com/MiniMax-AI/Mini-Agent/main/mini_agent/config"
-
-# Download config-example.yaml as config.yaml
-if curl -fsSL "$GITHUB_RAW_URL/config-example.yaml" -o "$CONFIG_DIR/config.yaml" 2>/dev/null; then
-    echo -e "${GREEN}   ✓ Downloaded: config.yaml${NC}"
-    FILES_COPIED=$((FILES_COPIED + 1))
-else
-    echo -e "${RED}   ✗ Failed to download: config.yaml${NC}"
-fi
-
-# Download mcp-example.json as mcp.json (optional, user should customize)
-if curl -fsSL "$GITHUB_RAW_URL/mcp-example.json" -o "$CONFIG_DIR/mcp.json" 2>/dev/null; then
-    echo -e "${GREEN}   ✓ Downloaded: mcp.json (from template)${NC}"
-    FILES_COPIED=$((FILES_COPIED + 1))
-fi
-
-# Download system_prompt.md (optional)
-if curl -fsSL "$GITHUB_RAW_URL/system_prompt.md" -o "$CONFIG_DIR/system_prompt.md" 2>/dev/null; then
-    echo -e "${GREEN}   ✓ Downloaded: system_prompt.md${NC}"
-    FILES_COPIED=$((FILES_COPIED + 1))
-fi
-
-if [ $FILES_COPIED -eq 0 ]; then
-    echo -e "${RED}   ✗ Failed to download configuration files${NC}"
-    echo -e "${YELLOW}   Please check your internet connection${NC}"
+if [ ! -f "$SOURCE_CONFIG_DIR/config-example.yaml" ]; then
+    echo -e "${RED}   ✗ Cannot find templates in: $SOURCE_CONFIG_DIR${NC}"
+    echo -e "${YELLOW}   Run this script from a Mini-Agent checkout.${NC}"
     exit 1
 fi
 
+cp "$SOURCE_CONFIG_DIR/config-example.yaml" "$CONFIG_DIR/config.yaml"
+cp "$SOURCE_CONFIG_DIR/mcp-example.json" "$CONFIG_DIR/mcp.json"
+cp "$SOURCE_CONFIG_DIR/system_prompt.md" "$CONFIG_DIR/system_prompt.md"
 echo -e "${GREEN}   ✓ Configuration files ready${NC}"
 
 echo ""
@@ -81,16 +63,13 @@ ls -1 "$CONFIG_DIR" 2>/dev/null | sed 's/^/  📄 /' || echo "  (no files yet)"
 echo ""
 echo -e "${YELLOW}Next Steps:${NC}"
 echo ""
-echo -e "${YELLOW}1. Install Mini Agent:${NC}"
-echo -e "   ${GREEN}pipx install git+https://github.com/MiniMax-AI/Mini-Agent.git${NC}"
-echo ""
-echo -e "${YELLOW}2. Configure your API Key:${NC}"
-echo -e "   Edit config.yaml and add your MiniMax API Key:"
+echo -e "${YELLOW}1. Configure the model adapter:${NC}"
+echo -e "   Edit config.yaml and set adapter, API key, exact endpoint, model, and output limit:"
 echo -e "   ${GREEN}nano $CONFIG_DIR/config.yaml${NC}"
 echo -e "   ${GREEN}vim $CONFIG_DIR/config.yaml${NC}"
 echo -e "   ${GREEN}code $CONFIG_DIR/config.yaml${NC}"
 echo ""
-echo -e "${YELLOW}3. Start using Mini Agent:${NC}"
+echo -e "${YELLOW}2. Start using Mini Agent:${NC}"
 echo -e "   ${GREEN}mini-agent${NC}                              # Use current directory"
 echo -e "   ${GREEN}mini-agent --workspace /path/to/project${NC} # Specify workspace"
 echo -e "   ${GREEN}mini-agent --help${NC}                      # Show help"
