@@ -93,7 +93,7 @@ class BackgroundShell:
         else:
             self.status = "running"
 
-    async def terminate(self):
+    async def terminate(self) -> None:
         """Terminate the background process."""
         if self.process.returncode is None:
             self.process.terminate()
@@ -101,94 +101,104 @@ class BackgroundShell:
                 await asyncio.wait_for(self.process.wait(), timeout=5)
             except asyncio.TimeoutError:
                 self.process.kill()
+                await self.process.wait()
         self.status = "terminated"
         self.exit_code = self.process.returncode
 
 
 class BackgroundShellManager:
-    """Manager for all background shell processes."""
+    """Own one runtime's background shells and monitor tasks."""
 
-    _shells: dict[str, BackgroundShell] = {}
-    _monitor_tasks: dict[str, asyncio.Task] = {}
+    def __init__(self) -> None:
+        self._shells: dict[str, BackgroundShell] = {}
+        self._monitor_tasks: dict[str, asyncio.Task] = {}
+        self._closed = False
+        self._close_lock = asyncio.Lock()
 
-    @classmethod
-    def add(cls, shell: BackgroundShell) -> None:
-        """Add a background shell to management."""
-        cls._shells[shell.bash_id] = shell
+    def track(self, shell: BackgroundShell) -> None:
+        """Atomically register one shell and start its monitor task."""
 
-    @classmethod
-    def get(cls, bash_id: str) -> BackgroundShell | None:
+        bash_id = shell.bash_id
+        if self._closed:
+            raise RuntimeError("Background shell manager is closed")
+        if bash_id in self._shells or bash_id in self._monitor_tasks:
+            raise ValueError(f"Duplicate shell ID: {bash_id}")
+
+        self._shells[bash_id] = shell
+        monitor = self._monitor(shell)
+        try:
+            task = asyncio.create_task(monitor)
+        except BaseException:
+            monitor.close()
+            del self._shells[bash_id]
+            raise
+
+        if not task.done():
+            self._monitor_tasks[bash_id] = task
+
+    def get(self, bash_id: str) -> BackgroundShell | None:
         """Get a background shell by ID."""
-        return cls._shells.get(bash_id)
+        return self._shells.get(bash_id)
 
-    @classmethod
-    def get_available_ids(cls) -> list[str]:
+    def get_available_ids(self) -> list[str]:
         """Get all available bash IDs."""
-        return list(cls._shells.keys())
+        return list(self._shells.keys())
 
-    @classmethod
-    def _remove(cls, bash_id: str) -> None:
+    def _remove(self, bash_id: str) -> None:
         """Remove a background shell from management (internal use only)."""
-        if bash_id in cls._shells:
-            del cls._shells[bash_id]
+        self._shells.pop(bash_id, None)
 
-    @classmethod
-    async def start_monitor(cls, bash_id: str) -> None:
-        """Start monitoring a background shell's output."""
-        shell = cls.get(bash_id)
-        if not shell:
-            return
-
-        async def monitor():
-            try:
-                process = shell.process
-                # Continuously read output until process ends
-                while process.returncode is None:
-                    try:
-                        if process.stdout:
-                            line = await asyncio.wait_for(process.stdout.readline(), timeout=0.1)
-                            if line:
-                                decoded_line = line.decode("utf-8", errors="replace").rstrip("\n")
-                                shell.add_output(decoded_line)
-                            else:
-                                break
-                    except asyncio.TimeoutError:
-                        await asyncio.sleep(0.1)
-                        continue
-                    except Exception:
-                        await asyncio.sleep(0.1)
-                        continue
-
-                # Process ended, wait for exit code
+    async def _monitor(self, shell: BackgroundShell) -> None:
+        bash_id = shell.bash_id
+        try:
+            process = shell.process
+            while process.returncode is None:
                 try:
-                    returncode = await process.wait()
+                    if process.stdout:
+                        line = await asyncio.wait_for(
+                            process.stdout.readline(),
+                            timeout=0.1,
+                        )
+                        if line:
+                            decoded_line = line.decode(
+                                "utf-8",
+                                errors="replace",
+                            ).rstrip("\n")
+                            shell.add_output(decoded_line)
+                        else:
+                            break
+                except asyncio.TimeoutError:
+                    await asyncio.sleep(0.1)
+                    continue
                 except Exception:
-                    returncode = -1
+                    await asyncio.sleep(0.1)
+                    continue
 
-                shell.update_status(is_alive=False, exit_code=returncode)
+            try:
+                returncode = await process.wait()
+            except Exception:
+                returncode = -1
+            shell.update_status(is_alive=False, exit_code=returncode)
+        except Exception as error:
+            if self.get(bash_id) is shell:
+                shell.status = "error"
+                shell.add_output(f"Monitor error: {error}")
+        finally:
+            current_task = asyncio.current_task()
+            if self._monitor_tasks.get(bash_id) is current_task:
+                del self._monitor_tasks[bash_id]
 
-            except Exception as e:
-                if bash_id in cls._shells:
-                    cls._shells[bash_id].status = "error"
-                    cls._shells[bash_id].add_output(f"Monitor error: {str(e)}")
-            finally:
-                if bash_id in cls._monitor_tasks:
-                    del cls._monitor_tasks[bash_id]
+    async def _cancel_monitor(self, bash_id: str) -> None:
+        """Cancel a monitor and wait until its cleanup has completed."""
 
-        task = asyncio.create_task(monitor())
-        cls._monitor_tasks[bash_id] = task
+        task = self._monitor_tasks.pop(bash_id, None)
+        if task is None:
+            return
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
-    @classmethod
-    def _cancel_monitor(cls, bash_id: str) -> None:
-        """Cancel and remove a monitoring task (internal use only)."""
-        if bash_id in cls._monitor_tasks:
-            task = cls._monitor_tasks[bash_id]
-            if not task.done():
-                task.cancel()
-            del cls._monitor_tasks[bash_id]
-
-    @classmethod
-    async def terminate(cls, bash_id: str) -> BackgroundShell:
+    async def terminate(self, bash_id: str) -> BackgroundShell:
         """Terminate a background shell and clean up all resources.
 
         Args:
@@ -200,18 +210,32 @@ class BackgroundShellManager:
         Raises:
             ValueError: If shell not found
         """
-        shell = cls.get(bash_id)
+        shell = self.get(bash_id)
         if not shell:
             raise ValueError(f"Shell not found: {bash_id}")
 
-        # Terminate the process
         await shell.terminate()
-
-        # Clean up monitoring and remove from manager
-        cls._cancel_monitor(bash_id)
-        cls._remove(bash_id)
+        await self._cancel_monitor(bash_id)
+        self._remove(bash_id)
 
         return shell
+
+    async def close(self) -> None:
+        """Seal registration and terminate all shells, retaining failures for retry."""
+
+        self._closed = True
+        async with self._close_lock:
+            results = await asyncio.gather(
+                *(self.terminate(bash_id) for bash_id in list(self._shells)),
+                return_exceptions=True,
+            )
+            await asyncio.gather(
+                *(self._cancel_monitor(bash_id) for bash_id in list(self._monitor_tasks)),
+            )
+
+            for result in results:
+                if isinstance(result, BaseException):
+                    raise result
 
 
 class BashTool(Tool):
@@ -222,7 +246,12 @@ class BashTool(Tool):
     - Unix/Linux/macOS: bash
     """
 
-    def __init__(self, workspace_dir: str | None = None):
+    def __init__(
+        self,
+        workspace_dir: str | None = None,
+        *,
+        manager: BackgroundShellManager,
+    ):
         """Initialize BashTool with OS-specific shell detection.
 
         Args:
@@ -233,6 +262,7 @@ class BashTool(Tool):
         self.is_windows = platform.system() == "Windows"
         self.shell_name = "PowerShell" if self.is_windows else "bash"
         self.workspace_dir = workspace_dir
+        self._manager = manager
 
     @property
     def name(self) -> str:
@@ -323,6 +353,7 @@ Examples:
             BashExecutionResult with command output and status
         """
 
+        background_cleanup_error: BaseException | None = None
         try:
             # Validate timeout
             if timeout > 600:
@@ -358,12 +389,23 @@ Examples:
                         cwd=self.workspace_dir,
                     )
 
-                # Create background shell and add to manager
+                # Create background shell and register it with this runtime.
                 bg_shell = BackgroundShell(bash_id=bash_id, command=command, process=process, start_time=time.time())
-                BackgroundShellManager.add(bg_shell)
-
-                # Start monitoring task
-                await BackgroundShellManager.start_monitor(bash_id)
+                try:
+                    self._manager.track(bg_shell)
+                except BaseException as tracking_error:
+                    try:
+                        await bg_shell.terminate()
+                    except BaseException as cleanup_error:
+                        background_cleanup_error = cleanup_error
+                        try:
+                            if process.returncode is None:
+                                process.kill()
+                                await process.wait()
+                        except BaseException as force_cleanup_error:
+                            background_cleanup_error = force_cleanup_error
+                        raise tracking_error from background_cleanup_error
+                    raise
 
                 # Return immediately with bash_id
                 message = f"Command started in background. Use bash_output to monitor (bash_id='{bash_id}')."
@@ -429,17 +471,27 @@ Examples:
                 )
 
         except Exception as e:
+            error_message = str(e)
+            if background_cleanup_error is not None:
+                error_message += (
+                    "; background process cleanup also failed: "
+                    f"{type(background_cleanup_error).__name__}: "
+                    f"{background_cleanup_error}"
+                )
             return BashOutputResult(
                 success=False,
-                error=str(e),
+                error=error_message,
                 stdout="",
-                stderr=str(e),
+                stderr=error_message,
                 exit_code=-1,
             )
 
 
 class BashOutputTool(Tool):
     """Retrieve output from background bash shells."""
+
+    def __init__(self, *, manager: BackgroundShellManager) -> None:
+        self._manager = manager
 
     @property
     def name(self) -> str:
@@ -499,9 +551,9 @@ class BashOutputTool(Tool):
 
         try:
             # Get background shell from manager
-            bg_shell = BackgroundShellManager.get(bash_id)
+            bg_shell = self._manager.get(bash_id)
             if not bg_shell:
-                available_ids = BackgroundShellManager.get_available_ids()
+                available_ids = self._manager.get_available_ids()
                 return BashOutputResult(
                     success=False,
                     error=f"Shell not found: {bash_id}. Available: {available_ids or 'none'}",
@@ -534,6 +586,9 @@ class BashOutputTool(Tool):
 
 class BashKillTool(Tool):
     """Terminate a running background bash shell."""
+
+    def __init__(self, *, manager: BackgroundShellManager) -> None:
+        self._manager = manager
 
     @property
     def name(self) -> str:
@@ -577,14 +632,14 @@ class BashKillTool(Tool):
 
         try:
             # Get remaining output before termination
-            bg_shell = BackgroundShellManager.get(bash_id)
+            bg_shell = self._manager.get(bash_id)
             if bg_shell:
                 remaining_lines = bg_shell.get_new_output()
             else:
                 remaining_lines = []
 
             # Terminate through manager (handles all cleanup)
-            bg_shell = await BackgroundShellManager.terminate(bash_id)
+            bg_shell = await self._manager.terminate(bash_id)
 
             # Get remaining output
             stdout = "\n".join(remaining_lines) if remaining_lines else ""
@@ -599,7 +654,7 @@ class BashKillTool(Tool):
 
         except ValueError as e:
             # Shell not found
-            available_ids = BackgroundShellManager.get_available_ids()
+            available_ids = self._manager.get_available_ids()
             return BashOutputResult(
                 success=False,
                 error=f"{str(e)}. Available: {available_ids or 'none'}",

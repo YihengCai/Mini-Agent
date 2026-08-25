@@ -10,7 +10,13 @@ import pytest
 from mini_agent import create_model_client
 from mini_agent.agent import AgentSession
 from mini_agent.config import Config
-from mini_agent.tools import BashTool, EditTool, ReadTool, WriteTool
+from mini_agent.tools import (
+    BackgroundShellManager,
+    BashTool,
+    EditTool,
+    ReadTool,
+    WriteTool,
+)
 from mini_agent.tools.mcp_loader import load_mcp_tools_async
 from mini_agent.tools.note_tool import RecallNoteTool, SessionNoteTool
 
@@ -59,11 +65,12 @@ async def test_basic_agent_usage():
         )
 
         # Initialize basic tools
+        shell_manager = BackgroundShellManager()
         tools = [
             ReadTool(workspace_dir=workspace_dir),
             WriteTool(workspace_dir=workspace_dir),
             EditTool(workspace_dir=workspace_dir),
-            BashTool(),
+            BashTool(manager=shell_manager),
         ]
 
         # Add Note tools for session memory
@@ -108,7 +115,10 @@ async def test_basic_agent_usage():
         print(f"\nTask: {task}")
         print("\n" + "=" * 80 + "\n")
 
-        outcome = await agent.start_turn(task).wait()
+        try:
+            outcome = await agent.start_turn(task).wait()
+        finally:
+            await shell_manager.close()
         result = outcome.last_assistant_message or ""
 
         print("\n" + "=" * 80)

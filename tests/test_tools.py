@@ -7,7 +7,13 @@ from unittest.mock import patch
 
 import pytest
 
-from mini_agent.tools import BashTool, EditTool, ReadTool, WriteTool
+from mini_agent.tools import (
+    BackgroundShellManager,
+    BashTool,
+    EditTool,
+    ReadTool,
+    WriteTool,
+)
 from mini_agent.tools.file_tools import MAX_READ_BYTES, MAX_READ_LINES
 
 
@@ -442,7 +448,7 @@ def test_file_tool_schemas_expose_enforced_limits():
 
 @pytest.mark.asyncio
 async def test_bash_tool():
-    tool = BashTool()
+    tool = BashTool(manager=BackgroundShellManager())
 
     result = await tool.execute(command="echo 'Hello from bash'")
 

@@ -18,7 +18,7 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, List
+from typing import Awaitable, Callable, List
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -32,7 +32,12 @@ from mini_agent.cli_events import CliEventSink
 from mini_agent.config import Config
 from mini_agent.core import AgentSession, TurnHandle, TurnOutcome
 from mini_agent.tools.base import Tool
-from mini_agent.tools.bash_tool import BashKillTool, BashOutputTool, BashTool
+from mini_agent.tools.bash_tool import (
+    BackgroundShellManager,
+    BashKillTool,
+    BashOutputTool,
+    BashTool,
+)
 from mini_agent.tools.file_tools import EditTool, ReadTool, WriteTool
 from mini_agent.tools.mcp_loader import cleanup_mcp_connections, load_mcp_tools_async, set_mcp_timeout_config
 from mini_agent.tools.note_tool import SessionNoteTool
@@ -343,7 +348,11 @@ Examples:
     return parser.parse_args()
 
 
-async def initialize_base_tools(config: Config):
+async def initialize_base_tools(
+    config: Config,
+    *,
+    shell_manager: BackgroundShellManager,
+):
     """Initialize base tools (independent of workspace)
 
     These tools are loaded from package configuration and don't depend on workspace.
@@ -362,11 +371,11 @@ async def initialize_base_tools(config: Config):
     # 1. Bash auxiliary tools (output monitoring and kill)
     # Note: BashTool itself is created in add_workspace_tools() with workspace_dir as cwd
     if config.tools.enable_bash:
-        bash_output_tool = BashOutputTool()
+        bash_output_tool = BashOutputTool(manager=shell_manager)
         tools.append(bash_output_tool)
         print(f"{Colors.GREEN}✅ Loaded Bash Output tool{Colors.RESET}")
 
-        bash_kill_tool = BashKillTool()
+        bash_kill_tool = BashKillTool(manager=shell_manager)
         tools.append(bash_kill_tool)
         print(f"{Colors.GREEN}✅ Loaded Bash Kill tool{Colors.RESET}")
 
@@ -439,7 +448,13 @@ async def initialize_base_tools(config: Config):
     return tools, skill_loader
 
 
-def add_workspace_tools(tools: List[Tool], config: Config, workspace_dir: Path):
+def add_workspace_tools(
+    tools: List[Tool],
+    config: Config,
+    workspace_dir: Path,
+    *,
+    shell_manager: BackgroundShellManager,
+):
     """Add workspace-dependent tools
 
     These tools need to know the workspace directory.
@@ -454,7 +469,10 @@ def add_workspace_tools(tools: List[Tool], config: Config, workspace_dir: Path):
 
     # Bash tool - needs workspace as cwd for command execution
     if config.tools.enable_bash:
-        bash_tool = BashTool(workspace_dir=str(workspace_dir))
+        bash_tool = BashTool(
+            workspace_dir=str(workspace_dir),
+            manager=shell_manager,
+        )
         tools.append(bash_tool)
         print(f"{Colors.GREEN}✅ Loaded Bash tool (cwd: {workspace_dir}){Colors.RESET}")
 
@@ -475,7 +493,7 @@ def add_workspace_tools(tools: List[Tool], config: Config, workspace_dir: Path):
         print(f"{Colors.GREEN}✅ Loaded session note tool{Colors.RESET}")
 
 
-async def _quiet_cleanup():
+async def _quiet_cleanup() -> None:
     """Clean up MCP connections, suppressing noisy asyncgen teardown tracebacks."""
     # Silence the asyncgen finalization noise that anyio/mcp emits when
     # stdio_client's task group is torn down across tasks.  The handler is
@@ -491,13 +509,48 @@ async def _quiet_cleanup():
         pass
 
 
-async def run_agent(workspace_dir: Path, task: str = None):
-    """Run Agent in interactive or non-interactive mode.
+async def _run_with_runtime_cleanup(
+    runtime: Awaitable[None],
+    shell_manager: BackgroundShellManager,
+) -> None:
+    """Run one CLI lifetime and preserve its primary failure during cleanup."""
 
-    Args:
-        workspace_dir: Workspace directory path
-        task: If provided, execute this task and exit (non-interactive mode)
-    """
+    runtime_error: BaseException | None = None
+    try:
+        await runtime
+    except BaseException as error:
+        runtime_error = error
+        raise
+    finally:
+        cleanup_errors: list[tuple[str, BaseException]] = []
+        try:
+            await shell_manager.close()
+        except BaseException as error:
+            cleanup_errors.append(("Background shell", error))
+
+        try:
+            await _quiet_cleanup()
+        except BaseException as error:
+            cleanup_errors.append(("MCP", error))
+
+        secondary_errors = cleanup_errors
+        if runtime_error is None and cleanup_errors:
+            secondary_errors = cleanup_errors[1:]
+
+        for owner, cleanup_error in secondary_errors:
+            print(
+                f"{owner} cleanup also failed while preserving the primary "
+                f"error: {type(cleanup_error).__name__}: {cleanup_error}",
+                file=sys.stderr,
+            )
+
+        if runtime_error is None and cleanup_errors:
+            raise cleanup_errors[0][1]
+
+
+async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
+    """Load configuration, then run one resource-owning CLI lifetime."""
+
     session_start = datetime.now()
 
     # 1. Load configuration from package directory
@@ -573,11 +626,44 @@ async def run_agent(workspace_dir: Path, task: str = None):
         llm_client.retry_callback = on_retry
         print(f"{Colors.GREEN}✅ LLM retry mechanism enabled (max {config.llm.retry.max_retries} retries){Colors.RESET}")
 
+    shell_manager = BackgroundShellManager()
+    await _run_with_runtime_cleanup(
+        _run_configured_runtime(
+            workspace_dir,
+            task=task,
+            config=config,
+            llm_client=llm_client,
+            session_start=session_start,
+            shell_manager=shell_manager,
+        ),
+        shell_manager,
+    )
+
+
+async def _run_configured_runtime(
+    workspace_dir: Path,
+    task: str | None = None,
+    *,
+    config: Config,
+    llm_client,
+    session_start: datetime,
+    shell_manager: BackgroundShellManager,
+) -> None:
+    """Run the CLI after configuration and model client setup have succeeded."""
+
     # 3. Initialize base tools (independent of workspace)
-    tools, skill_loader = await initialize_base_tools(config)
+    tools, skill_loader = await initialize_base_tools(
+        config,
+        shell_manager=shell_manager,
+    )
 
     # 4. Add workspace-dependent tools
-    add_workspace_tools(tools, config, workspace_dir)
+    add_workspace_tools(
+        tools,
+        config,
+        workspace_dir,
+        shell_manager=shell_manager,
+    )
 
     # 5. Load System Prompt (with priority search)
     system_prompt_path = Config.find_config_file(config.agent.system_prompt_path)
@@ -632,7 +718,6 @@ async def run_agent(workspace_dir: Path, task: str = None):
             print(f"\n{Colors.RED}❌ Error: {e}{Colors.RESET}")
         finally:
             print_stats(agent_session, session_start)
-            await _quiet_cleanup()
         return
 
     # 9. Setup prompt_toolkit session
@@ -830,7 +915,6 @@ async def run_agent(workspace_dir: Path, task: str = None):
 
             except asyncio.CancelledError:
                 print(f"\n{Colors.BRIGHT_YELLOW}⚠️  Agent execution cancelled{Colors.RESET}")
-                await _quiet_cleanup()
                 raise
             finally:
                 esc_listener_stop.set()
@@ -852,10 +936,6 @@ async def run_agent(workspace_dir: Path, task: str = None):
         except Exception as e:
             print(f"\n{Colors.RED}❌ Error: {e}{Colors.RESET}")
             print(f"{Colors.DIM}{'─' * 60}{Colors.RESET}\n")
-
-    # 11. Cleanup MCP connections
-    await _quiet_cleanup()
-
 
 def main():
     """Main entry point for CLI"""

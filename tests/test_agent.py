@@ -9,7 +9,13 @@ import pytest
 from mini_agent import create_model_client
 from mini_agent.agent import AgentSession
 from mini_agent.config import Config
-from mini_agent.tools import BashTool, EditTool, ReadTool, WriteTool
+from mini_agent.tools import (
+    BackgroundShellManager,
+    BashTool,
+    EditTool,
+    ReadTool,
+    WriteTool,
+)
 
 
 pytestmark = pytest.mark.external
@@ -45,11 +51,12 @@ async def test_agent_simple_task():
         )
 
         # Initialize tools
+        shell_manager = BackgroundShellManager()
         tools = [
             ReadTool(workspace_dir=workspace_dir),
             WriteTool(workspace_dir=workspace_dir),
             EditTool(workspace_dir=workspace_dir),
-            BashTool(),
+            BashTool(manager=shell_manager),
         ]
 
         # Create agent
@@ -95,6 +102,8 @@ async def test_agent_simple_task():
 
             traceback.print_exc()
             return False
+        finally:
+            await shell_manager.close()
 
 
 @pytest.mark.asyncio
@@ -127,10 +136,11 @@ async def test_agent_bash_task():
         )
 
         # Initialize tools
+        shell_manager = BackgroundShellManager()
         tools = [
             ReadTool(workspace_dir=workspace_dir),
             WriteTool(workspace_dir=workspace_dir),
-            BashTool(),
+            BashTool(manager=shell_manager),
         ]
 
         # Create agent
@@ -162,6 +172,8 @@ async def test_agent_bash_task():
 
             traceback.print_exc()
             return False
+        finally:
+            await shell_manager.close()
 
 
 async def main():
