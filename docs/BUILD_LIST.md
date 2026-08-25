@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-后台 shell 输出完成边界已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
+运行时工作区配置所有权已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **运行时工作区的单一所有权**：删除从未被运行时消费的 `AgentConfig.workspace_dir` 与示例字段；CLI 的 `--workspace` / 当前目录继续作为唯一来源，程序化模型拒绝旧字段，旧 YAML 会明确指向 `--workspace`。2 项新回归覆盖模型与迁移边界；删除定向错误时 YAML 回归转红。定向集合实测 `77 passed in 0.69s`，完整离线集合实测 `314 passed, 9 deselected in 13.18s`。取舍见 [`decisions/0024-cli-owns-runtime-workspace.md`](decisions/0024-cli-owns-runtime-workspace.md)。
 - **后台 shell 输出完成边界**：自然完成的 monitor 持续读取到 stdout EOF，再等待进程并发布 `completed` 或 `failed`；进程已退出但仍缓冲的行不再丢失。确定性 fake 回归在恢复旧退出码条件时转红；既有真实 bash 定向集合保持通过。定向集合实测 `40 passed in 9.77s`，完整离线集合实测 `312 passed, 9 deselected in 13.07s`。主动终止尾部输出仍不在保证内，取舍见 [`decisions/0023-background-shell-completes-after-stdout-eof.md`](decisions/0023-background-shell-completes-after-stdout-eof.md)。
 - **core 模型失败语义**：模型异常统一形成 `LLM call failed: {error}`，原对象继续进入事件，事件结果与 Turn 错误使用同一文本；core 删除具体重试类型依赖，不再把总调用次数改写成重试次数。1 项新回归覆盖一次调用的耗尽异常、对象身份和两处文本；恢复旧特判时该项转红。定向集合实测 `66 passed in 0.49s`，完整离线集合实测 `311 passed, 9 deselected in 13.27s`。取舍见 [`decisions/0022-core-preserves-model-error-semantics.md`](decisions/0022-core-preserves-model-error-semantics.md)。
 - **重试 enabled 开关单一所有权**：`async_retry()` 在每次调用入口解释 `enabled`；禁用时只调用一次，不等待、不回调并透传原异常。两个 wire adapter 删除同构启停分支，始终经过公共入口；启用且 `max_retries=0` 的耗尽语义不变。1 项新回归在移除公共守卫时转红；定向集合实测 `65 passed in 0.33s`，完整离线集合实测 `310 passed, 9 deselected in 13.12s`。取舍见 [`decisions/0021-retry-module-owns-enabled-switch.md`](decisions/0021-retry-module-owns-enabled-switch.md)。

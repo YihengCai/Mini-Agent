@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-项目已在上游 baseline 上完成二十五项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收，后台 shell 自然完成前还会读到 stdout EOF；每条模型可见工具结果现在还有统一的 UTF-8 字节预算；配置模型现在拒绝未知字段并单独持有默认值；Note 存储损坏时会失败关闭并保留原字节；MCP server 的错误正文会归一化到内部失败结果；显式非法 MCP transport 会在连接前隔离；配置与 core 都拒绝非正 Step 预算；配置与运行时都约束重试次数和退避数值，并由重试模块单一解释 enabled 开关；core 不再把模型异常的总调用次数改写成重试次数；每个 Session 的模型请求都包含本次真实工作区事实；相对系统提示词与 MCP 配置现在绑定到已选主配置的目录；每个 Turn 的人类可读日志都排他占用新文件；Skill 发现会以完整快照替换注册表并拒绝重名来源。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
+项目已在上游 baseline 上完成二十六项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收，后台 shell 自然完成前还会读到 stdout EOF；每条模型可见工具结果现在还有统一的 UTF-8 字节预算；配置模型现在拒绝未知字段并单独持有默认值，运行时工作区则由 CLI 单一选择，不再保留无效配置状态；Note 存储损坏时会失败关闭并保留原字节；MCP server 的错误正文会归一化到内部失败结果；显式非法 MCP transport 会在连接前隔离；配置与 core 都拒绝非正 Step 预算；配置与运行时都约束重试次数和退避数值，并由重试模块单一解释 enabled 开关；core 不再把模型异常的总调用次数改写成重试次数；每个 Session 的模型请求都包含本次真实工作区事实；相对系统提示词与 MCP 配置现在绑定到已选主配置的目录；每个 Turn 的人类可读日志都排他占用新文件；Skill 发现会以完整快照替换注册表并拒绝重名来源。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
 
 `read_file` 现在返回 1-based 行窗口，编号正文最多 2000 个完整行或 50 KiB，并给出下一次 `offset`；`edit_file` 仅把 LF/CRLF 视为等价，其他文本必须精确匹配且只能出现一次。写入和编辑通过同目录临时文件和 `os.replace()` 提交，已有文件保留 CRLF 约定与权限位。代码可以运行，但仍保留重要限制：
 
@@ -51,7 +51,9 @@ MCP 运行时所有权也已经落地：CLI 用配置构造不可变超时快照
 
 配置解析也已经收紧：根级扁平 YAML 仍映射到 `llm`、`agent` 和 `tools`，但所有配置模型现在共享未知字段拒绝策略；根级允许集合、必填字段与分片从模型字段派生，解析器不再重复 18 个默认值。拼错的根级、重试、工具或 MCP 键会在启动时指出原字段，合法缺省值只由模型补全；数值语义和配置文件来源当时没有改变。取舍见 [ADR-0012](docs/decisions/0012-strict-single-source-config-loading.md)。
 
-配置伴随文件的来源也已经统一：CLI 选择 `config.yaml` 后把路径显式传给同一次 runtime，相对 `system_prompt_path` 与 `mcp_config_path` 只从该目录解析，显式绝对路径保持不变。相对文件缺失时不会跨目录借用同名文件，而是使用内置提示词或保持 MCP 未加载；`skills_dir` 与工作区语义没有随本项改变。取舍见 [ADR-0015](docs/decisions/0015-bind-config-companions-to-selected-source.md)。
+运行时工作区现在由 CLI 单一持有：显式 `--workspace` 优先，否则使用当前目录，再把同一路径交给工具和 `AgentSession`。从未被读取的 `workspace_dir` 配置与示例字段已经删除；程序化构造会按严格模型拒绝它，旧 YAML 则明确提示改用 `--workspace`。这没有新增工作区越界限制或沙箱；取舍见 [ADR-0024](docs/decisions/0024-cli-owns-runtime-workspace.md)。
+
+配置伴随文件的来源也已经统一：CLI 选择 `config.yaml` 后把路径显式传给同一次 runtime，相对 `system_prompt_path` 与 `mcp_config_path` 只从该目录解析，显式绝对路径保持不变。相对文件缺失时不会跨目录借用同名文件，而是使用内置提示词或保持 MCP 未加载；`skills_dir` 没有随本项改变，工作区配置的后续删除见 ADR-0024。取舍见 [ADR-0015](docs/decisions/0015-bind-config-companions-to-selected-source.md)。
 
 Skill 发现的状态边界也已经收紧：每次递归扫描先按路径排序并构建局部注册表，重名会明确报告两个来源，只有完整成功后才替换当前快照；删除文件后的重扫不会留下陈旧能力，失败扫描也不会发布部分结果。更严格的 YAML frontmatter（文件头元数据）结构校验、`allowed-tools` 强制、动态监视、来源优先级和信任/权限模型仍未实现；取舍见 [ADR-0020](docs/decisions/0020-transactional-skill-discovery.md)。
 
@@ -118,7 +120,7 @@ uv sync
 cp mini_agent/config/config-example.yaml mini_agent/config/config.yaml
 ```
 
-编辑 `mini_agent/config/config.yaml`，删除旧 `provider` 与 `local_compaction_token_limit` 字段，并显式填写 `adapter`、`api_key`、`api_base`、`model` 和正整数 `max_output_tokens`。这两个旧字段有定向错误，其他未知根级或嵌套字段也会拒绝加载，不会静默采用默认值。`adapter` 当前可选 `anthropic` 或 `openai`，只选择 wire 格式；`api_base` 会逐字交给对应 adapter，因此需要包含目标端点要求的完整基础路径。模板中的占位值故意不能直接运行，避免把任一 vendor 的端点、模型或输出上限伪装成通用默认值。`config.yaml` 与 `mcp.json` 包含密钥，已被 `.gitignore` 排除，不要提交。
+编辑 `mini_agent/config/config.yaml`，删除旧 `provider`、`local_compaction_token_limit` 与 `workspace_dir` 字段，并显式填写 `adapter`、`api_key`、`api_base`、`model` 和正整数 `max_output_tokens`。这三个旧字段有定向错误，其他未知根级或嵌套字段也会拒绝加载，不会静默采用默认值；工作区请使用 CLI 的 `--workspace`。`adapter` 当前可选 `anthropic` 或 `openai`，只选择 wire 格式；`api_base` 会逐字交给对应 adapter，因此需要包含目标端点要求的完整基础路径。模板中的占位值故意不能直接运行，避免把任一 vendor 的端点、模型或输出上限伪装成通用默认值。`config.yaml` 与 `mcp.json` 包含密钥，已被 `.gitignore` 排除，不要提交。
 
 ### 交互式手动体验
 
@@ -158,7 +160,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-26 实测为 `312 passed, 9 deselected in 13.07s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-26 实测为 `314 passed, 9 deselected in 13.18s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 

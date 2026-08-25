@@ -18,6 +18,8 @@
 
 不改变主配置搜索优先级、`skills_dir`、`workspace_dir`、`../`、符号链接、`~` 展开或权限边界；不把缺失伴随文件升级为启动失败，也不改变已存在但不可读或内容无效时的错误处理。
 
+后续 [ADR-0024](../decisions/0024-cli-owns-runtime-workspace.md) 删除了从未生效的 `workspace_dir` 配置字段；该决定没有改变这里已经确定的伴随文件来源。
+
 ## 离线验证
 
 - 同一测试同时放置主配置目录文件和全局搜索诱饵，只允许前者进入 Session 与 MCP manager；
