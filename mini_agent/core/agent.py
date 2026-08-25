@@ -52,7 +52,7 @@ class _TurnContext:
     llm: ModelClient
     tools: Mapping[str, Tool]
     max_steps: int
-    token_limit: int
+    token_limit: int | None
 
 
 @dataclass(frozen=True)
@@ -104,9 +104,11 @@ class AgentSession:
         tools: list[Tool],
         max_steps: int = 50,
         workspace_dir: str = "./workspace",
-        token_limit: int = 80000,  # Summary triggered when tokens exceed this value
+        token_limit: int | None = None,
         session_id: str | None = None,
     ):
+        if token_limit is not None and token_limit <= 0:
+            raise ValueError("token_limit must be greater than zero when enabled")
         self._session_id = session_id or uuid4().hex
         self._llm = llm_client
         self._tools = {tool.name: tool for tool in tools}
@@ -131,7 +133,8 @@ class AgentSession:
         # Initialize message history
         self._messages: list[Message] = [Message(role="system", content=system_prompt)]
 
-        # Token usage from last API response (updated after each LLM call)
+        # Last adapter-reported usage is observation data only. It cannot drive
+        # context policy until the configured endpoint's semantics are probed.
         self._api_total_tokens: int = 0
         # Flag to skip token check right after summary (avoid consecutive triggers)
         self._skip_next_token_check: bool = False
@@ -163,7 +166,7 @@ class AgentSession:
         return self._max_steps
 
     @property
-    def token_limit(self) -> int:
+    def token_limit(self) -> int | None:
         return self._token_limit
 
     @property
@@ -234,12 +237,12 @@ class AgentSession:
             self._active_turn = None
 
     def _estimate_tokens(self) -> int:
-        """Accurately calculate token count for message history using tiktoken
+        """Estimate history size for the opt-in local compaction heuristic.
 
-        Uses cl100k_base encoder (GPT-4/Claude/M2 compatible)
+        ``cl100k_base`` is a legacy local approximation, not a claim about the
+        configured model's tokenizer or context window.
         """
         try:
-            # Use cl100k_base encoder (used by GPT-4 and most modern models)
             encoding = tiktoken.get_encoding("cl100k_base")
         except Exception:
             # Fallback: if tiktoken initialization fails, use simple estimation
@@ -303,24 +306,22 @@ class AgentSession:
         - If last round is still executing (has agent/tool messages but no next user), also summarize
         - Structure: system -> user1 -> summary1 -> user2 -> summary2 -> user3 -> summary3 (if executing)
 
-        Summary is triggered when EITHER:
-        - Local token estimation exceeds limit
-        - API reported total_tokens exceeds limit
+        Summary is triggered only when the opt-in local estimate exceeds its
+        configured limit. Adapter-reported usage remains observation data.
         """
-        # Skip check if we just completed a summary (wait for next LLM call to update api_total_tokens)
+        if context.token_limit is None:
+            return
+
+        # Avoid immediately evaluating the rewritten history again.
         if self._skip_next_token_check:
             self._skip_next_token_check = False
             return
 
         estimated_tokens = self._estimate_tokens()
 
-        # Check both local estimation and API reported tokens
-        should_summarize = (
-            estimated_tokens > context.token_limit
-            or self._api_total_tokens > context.token_limit
-        )
+        should_summarize = estimated_tokens > context.token_limit
 
-        # If neither exceeded, no summary needed
+        # If the local estimate is within budget, no summary is needed.
         if not should_summarize:
             return
 
@@ -386,8 +387,7 @@ class AgentSession:
         # Replace message list
         self._messages = new_messages
 
-        # Skip next token check to avoid consecutive summary triggers
-        # (api_total_tokens will be updated after next LLM call)
+        # Skip one check to avoid consecutive summary triggers.
         self._skip_next_token_check = True
 
         new_tokens = self._estimate_tokens()
@@ -676,6 +676,8 @@ class _AgentLoop:
                 )
 
             if response.usage:
+                # Telemetry only; compaction must not depend on unprobed usage
+                # semantics from a compatible endpoint.
                 session._api_total_tokens = response.usage.total_tokens
             emitter.emit(
                 ModelResponse(

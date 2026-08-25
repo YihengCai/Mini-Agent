@@ -73,6 +73,28 @@ def test_config_preserves_explicit_model_adapter_fields(tmp_path):
     assert config.llm.api_base == data["api_base"]
     assert config.llm.model == data["model"]
     assert config.llm.max_output_tokens == data["max_output_tokens"]
+    assert config.agent.local_compaction_token_limit is None
+
+
+def test_config_only_enables_local_compaction_with_explicit_limit(tmp_path):
+    data = config_data()
+    data["local_compaction_token_limit"] = 123
+    path = tmp_path / "config.yaml"
+    write_config(path, data)
+
+    config = Config.from_yaml(path)
+
+    assert config.agent.local_compaction_token_limit == 123
+
+
+def test_config_rejects_nonpositive_local_compaction_limit(tmp_path):
+    data = config_data()
+    data["local_compaction_token_limit"] = 0
+    path = tmp_path / "config.yaml"
+    write_config(path, data)
+
+    with pytest.raises(ValueError, match="local_compaction_token_limit"):
+        Config.from_yaml(path)
 
 
 def test_config_rejects_nonpositive_output_limit(tmp_path):
@@ -103,6 +125,7 @@ def test_config_example_tracks_explicit_adapter_schema(tmp_path):
 
     assert config.llm.adapter is AdapterName.ANTHROPIC
     assert config.llm.max_output_tokens == 61
+    assert config.agent.local_compaction_token_limit is None
 
 
 @pytest.mark.asyncio

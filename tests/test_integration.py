@@ -93,6 +93,7 @@ async def test_basic_agent_usage():
             system_prompt=system_prompt,
             tools=tools,
             max_steps=config.agent.max_steps,
+            token_limit=config.agent.local_compaction_token_limit,
             workspace_dir=workspace_dir,
         )
 
@@ -177,6 +178,7 @@ You have record_note and recall_notes tools:
             system_prompt=system_prompt,
             tools=tools,
             max_steps=8,  # Reduced from 15
+            token_limit=config.agent.local_compaction_token_limit,
             workspace_dir=workspace_dir,
         )
 
@@ -221,6 +223,7 @@ You have record_note and recall_notes tools:
             system_prompt=system_prompt,
             tools=tools,
             max_steps=5,  # Reduced from 10
+            token_limit=config.agent.local_compaction_token_limit,
             workspace_dir=workspace_dir,
         )
 

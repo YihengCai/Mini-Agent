@@ -601,7 +601,7 @@ async def test_summary_and_agent_calls_follow_one_global_sequence(monkeypatch, t
             ),
             ScriptedCall(
                 "agent",
-                response("first finished", usage=TokenUsage(total_tokens=10)),
+                response("first finished"),
             ),
             ScriptedCall("summary", response("compressed first turn")),
             ScriptedCall("agent", response("second finished")),
@@ -613,6 +613,11 @@ async def test_summary_and_agent_calls_follow_one_global_sequence(monkeypatch, t
         llm,
         [EchoTool()],
         token_limit=1,
+    )
+    monkeypatch.setattr(
+        agent,
+        "_estimate_tokens",
+        lambda: 2 if len(agent.get_history()) >= 6 else 0,
     )
     second_run_events = []
 
@@ -662,6 +667,46 @@ async def test_summary_and_agent_calls_follow_one_global_sequence(monkeypatch, t
         for envelope in second_run_events
         if isinstance(envelope.event, ModelRequest)
     ] == [None, 1]
+
+
+@pytest.mark.asyncio
+async def test_unprobed_reported_usage_does_not_control_compaction(
+    monkeypatch,
+    tmp_path,
+):
+    call = tool_call("reported-usage")
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(
+                "agent",
+                response(
+                    "",
+                    tool_calls=[call],
+                    finish_reason="tool_use",
+                    usage=TokenUsage(total_tokens=999_999),
+                ),
+            ),
+            ScriptedCall("agent", response("finished")),
+        ]
+    )
+    agent = build_agent(
+        monkeypatch,
+        tmp_path,
+        llm,
+        [EchoTool()],
+        token_limit=1,
+    )
+    events = []
+
+    with llm:
+        outcome = await run_turn(agent, "Ignore unprobed usage.", events.append)
+
+    assert outcome.last_assistant_message == "finished"
+    assert [request.purpose for request in llm.requests] == ["agent", "agent"]
+    assert agent.api_total_tokens == 999_999
+    assert not any(
+        isinstance(envelope.event, CompactionStarted) for envelope in events
+    )
 
 
 @pytest.mark.asyncio
@@ -777,12 +822,17 @@ async def test_summary_fallback_cannot_hide_call_order_violation(monkeypatch, tm
         [
             ScriptedCall(
                 "agent",
-                response("first finished", usage=TokenUsage(total_tokens=10)),
+                response("first finished"),
             ),
             ScriptedCall("agent", response("should not run")),
         ]
     )
     agent = build_agent(monkeypatch, tmp_path, llm, [], token_limit=1)
+    monkeypatch.setattr(
+        agent,
+        "_estimate_tokens",
+        lambda: 2 if len(agent.get_history()) >= 4 else 0,
+    )
     outcome = None
     verification_error = (
         "Scripted LLM verification failed:\n"

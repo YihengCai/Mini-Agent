@@ -671,7 +671,7 @@ async def test_summary_model_call_is_turn_maintenance_not_a_step(monkeypatch, tm
         [
             ScriptedCall(
                 "agent",
-                response("first answer", usage=TokenUsage(total_tokens=10)),
+                response("first answer"),
             ),
             ScriptedCall("summary", response("compressed first turn")),
             ScriptedCall("agent", response("second answer")),
@@ -684,6 +684,11 @@ async def test_summary_model_call_is_turn_maintenance_not_a_step(monkeypatch, tm
         [],
         max_steps=1,
         token_limit=1,
+    )
+    monkeypatch.setattr(
+        session,
+        "_estimate_tokens",
+        lambda: 2 if len(session.get_history()) >= 4 else 0,
     )
 
     with llm:

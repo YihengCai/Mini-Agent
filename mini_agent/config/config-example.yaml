@@ -32,6 +32,9 @@ retry:
 
 # ===== Agent Configuration =====
 max_steps: 100  # Maximum agent model requests (Steps) per Turn
+# Optional legacy local estimate; null disables automatic compaction. This is
+# not the configured model's tokenizer or context-window limit.
+local_compaction_token_limit: null
 workspace_dir: "./workspace"  # Working directory
 system_prompt_path: "system_prompt.md"  # System prompt file (same config directory)
 

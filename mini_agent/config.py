@@ -36,6 +36,7 @@ class AgentConfig(BaseModel):
     """Agent configuration"""
 
     max_steps: int = 50
+    local_compaction_token_limit: int | None = Field(default=None, gt=0)
     workspace_dir: str = "./workspace"
     system_prompt_path: str = "system_prompt.md"
 
@@ -146,6 +147,9 @@ class Config(BaseModel):
         # Parse Agent configuration
         agent_config = AgentConfig(
             max_steps=data.get("max_steps", 50),
+            local_compaction_token_limit=data.get(
+                "local_compaction_token_limit"
+            ),
             workspace_dir=data.get("workspace_dir", "./workspace"),
             system_prompt_path=data.get("system_prompt_path", "system_prompt.md"),
         )

@@ -55,6 +55,7 @@ async def test_agent_simple_task():
             system_prompt=system_prompt,
             tools=tools,
             max_steps=10,  # Limit steps for testing
+            token_limit=config.agent.local_compaction_token_limit,
             workspace_dir=workspace_dir,
         )
 
@@ -136,6 +137,7 @@ async def test_agent_bash_task():
             system_prompt=system_prompt,
             tools=tools,
             max_steps=10,
+            token_limit=config.agent.local_compaction_token_limit,
             workspace_dir=workspace_dir,
         )
 

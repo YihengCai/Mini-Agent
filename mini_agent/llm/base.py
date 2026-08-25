@@ -1,7 +1,6 @@
 """Base class for LLM clients."""
 
 from abc import ABC, abstractmethod
-from typing import Any
 
 from ..retry import RetryConfig
 from ..schema import LLMResponse, Message
@@ -57,34 +56,5 @@ class LLMAdapter(ABC):
 
         Returns:
             LLMResponse containing the generated content, thinking, and tool calls
-        """
-        pass
-
-    @abstractmethod
-    def _prepare_request(
-        self,
-        messages: list[Message],
-        tools: list[ToolDefinition] | None = None,
-    ) -> dict[str, Any]:
-        """Prepare the request payload for the API.
-
-        Args:
-            messages: List of conversation messages
-            tools: Optional list of available tools
-
-        Returns:
-            Dictionary containing the request payload
-        """
-        pass
-
-    @abstractmethod
-    def _convert_messages(self, messages: list[Message]) -> tuple[str | None, list[dict[str, Any]]]:
-        """Convert internal message format to API-specific format.
-
-        Args:
-            messages: List of internal Message objects
-
-        Returns:
-            Tuple of (system_message, api_messages)
         """
         pass
