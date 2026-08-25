@@ -9,7 +9,14 @@ import yaml
 import mini_agent.llm.anthropic_client as anthropic_module
 import mini_agent.llm.factory as adapter_factory
 import mini_agent.llm.openai_client as openai_module
-from mini_agent.config import Config, LLMConfig
+from mini_agent.config import (
+    AgentConfig,
+    Config,
+    LLMConfig,
+    MCPConfig,
+    RetryConfig as FileRetryConfig,
+    ToolsConfig,
+)
 from mini_agent.llm import AdapterName, create_model_client
 from mini_agent.llm.anthropic_client import AnthropicAdapter
 from mini_agent.llm.openai_client import OpenAIAdapter
@@ -40,7 +47,7 @@ def write_config(path, data: dict) -> None:
 
 @pytest.mark.parametrize(
     "missing_field",
-    ["adapter", "api_base", "model", "max_output_tokens"],
+    ["api_key", "adapter", "api_base", "model", "max_output_tokens"],
 )
 def test_config_requires_explicit_model_adapter_fields(tmp_path, missing_field):
     data = config_data()
@@ -59,6 +66,24 @@ def test_config_rejects_unknown_adapter(tmp_path):
     write_config(path, data)
 
     with pytest.raises(ValueError, match="adapter"):
+        Config.from_yaml(path)
+
+
+def test_config_rejects_placeholder_api_key(tmp_path):
+    data = config_data()
+    data["api_key"] = "YOUR_API_KEY_HERE"
+    path = tmp_path / "config.yaml"
+    write_config(path, data)
+
+    with pytest.raises(ValueError, match="valid API Key"):
+        Config.from_yaml(path)
+
+
+def test_config_requires_mapping_root(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("- api_key\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="root must be a mapping"):
         Config.from_yaml(path)
 
 
@@ -84,17 +109,116 @@ def test_llm_config_rejects_unknown_programmatic_fields():
         )
 
 
-def test_config_preserves_explicit_model_adapter_fields(tmp_path):
+@pytest.mark.parametrize(
+    "model",
+    [Config, AgentConfig, FileRetryConfig, MCPConfig, ToolsConfig],
+)
+def test_config_models_reject_unknown_programmatic_fields(model):
+    with pytest.raises(ValueError, match="unknown_field"):
+        model.model_validate({"unknown_field": True})
+
+
+@pytest.mark.parametrize(
+    ("unknown_data", "unknown_field"),
+    [
+        ({"max_step": 1}, "max_step"),
+        ({"retry": {"max_retry": 0}}, "max_retry"),
+        ({"tools": {"enable_mpc": False}}, "enable_mpc"),
+        ({"tools": {"mcp": {"connect_timout": 1.0}}}, "connect_timout"),
+    ],
+)
+def test_config_rejects_unknown_yaml_fields(
+    tmp_path,
+    unknown_data,
+    unknown_field,
+):
     data = config_data()
+    data.update(unknown_data)
+    path = tmp_path / "config.yaml"
+    write_config(path, data)
+
+    with pytest.raises(ValueError, match=unknown_field):
+        Config.from_yaml(path)
+
+
+def test_config_models_supply_yaml_defaults(tmp_path):
+    path = tmp_path / "config.yaml"
+    write_config(path, config_data())
+
+    config = Config.from_yaml(path)
+
+    assert config.llm.retry.model_dump() == {
+        "enabled": True,
+        "max_retries": 3,
+        "initial_delay": 1.0,
+        "max_delay": 60.0,
+        "exponential_base": 2.0,
+    }
+    assert config.agent.model_dump() == {
+        "max_steps": 50,
+        "workspace_dir": "./workspace",
+        "system_prompt_path": "system_prompt.md",
+    }
+    assert config.tools.model_dump() == {
+        "enable_file_tools": True,
+        "enable_bash": True,
+        "enable_note": True,
+        "enable_skills": True,
+        "skills_dir": "./skills",
+        "enable_mcp": True,
+        "mcp_config_path": "mcp.json",
+        "mcp": {
+            "connect_timeout": 10.0,
+            "execute_timeout": 60.0,
+            "sse_read_timeout": 120.0,
+        },
+    }
+
+
+def test_config_preserves_all_explicit_fields(tmp_path):
+    data = config_data()
+    data.update(
+        retry={
+            "enabled": False,
+            "max_retries": 7,
+            "initial_delay": 0.25,
+            "max_delay": 8.0,
+            "exponential_base": 3.0,
+        },
+        max_steps=12,
+        workspace_dir="./different-workspace",
+        system_prompt_path="different-prompt.md",
+        tools={
+            "enable_file_tools": False,
+            "enable_bash": False,
+            "enable_note": False,
+            "enable_skills": False,
+            "skills_dir": "./different-skills",
+            "enable_mcp": False,
+            "mcp_config_path": "different-mcp.json",
+            "mcp": {
+                "connect_timeout": 1.5,
+                "execute_timeout": 2.5,
+                "sse_read_timeout": 3.5,
+            },
+        },
+    )
     path = tmp_path / "config.yaml"
     write_config(path, data)
 
     config = Config.from_yaml(path)
 
-    assert config.llm.adapter is AdapterName.ANTHROPIC
-    assert config.llm.api_base == data["api_base"]
-    assert config.llm.model == data["model"]
-    assert config.llm.max_output_tokens == data["max_output_tokens"]
+    assert config.llm.model_dump() == {
+        **config_data(),
+        "adapter": AdapterName.ANTHROPIC,
+        "retry": data["retry"],
+    }
+    assert config.agent.model_dump() == {
+        "max_steps": data["max_steps"],
+        "workspace_dir": data["workspace_dir"],
+        "system_prompt_path": data["system_prompt_path"],
+    }
+    assert config.tools.model_dump() == data["tools"]
 
 
 def test_config_rejects_removed_local_compaction_field(tmp_path):

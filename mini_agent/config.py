@@ -11,7 +11,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from .llm.factory import AdapterName
 
 
-class RetryConfig(BaseModel):
+class _StrictConfigModel(BaseModel):
+    """Base model for configuration fields that must not be ignored."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class RetryConfig(_StrictConfigModel):
     """Retry configuration"""
 
     enabled: bool = True
@@ -21,10 +27,8 @@ class RetryConfig(BaseModel):
     exponential_base: float = 2.0
 
 
-class LLMConfig(BaseModel):
+class LLMConfig(_StrictConfigModel):
     """LLM configuration"""
-
-    model_config = ConfigDict(extra="forbid")
 
     api_key: str
     adapter: AdapterName
@@ -34,7 +38,7 @@ class LLMConfig(BaseModel):
     retry: RetryConfig = Field(default_factory=RetryConfig)
 
 
-class AgentConfig(BaseModel):
+class AgentConfig(_StrictConfigModel):
     """Agent configuration"""
 
     max_steps: int = 50
@@ -42,7 +46,7 @@ class AgentConfig(BaseModel):
     system_prompt_path: str = "system_prompt.md"
 
 
-class MCPConfig(BaseModel):
+class MCPConfig(_StrictConfigModel):
     """MCP (Model Context Protocol) timeout configuration"""
 
     connect_timeout: float = 10.0  # Connection timeout (seconds)
@@ -50,7 +54,7 @@ class MCPConfig(BaseModel):
     sse_read_timeout: float = 120.0  # SSE read timeout (seconds)
 
 
-class ToolsConfig(BaseModel):
+class ToolsConfig(_StrictConfigModel):
     """Tools configuration"""
 
     # Basic tools (file operations, bash)
@@ -68,7 +72,7 @@ class ToolsConfig(BaseModel):
     mcp: MCPConfig = Field(default_factory=MCPConfig)
 
 
-class Config(BaseModel):
+class Config(_StrictConfigModel):
     """Main configuration class"""
 
     llm: LLMConfig
@@ -107,6 +111,8 @@ class Config(BaseModel):
 
         if not data:
             raise ValueError("Configuration file is empty")
+        if not isinstance(data, dict):
+            raise ValueError("Configuration root must be a mapping")
 
         if "provider" in data:
             raise ValueError(
@@ -119,13 +125,25 @@ class Config(BaseModel):
                 "automatic local compaction is no longer available"
             )
 
+        known_root_fields = {
+            *LLMConfig.model_fields,
+            *AgentConfig.model_fields,
+            "tools",
+        }
+        unknown_fields = sorted(
+            str(field) for field in set(data) - known_root_fields
+        )
+        if unknown_fields:
+            raise ValueError(
+                "Configuration file has unknown field(s): "
+                + ", ".join(unknown_fields)
+            )
+
         # Model endpoint selection is explicit; no vendor defaults are inferred.
-        required_llm_fields = (
-            "api_key",
-            "adapter",
-            "api_base",
-            "model",
-            "max_output_tokens",
+        required_llm_fields = tuple(
+            field_name
+            for field_name, field in LLMConfig.model_fields.items()
+            if field.is_required()
         )
         missing_fields = [field for field in required_llm_fields if field not in data]
         if missing_fields:
@@ -137,58 +155,23 @@ class Config(BaseModel):
         if not data["api_key"] or data["api_key"] == "YOUR_API_KEY_HERE":
             raise ValueError("Please configure a valid API Key")
 
-        # Parse retry configuration
-        retry_data = data.get("retry", {})
-        retry_config = RetryConfig(
-            enabled=retry_data.get("enabled", True),
-            max_retries=retry_data.get("max_retries", 3),
-            initial_delay=retry_data.get("initial_delay", 1.0),
-            max_delay=retry_data.get("max_delay", 60.0),
-            exponential_base=retry_data.get("exponential_base", 2.0),
-        )
+        llm_data = {
+            field: data[field]
+            for field in LLMConfig.model_fields
+            if field in data
+        }
+        agent_data = {
+            field: data[field]
+            for field in AgentConfig.model_fields
+            if field in data
+        }
 
-        llm_config = LLMConfig(
-            api_key=data["api_key"],
-            adapter=data["adapter"],
-            api_base=data["api_base"],
-            model=data["model"],
-            max_output_tokens=data["max_output_tokens"],
-            retry=retry_config,
-        )
-
-        # Parse Agent configuration
-        agent_config = AgentConfig(
-            max_steps=data.get("max_steps", 50),
-            workspace_dir=data.get("workspace_dir", "./workspace"),
-            system_prompt_path=data.get("system_prompt_path", "system_prompt.md"),
-        )
-
-        # Parse tools configuration
-        tools_data = data.get("tools", {})
-
-        # Parse MCP configuration
-        mcp_data = tools_data.get("mcp", {})
-        mcp_config = MCPConfig(
-            connect_timeout=mcp_data.get("connect_timeout", 10.0),
-            execute_timeout=mcp_data.get("execute_timeout", 60.0),
-            sse_read_timeout=mcp_data.get("sse_read_timeout", 120.0),
-        )
-
-        tools_config = ToolsConfig(
-            enable_file_tools=tools_data.get("enable_file_tools", True),
-            enable_bash=tools_data.get("enable_bash", True),
-            enable_note=tools_data.get("enable_note", True),
-            enable_skills=tools_data.get("enable_skills", True),
-            skills_dir=tools_data.get("skills_dir", "./skills"),
-            enable_mcp=tools_data.get("enable_mcp", True),
-            mcp_config_path=tools_data.get("mcp_config_path", "mcp.json"),
-            mcp=mcp_config,
-        )
-
-        return cls(
-            llm=llm_config,
-            agent=agent_config,
-            tools=tools_config,
+        return cls.model_validate(
+            {
+                "llm": llm_data,
+                "agent": agent_data,
+                "tools": data.get("tools", {}),
+            }
         )
 
     @staticmethod
