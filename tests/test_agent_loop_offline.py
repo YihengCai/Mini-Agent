@@ -23,6 +23,7 @@ from mini_agent.core.events import (
     TurnFinished,
     TurnStarted,
 )
+from mini_agent.llm.protocol import ToolDefinition
 from mini_agent.schema import FunctionCall, LLMResponse, Message, TokenUsage, ToolCall
 from mini_agent.tools.base import Tool, ToolResult
 from tests.llm_test_double import ScriptedCall, ScriptedLLM, validate_tool_call_pairs
@@ -115,13 +116,14 @@ def tool_call(call_id: str, name: str = "echo") -> ToolCall:
 async def test_scripted_llm_records_stable_requests_and_returns_in_order():
     messages = [Message(role="user", content=[{"type": "text", "text": "before"}])]
     tools = [
-        {
-            "name": "echo",
-            "input_schema": {
+        ToolDefinition(
+            name="echo",
+            description="",
+            parameters={
                 "type": "object",
                 "properties": {"text": {"type": "string"}},
             },
-        }
+        )
     ]
     llm = ScriptedLLM(
         [
@@ -134,21 +136,26 @@ async def test_scripted_llm_records_stable_requests_and_returns_in_order():
     assert isinstance(messages[0].content, list)
     messages[0].content[0]["text"] = "changed"
     messages.append(Message(role="assistant", content="after"))
-    tools[0]["name"] = "changed"
-    tools[0]["input_schema"]["properties"]["text"]["type"] = "number"
+    tools[0].parameters["properties"]["text"]["type"] = "number"
+    tools[0] = ToolDefinition(
+        name="changed",
+        description="",
+        parameters=tools[0].parameters,
+    )
     second = await llm.generate(messages, tools=tools)
 
     assert first.content == "first"
     assert second.content == "second"
     assert llm.requests[0].messages[0].content == [{"type": "text", "text": "before"}]
     assert llm.requests[0].tools == (
-        {
-            "name": "echo",
-            "input_schema": {
+        ToolDefinition(
+            name="echo",
+            description="",
+            parameters={
                 "type": "object",
                 "properties": {"text": {"type": "string"}},
             },
-        },
+        ),
     )
     assert len(llm.requests[1].messages) == 2
     llm.assert_complete()
@@ -328,11 +335,11 @@ async def test_real_agent_loop_executes_tool_and_sends_result_to_model(monkeypat
     assert tool_message.name == "echo"
     assert tool_message.content == "echo:ping"
     assert llm.requests[0].tools == (
-        {
-            "name": "echo",
-            "description": "Return the supplied text.",
-            "input_schema": tool.parameters,
-        },
+        ToolDefinition(
+            name="echo",
+            description="Return the supplied text.",
+            parameters=tool.parameters,
+        ),
     )
     assert [type(envelope.event) for envelope in events] == [
         TurnStarted,

@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from mini_agent.llm.protocol import ToolDefinition
 from mini_agent.tools.base import Tool, ToolResult
 
 
@@ -134,54 +135,32 @@ class MockEnumTool(Tool):
         return ToolResult(success=True, content="Status set")
 
 
-def test_tool_to_schema():
-    """Test Tool.to_schema() method."""
+def definition_for(tool: Tool) -> ToolDefinition:
+    return ToolDefinition(
+        name=tool.name,
+        description=tool.description,
+        parameters=tool.parameters,
+    )
+
+
+def test_tool_definition_fields():
+    """A tool exposes one vendor-neutral definition."""
     tool = MockWeatherTool()
-    schema = tool.to_schema()
+    definition = definition_for(tool)
 
-    assert isinstance(schema, dict)
-    assert schema["name"] == "get_weather"
-    assert schema["description"] == "Get weather information"
-    assert "input_schema" in schema
-    assert schema["input_schema"]["type"] == "object"
-    assert "location" in schema["input_schema"]["properties"]
-    assert schema["input_schema"]["required"] == ["location"]
+    assert definition.name == "get_weather"
+    assert definition.description == "Get weather information"
+    assert definition.parameters["type"] == "object"
+    assert "location" in definition.parameters["properties"]
+    assert definition.parameters["required"] == ["location"]
 
 
-def test_tool_to_openai_schema():
-    """Test Tool.to_openai_schema() method."""
-    tool = MockWeatherTool()
-    schema = tool.to_openai_schema()
-
-    assert isinstance(schema, dict)
-    assert schema["type"] == "function"
-    assert "function" in schema
-    assert schema["function"]["name"] == "get_weather"
-    assert schema["function"]["description"] == "Get weather information"
-    assert "parameters" in schema["function"]
-    assert schema["function"]["parameters"]["type"] == "object"
-    assert "location" in schema["function"]["parameters"]["properties"]
-
-
-def test_tool_schema_complex():
+def test_tool_definition_complex():
     """Test tool with complex input schema."""
-    tool = MockSearchTool()
-    schema = tool.to_schema()
+    definition = definition_for(MockSearchTool())
 
-    assert schema["name"] == "search_database"
-    assert "query" in schema["input_schema"]["properties"]
-    assert "filters" in schema["input_schema"]["properties"]
-    assert "limit" in schema["input_schema"]["properties"]
-    assert schema["input_schema"]["required"] == ["query"]
-
-
-def test_tool_openai_schema_complex():
-    """Test OpenAI schema conversion for complex tool."""
-    tool = MockSearchTool()
-    schema = tool.to_openai_schema()
-
-    assert schema["type"] == "function"
-    params = schema["function"]["parameters"]
+    assert definition.name == "search_database"
+    params = definition.parameters
     assert "query" in params["properties"]
     assert "filters" in params["properties"]
     assert "limit" in params["properties"]
@@ -198,48 +177,28 @@ def test_multiple_tools():
     assert tools[0].name == "get_weather"
     assert tools[1].name == "calculator"
 
-    # Convert all to Anthropic schemas
-    anthropic_schemas = [t.to_schema() for t in tools]
-    assert len(anthropic_schemas) == 2
-    assert all(isinstance(s, dict) for s in anthropic_schemas)
-    assert all("name" in s and "description" in s and "input_schema" in s for s in anthropic_schemas)
-
-    # Convert all to OpenAI schemas
-    openai_schemas = [t.to_openai_schema() for t in tools]
-    assert len(openai_schemas) == 2
-    assert all(isinstance(s, dict) for s in openai_schemas)
-    assert all(s["type"] == "function" for s in openai_schemas)
+    definitions = [definition_for(tool) for tool in tools]
+    assert [definition.name for definition in definitions] == [
+        "get_weather",
+        "calculator",
+    ]
 
 
 def test_tool_with_enum():
     """Test tool with enum parameter."""
-    tool = MockEnumTool()
-    schema = tool.to_schema()
-
-    status_prop = schema["input_schema"]["properties"]["status"]
+    definition = definition_for(MockEnumTool())
+    status_prop = definition.parameters["properties"]["status"]
     assert "enum" in status_prop
     assert status_prop["enum"] == ["active", "inactive", "pending"]
 
-    # Test OpenAI schema too
-    openai_schema = tool.to_openai_schema()
-    status_prop_openai = openai_schema["function"]["parameters"]["properties"]["status"]
-    assert "enum" in status_prop_openai
-    assert status_prop_openai["enum"] == ["active", "inactive", "pending"]
-
-
-def test_tool_schema_consistency():
-    """Test that both schema methods produce consistent data."""
+def test_tool_definition_keeps_one_parameter_schema():
+    """Protocol adapters, not Tool, own wire-specific wrapping."""
     tool = MockCalculatorTool()
+    definition = definition_for(tool)
 
-    anthropic_schema = tool.to_schema()
-    openai_schema = tool.to_openai_schema()
-
-    # Names should match
-    assert anthropic_schema["name"] == openai_schema["function"]["name"]
-    # Descriptions should match
-    assert anthropic_schema["description"] == openai_schema["function"]["description"]
-    # Parameters should match (just different nesting)
-    assert anthropic_schema["input_schema"] == openai_schema["function"]["parameters"]
+    assert definition.parameters == tool.parameters
+    assert "input_schema" not in definition.parameters
+    assert "function" not in definition.parameters
 
 
 @pytest.mark.asyncio

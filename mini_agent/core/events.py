@@ -1,8 +1,9 @@
 """Synchronous, turn-scoped observation events emitted by the agent loop."""
 
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, TypeAlias
+from typing import Literal, Protocol, TypeAlias
 
+from ..llm.protocol import ToolDefinition
 from ..schema import LLMResponse, Message, ToolCall
 from ..tools.base import ToolResult
 from .turn import TurnOutcome
@@ -37,15 +38,6 @@ class StepFinished:
     status: StepStatus
     elapsed_seconds: float
     total_elapsed_seconds: float
-
-
-@dataclass(frozen=True)
-class ToolDefinition:
-    """Owned snapshot of one tool definition exposed to the model."""
-
-    name: str
-    description: str
-    parameters: dict[str, Any]
 
 
 @dataclass(frozen=True)

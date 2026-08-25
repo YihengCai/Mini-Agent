@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import tiktoken
 
-from ..llm import LLMClient
+from ..llm.protocol import ModelClient, ToolDefinition
 from ..schema import Message
 from ..tools.base import Tool, ToolResult
 from .events import (
@@ -30,7 +30,6 @@ from .events import (
     StepFinished,
     StepStatus,
     StepStarted,
-    ToolDefinition,
     ToolFinished,
     ToolStarted,
     TurnFinished,
@@ -50,7 +49,7 @@ class _TurnContext:
     session_id: str
     turn_id: str
     interrupt_event: asyncio.Event
-    llm: LLMClient
+    llm: ModelClient
     tools: Mapping[str, Tool]
     max_steps: int
     token_limit: int
@@ -100,7 +99,7 @@ class AgentSession:
 
     def __init__(
         self,
-        llm_client: LLMClient,
+        llm_client: ModelClient,
         system_prompt: str,
         tools: list[Tool],
         max_steps: int = 50,
@@ -150,7 +149,7 @@ class AgentSession:
         return self._session_id
 
     @property
-    def llm(self) -> LLMClient:
+    def llm(self) -> ModelClient:
         return self._llm
 
     @property
@@ -607,13 +606,21 @@ class _AgentLoop:
                 return self._observer_failed_step(emitter.error)
 
             tool_list = list(context.tools.values())
-            tool_definitions = tuple(
+            model_tools = [
                 ToolDefinition(
                     name=tool.name,
                     description=tool.description,
                     parameters=deepcopy(tool.parameters),
                 )
                 for tool in tool_list
+            ]
+            event_tools = tuple(
+                ToolDefinition(
+                    name=tool.name,
+                    description=tool.description,
+                    parameters=deepcopy(tool.parameters),
+                )
+                for tool in model_tools
             )
             model_messages = [
                 message.model_copy(deep=True) for message in session._messages
@@ -625,7 +632,7 @@ class _AgentLoop:
                 ModelRequest(
                     purpose="agent",
                     messages=event_messages,
-                    tools=tool_definitions,
+                    tools=event_tools,
                 ),
                 step=step_number,
             )
@@ -635,7 +642,7 @@ class _AgentLoop:
             try:
                 response = await context.llm.generate(
                     messages=model_messages,
-                    tools=tool_list,
+                    tools=model_tools,
                 )
             except Exception as error:
                 from ..retry import RetryExhaustedError

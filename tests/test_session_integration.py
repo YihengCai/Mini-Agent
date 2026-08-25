@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from mini_agent import LLMClient
 from mini_agent.agent import AgentSession
+from mini_agent.llm.protocol import ModelClient
 from mini_agent.schema import FunctionCall, LLMResponse, Message, ToolCall
 from mini_agent.tools.bash_tool import BashTool
 from mini_agent.tools.file_tools import ReadTool, WriteTool
@@ -29,7 +29,7 @@ def response(content: str, *, tool_calls=None, finish_reason: str = "stop"):
 @pytest.fixture
 def mock_llm_client():
     """Create mock LLM client"""
-    client = MagicMock(spec=LLMClient)
+    client = MagicMock(spec=ModelClient)
     return client
 
 

@@ -3,8 +3,9 @@
 from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Iterable, Literal
+from typing import Iterable, Literal
 
+from mini_agent.llm.protocol import ToolDefinition
 from mini_agent.schema import LLMResponse, Message
 
 
@@ -17,7 +18,7 @@ class LLMRequestSnapshot:
 
     purpose: CallPurpose
     messages: tuple[Message, ...]
-    tools: tuple[Any, ...] | None
+    tools: tuple[ToolDefinition, ...] | None
 
 
 ScriptedResult = LLMResponse | Exception
@@ -85,7 +86,7 @@ class ScriptedLLM:
     async def generate(
         self,
         messages: list[Message],
-        tools: list[Any] | None = None,
+        tools: list[ToolDefinition] | None = None,
     ) -> LLMResponse:
         """Record the request and consume exactly one scripted result."""
         actual_purpose: CallPurpose = "summary" if tools is None else "agent"
@@ -146,13 +147,10 @@ class ScriptedLLM:
         return False
 
     @staticmethod
-    def _snapshot_tools(tools: list[Any] | None) -> tuple[Any, ...] | None:
+    def _snapshot_tools(
+        tools: list[ToolDefinition] | None,
+    ) -> tuple[ToolDefinition, ...] | None:
         if tools is None:
             return None
 
-        snapshots: list[Any] = []
-        for tool in tools:
-            to_schema = getattr(tool, "to_schema", None)
-            snapshot = to_schema() if callable(to_schema) else tool
-            snapshots.append(deepcopy(snapshot))
-        return tuple(snapshots)
+        return tuple(deepcopy(tools))

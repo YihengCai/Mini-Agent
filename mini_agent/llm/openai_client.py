@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 from ..retry import RetryConfig, async_retry
 from ..schema import FunctionCall, LLMResponse, Message, TokenUsage, ToolCall
 from .base import LLMClientBase
+from .protocol import ToolDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ class OpenAIClient(LLMClientBase):
     async def _make_api_request(
         self,
         api_messages: list[dict[str, Any]],
-        tools: list[Any] | None = None,
+        tools: list[ToolDefinition] | None = None,
     ) -> Any:
         """Execute API request (core method that can be retried).
 
@@ -77,7 +78,7 @@ class OpenAIClient(LLMClientBase):
         # Return full response to access usage info
         return response
 
-    def _convert_tools(self, tools: list[Any]) -> list[dict[str, Any]]:
+    def _convert_tools(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]:
         """Convert tools to OpenAI format.
 
         Args:
@@ -86,30 +87,17 @@ class OpenAIClient(LLMClientBase):
         Returns:
             List of tools in OpenAI dict format
         """
-        result = []
-        for tool in tools:
-            if isinstance(tool, dict):
-                # If already a dict, check if it's in OpenAI format
-                if "type" in tool and tool["type"] == "function":
-                    result.append(tool)
-                else:
-                    # Assume it's in Anthropic format, convert to OpenAI
-                    result.append(
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": tool["name"],
-                                "description": tool["description"],
-                                "parameters": tool["input_schema"],
-                            },
-                        }
-                    )
-            elif hasattr(tool, "to_openai_schema"):
-                # Tool object with to_openai_schema method
-                result.append(tool.to_openai_schema())
-            else:
-                raise TypeError(f"Unsupported tool type: {type(tool)}")
-        return result
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                },
+            }
+            for tool in tools
+        ]
 
     def _convert_messages(self, messages: list[Message]) -> tuple[str | None, list[dict[str, Any]]]:
         """Convert internal messages to OpenAI format.
@@ -182,7 +170,7 @@ class OpenAIClient(LLMClientBase):
     def _prepare_request(
         self,
         messages: list[Message],
-        tools: list[Any] | None = None,
+        tools: list[ToolDefinition] | None = None,
     ) -> dict[str, Any]:
         """Prepare the request for OpenAI API.
 
@@ -261,7 +249,7 @@ class OpenAIClient(LLMClientBase):
     async def generate(
         self,
         messages: list[Message],
-        tools: list[Any] | None = None,
+        tools: list[ToolDefinition] | None = None,
     ) -> LLMResponse:
         """Generate response from OpenAI LLM.
 

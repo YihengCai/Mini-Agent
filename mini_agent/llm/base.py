@@ -5,6 +5,7 @@ from typing import Any
 
 from ..retry import RetryConfig
 from ..schema import LLMResponse, Message
+from .protocol import ToolDefinition
 
 
 class LLMClientBase(ABC):
@@ -41,7 +42,7 @@ class LLMClientBase(ABC):
     async def generate(
         self,
         messages: list[Message],
-        tools: list[Any] | None = None,
+        tools: list[ToolDefinition] | None = None,
     ) -> LLMResponse:
         """Generate response from LLM.
 
@@ -58,7 +59,7 @@ class LLMClientBase(ABC):
     def _prepare_request(
         self,
         messages: list[Message],
-        tools: list[Any] | None = None,
+        tools: list[ToolDefinition] | None = None,
     ) -> dict[str, Any]:
         """Prepare the request payload for the API.
 

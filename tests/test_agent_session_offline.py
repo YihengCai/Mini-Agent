@@ -372,7 +372,7 @@ async def test_event_observer_cannot_mutate_model_input_or_session_state(
         ).wait()
 
     assert llm.requests[0].messages[-1].content == "original input"
-    assert "mutated" not in llm.requests[0].tools[0]["input_schema"]
+    assert "mutated" not in llm.requests[0].tools[0].parameters
     assert "mutated" not in tool.parameters
     assert outcome.last_assistant_message == "original answer"
     assert session.get_history()[-1].content == "original answer"

@@ -34,22 +34,3 @@ class Tool:
     async def execute(self, *args, **kwargs) -> ToolResult:  # type: ignore
         """Execute the tool with arbitrary arguments."""
         raise NotImplementedError
-
-    def to_schema(self) -> dict[str, Any]:
-        """Convert tool to Anthropic tool schema."""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "input_schema": self.parameters,
-        }
-
-    def to_openai_schema(self) -> dict[str, Any]:
-        """Convert tool to OpenAI tool schema."""
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.parameters,
-            },
-        }
