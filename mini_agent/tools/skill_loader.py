@@ -198,19 +198,28 @@ class SkillLoader:
         Returns:
             List of Skills
         """
-        skills = []
+        skills: List[Skill] = []
+        skills_by_name: Dict[str, Skill] = {}
 
         if not self.skills_dir.exists():
             print(f"⚠️  Skills directory does not exist: {self.skills_dir}")
+            self.loaded_skills = skills_by_name
             return skills
 
         # Recursively find all SKILL.md files
-        for skill_file in self.skills_dir.rglob("SKILL.md"):
+        for skill_file in sorted(self.skills_dir.rglob("SKILL.md")):
             skill = self.load_skill(skill_file)
             if skill:
+                existing = skills_by_name.get(skill.name)
+                if existing is not None:
+                    raise ValueError(
+                        f"Duplicate skill name '{skill.name}': "
+                        f"{existing.skill_path} and {skill.skill_path}"
+                    )
                 skills.append(skill)
-                self.loaded_skills[skill.name] = skill
+                skills_by_name[skill.name] = skill
 
+        self.loaded_skills = skills_by_name
         return skills
 
     def get_skill(self, name: str) -> Optional[Skill]:

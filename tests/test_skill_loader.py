@@ -112,6 +112,51 @@ def test_discover_skills():
         assert len(loader.list_skills()) == 3
 
 
+def test_rediscovery_replaces_removed_skills(tmp_path):
+    first_dir = tmp_path / "first"
+    second_dir = tmp_path / "second"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    create_test_skill(first_dir, "first", "First skill", "First content")
+    create_test_skill(second_dir, "second", "Second skill", "Second content")
+    loader = SkillLoader(str(tmp_path))
+
+    assert [skill.name for skill in loader.discover_skills()] == ["first", "second"]
+
+    (first_dir / "SKILL.md").unlink()
+
+    assert [skill.name for skill in loader.discover_skills()] == ["second"]
+    assert loader.list_skills() == ["second"]
+    assert loader.get_skill("first") is None
+
+
+def test_duplicate_names_fail_without_replacing_registry(tmp_path):
+    stable_dir = tmp_path / "stable"
+    stable_dir.mkdir()
+    create_test_skill(stable_dir, "stable", "Stable skill", "Stable content")
+    loader = SkillLoader(str(tmp_path))
+    loader.discover_skills()
+
+    later_path = tmp_path / "z-later"
+    earlier_path = tmp_path / "a-earlier"
+    later_path.mkdir()
+    earlier_path.mkdir()
+    create_test_skill(later_path, "collision", "Later source", "Later content")
+    create_test_skill(earlier_path, "collision", "Earlier source", "Earlier content")
+
+    with pytest.raises(ValueError, match="Duplicate skill name 'collision'") as exc_info:
+        loader.discover_skills()
+
+    error = str(exc_info.value)
+    earlier_file = str(earlier_path / "SKILL.md")
+    later_file = str(later_path / "SKILL.md")
+    assert earlier_file in error
+    assert later_file in error
+    assert error.index(earlier_file) < error.index(later_file)
+    assert loader.list_skills() == ["stable"]
+    assert loader.get_skill("collision") is None
+
+
 def test_get_skill():
     """Test getting a loaded skill"""
     with tempfile.TemporaryDirectory() as tmpdir:
