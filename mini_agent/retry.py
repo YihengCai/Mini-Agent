@@ -13,6 +13,7 @@ Features:
 import asyncio
 import functools
 import logging
+import math
 from typing import Any, Callable, Type, TypeVar
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,12 @@ class RetryConfig:
         """
         if max_retries < 0:
             raise ValueError("max_retries must be greater than or equal to zero")
+        if not math.isfinite(initial_delay) or initial_delay < 0:
+            raise ValueError("initial_delay must be finite and nonnegative")
+        if not math.isfinite(max_delay) or max_delay < 0:
+            raise ValueError("max_delay must be finite and nonnegative")
+        if not math.isfinite(exponential_base) or exponential_base <= 0:
+            raise ValueError("exponential_base must be finite and greater than zero")
         self.enabled = enabled
         self.max_retries = max_retries
         self.initial_delay = initial_delay
@@ -59,7 +66,12 @@ class RetryConfig:
         Returns:
             Delay time (seconds)
         """
-        delay = self.initial_delay * (self.exponential_base**attempt)
+        if self.initial_delay == 0:
+            return 0.0
+        try:
+            delay = self.initial_delay * (self.exponential_base**attempt)
+        except OverflowError:
+            return self.max_delay
         return min(delay, self.max_delay)
 
 

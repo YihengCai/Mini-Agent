@@ -271,6 +271,47 @@ def test_config_accepts_zero_max_retries(tmp_path):
     assert Config.from_yaml(path).llm.retry.max_retries == 0
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("initial_delay", -1),
+        ("max_delay", -1),
+        ("exponential_base", 0),
+        ("exponential_base", -1),
+        ("initial_delay", float("nan")),
+        ("initial_delay", float("inf")),
+        ("max_delay", float("nan")),
+        ("max_delay", float("inf")),
+        ("exponential_base", float("nan")),
+        ("exponential_base", float("inf")),
+    ],
+)
+def test_config_rejects_invalid_retry_backoff_values(tmp_path, field, value):
+    data = config_data()
+    data["retry"] = {field: value}
+    path = tmp_path / "config.yaml"
+    write_config(path, data)
+
+    with pytest.raises(ValueError, match=field):
+        Config.from_yaml(path)
+
+
+def test_config_accepts_finite_retry_backoff_boundaries(tmp_path):
+    data = config_data()
+    data["retry"] = {
+        "initial_delay": 0,
+        "max_delay": 0,
+        "exponential_base": 0.5,
+    }
+    path = tmp_path / "config.yaml"
+    write_config(path, data)
+
+    retry = Config.from_yaml(path).llm.retry
+    assert retry.initial_delay == 0
+    assert retry.max_delay == 0
+    assert retry.exponential_base == 0.5
+
+
 def test_config_example_tracks_explicit_adapter_schema(tmp_path):
     template_path = Path("mini_agent/config/config-example.yaml")
     data = yaml.safe_load(template_path.read_text(encoding="utf-8"))

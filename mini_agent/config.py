@@ -34,9 +34,9 @@ class RetryConfig(_StrictConfigModel):
 
     enabled: bool = True
     max_retries: int = Field(default=3, ge=0)
-    initial_delay: float = 1.0
-    max_delay: float = 60.0
-    exponential_base: float = 2.0
+    initial_delay: float = Field(default=1.0, ge=0, allow_inf_nan=False)
+    max_delay: float = Field(default=60.0, ge=0, allow_inf_nan=False)
+    exponential_base: float = Field(default=2.0, gt=0, allow_inf_nan=False)
 
 
 class LLMConfig(_StrictConfigModel):
