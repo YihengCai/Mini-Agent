@@ -22,7 +22,10 @@ class GetSkillTool(Tool):
 
     @property
     def description(self) -> str:
-        return "Get complete content and guidance for a specified skill, used for executing specific types of tasks"
+        return (
+            "Get content and guidance for a specified skill. "
+            "Very large model-visible results may be truncated with an explicit marker."
+        )
 
     @property
     def parameters(self) -> Dict[str, Any]:

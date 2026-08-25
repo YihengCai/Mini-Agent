@@ -12,6 +12,7 @@ from ..llm.protocol import ToolDefinition
 from ..schema import Message, ToolCall
 from ..tools.base import Tool, ToolResult
 from .events import ToolFinished, ToolStarted
+from .tool_output import truncate_tool_message
 
 
 class InvalidToolBatchError(ValueError):
@@ -118,12 +119,13 @@ class ToolBatchExecutor:
                     result=result.model_copy(deep=True),
                 )
             )
+            model_content = (
+                result.content if result.success else f"Error: {result.error}"
+            )
             messages.append(
                 Message(
                     role="tool",
-                    content=(
-                        result.content if result.success else f"Error: {result.error}"
-                    ),
+                    content=truncate_tool_message(model_content),
                     tool_call_id=tool_call.id,
                     name=tool_call.function.name,
                 )
