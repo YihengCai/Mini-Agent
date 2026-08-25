@@ -54,5 +54,6 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0017](0017-nonnegative-retry-count-at-config-and-runtime.md) | 配置与运行时共同拒绝负重试次数 | 已采纳 |
 | [0018](0018-finite-and-saturating-retry-backoff.md) | 退避数值有限且溢出时按上限饱和 | 已采纳 |
 | [0019](0019-exclusive-turn-log-allocation.md) | 每个 Turn 通过排他创建独占日志文件 | 已采纳 |
+| [0020](0020-transactional-skill-discovery.md) | Skill 发现以完整快照发布并拒绝重名 | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。
