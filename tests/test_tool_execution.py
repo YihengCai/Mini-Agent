@@ -1,0 +1,719 @@
+"""Offline contract tests for tool registration and batch execution."""
+
+import asyncio
+from copy import deepcopy
+from unittest.mock import MagicMock
+
+import pytest
+
+from mini_agent.cli_events import CliEventSink
+from mini_agent.core import AgentSession
+from mini_agent.core.events import StepFinished, ToolFinished, ToolStarted
+from mini_agent.llm.protocol import ToolDefinition
+from mini_agent.schema import FunctionCall, LLMResponse, Message, ToolCall
+from mini_agent.tools.base import Tool, ToolResult
+from tests.llm_test_double import ScriptedCall, ScriptedLLM
+
+
+def response(*tool_calls: ToolCall) -> LLMResponse:
+    return LLMResponse(
+        content="",
+        thinking=None,
+        tool_calls=list(tool_calls),
+        finish_reason="tool_use",
+        usage=None,
+    )
+
+
+def tool_call(
+    call_id: str,
+    text: str,
+    *,
+    name: str = "echo",
+    call_type: str = "function",
+) -> ToolCall:
+    return ToolCall(
+        id=call_id,
+        type=call_type,
+        function=FunctionCall(name=name, arguments={"text": text}),
+    )
+
+
+class MutableEchoTool(Tool):
+    def __init__(self, name: str = "echo") -> None:
+        self.current_name = name
+        self.current_description = "Return the supplied text."
+        self.current_parameters = {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        }
+        self.calls: list[str] = []
+
+    @property
+    def name(self) -> str:
+        return self.current_name
+
+    @property
+    def description(self) -> str:
+        return self.current_description
+
+    @property
+    def parameters(self) -> dict:
+        return self.current_parameters
+
+    async def execute(self, text: str) -> ToolResult:
+        self.calls.append(text)
+        return ToolResult(success=True, content=f"echo:{text}")
+
+
+class ExplodingTool(MutableEchoTool):
+    async def execute(self, text: str) -> ToolResult:
+        self.calls.append(text)
+        raise ValueError(f"boom:{text}")
+
+
+class InvalidResultTool(MutableEchoTool):
+    async def execute(self, text: str):
+        self.calls.append(text)
+        return None
+
+
+class BlockingEchoTool(MutableEchoTool):
+    def __init__(self, name: str = "echo", *, block_text: str) -> None:
+        super().__init__(name)
+        self.block_text = block_text
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def execute(self, text: str) -> ToolResult:
+        self.calls.append(text)
+        if text == self.block_text:
+            self.entered.set()
+            await self.release.wait()
+        return ToolResult(success=True, content=f"echo:{text}")
+
+
+class CancellingTool(MutableEchoTool):
+    async def execute(self, text: str) -> ToolResult:
+        self.calls.append(text)
+        raise asyncio.CancelledError
+
+
+class MutatingArgumentsTool(Tool):
+    def __init__(self) -> None:
+        self.received_payload: dict | None = None
+
+    @property
+    def name(self) -> str:
+        return "mutate"
+
+    @property
+    def description(self) -> str:
+        return "Mutate a nested argument to test snapshot ownership."
+
+    @property
+    def parameters(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {"payload": {"type": "object"}},
+            "required": ["payload"],
+        }
+
+    async def execute(self, payload: dict) -> ToolResult:
+        self.received_payload = payload
+        payload["items"].append("mutated")
+        return ToolResult(success=True, content="mutated private input")
+
+
+class DefinitionDrivenLLM:
+    def __init__(self) -> None:
+        self.tool_snapshots: list[list[ToolDefinition]] = []
+
+    async def generate(self, messages, tools=None) -> LLMResponse:
+        assert tools is not None
+        self.tool_snapshots.append(deepcopy(tools))
+        return response(tool_call("metadata-call", "metadata", name=tools[0].name))
+
+
+def build_session(tmp_path, llm, tools, *, max_steps: int = 1) -> AgentSession:
+    return AgentSession(
+        llm_client=llm,
+        system_prompt="You are a test agent.",
+        tools=tools,
+        max_steps=max_steps,
+        workspace_dir=str(tmp_path),
+        session_id="tool-test-session",
+    )
+
+
+def test_duplicate_tool_names_are_rejected_at_registration(tmp_path) -> None:
+    with pytest.raises(ValueError, match="Duplicate tool name: 'echo'"):
+        build_session(
+            tmp_path,
+            DefinitionDrivenLLM(),
+            [MutableEchoTool(), MutableEchoTool()],
+        )
+
+
+def test_empty_tool_name_is_rejected_at_registration(tmp_path) -> None:
+    with pytest.raises(ValueError, match="Tool name must be a non-empty string"):
+        build_session(tmp_path, DefinitionDrivenLLM(), [MutableEchoTool("")])
+
+
+@pytest.mark.parametrize(
+    ("attribute", "invalid_value", "expected_message"),
+    [
+        (
+            "current_description",
+            None,
+            "Tool 'echo' description must be a string",
+        ),
+        (
+            "current_parameters",
+            [],
+            "Tool 'echo' parameters must be a dictionary",
+        ),
+    ],
+    ids=["description", "parameters"],
+)
+def test_invalid_tool_metadata_is_rejected_at_registration(
+    tmp_path,
+    attribute,
+    invalid_value,
+    expected_message,
+) -> None:
+    tool = MutableEchoTool()
+    setattr(tool, attribute, invalid_value)
+
+    with pytest.raises(TypeError, match=expected_message):
+        build_session(tmp_path, DefinitionDrivenLLM(), [tool])
+
+
+@pytest.mark.asyncio
+async def test_registered_metadata_and_dispatch_name_are_frozen(tmp_path) -> None:
+    llm = DefinitionDrivenLLM()
+    tool = MutableEchoTool()
+    session = build_session(tmp_path, llm, [tool])
+
+    tool.current_name = "renamed"
+    tool.current_description = "mutated description"
+    tool.current_parameters["properties"]["text"]["type"] = "integer"
+    outcome = await session.start_turn("use the registered tool").wait()
+
+    assert outcome.stop_reason == "max_steps"
+    assert tool.calls == ["metadata"]
+    assert llm.tool_snapshots == [
+        [
+            ToolDefinition(
+                name="echo",
+                description="Return the supplied text.",
+                parameters={
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                },
+            )
+        ]
+    ]
+    assert session.get_history()[-1].name == "echo"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_ids_reject_the_batch_before_any_side_effect(tmp_path) -> None:
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(
+                response(
+                    tool_call("duplicate", "first"),
+                    tool_call("duplicate", "second"),
+                )
+            )
+        ]
+    )
+    tool = MutableEchoTool()
+    session = build_session(tmp_path, llm, [tool])
+    events = []
+
+    with llm:
+        outcome = await session.start_turn(
+            "reject duplicate IDs",
+            event_sink=events.append,
+        ).wait()
+
+    assert outcome.stop_reason == "failed"
+    assert outcome.error is not None
+    assert outcome.error.kind == "tool_protocol_error"
+    assert "duplicate tool call ID 'duplicate'" in outcome.error.message
+    assert tool.calls == []
+    assert not any(
+        isinstance(envelope.event, (ToolStarted, ToolFinished)) for envelope in events
+    )
+    assert [message.role for message in session.get_history()] == ["system", "user"]
+    assert [
+        envelope.event.status
+        for envelope in events
+        if isinstance(envelope.event, StepFinished)
+    ] == ["failed"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid_call",
+    [
+        tool_call("", "empty ID"),
+        tool_call("wrong-type", "wrong type", call_type="computer"),
+    ],
+    ids=["empty-id", "wrong-type"],
+)
+async def test_invalid_call_structure_rejects_before_execution(
+    tmp_path,
+    invalid_call,
+) -> None:
+    llm = ScriptedLLM([ScriptedCall(response(invalid_call))])
+    tool = MutableEchoTool()
+    session = build_session(tmp_path, llm, [tool])
+
+    with llm:
+        outcome = await session.start_turn("reject invalid call").wait()
+
+    assert outcome.stop_reason == "failed"
+    assert outcome.error is not None
+    assert outcome.error.kind == "tool_protocol_error"
+    assert tool.calls == []
+    assert [message.role for message in session.get_history()] == ["system", "user"]
+
+
+@pytest.mark.asyncio
+async def test_reused_id_in_a_later_step_does_not_repeat_the_side_effect(
+    tmp_path,
+) -> None:
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(response(tool_call("reused", "first"))),
+            ScriptedCall(response(tool_call("reused", "second"))),
+        ]
+    )
+    tool = MutableEchoTool()
+    session = build_session(tmp_path, llm, [tool], max_steps=2)
+
+    with llm:
+        outcome = await session.start_turn("reject reused ID").wait()
+
+    assert outcome.stop_reason == "failed"
+    assert outcome.error is not None
+    assert outcome.error.kind == "tool_protocol_error"
+    assert "already claimed" in outcome.error.message
+    assert tool.calls == ["first"]
+    assert [message.role for message in session.get_history()] == [
+        "system",
+        "user",
+        "assistant",
+        "tool",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reused_id_in_a_later_turn_does_not_repeat_the_side_effect(
+    tmp_path,
+) -> None:
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(response(tool_call("cross-turn", "first"))),
+            ScriptedCall(response(tool_call("cross-turn", "second"))),
+        ]
+    )
+    tool = MutableEchoTool()
+    session = build_session(tmp_path, llm, [tool])
+
+    with llm:
+        first = await session.start_turn("first turn").wait()
+        second = await session.start_turn("second turn").wait()
+
+    assert first.stop_reason == "max_steps"
+    assert second.stop_reason == "failed"
+    assert second.error is not None
+    assert second.error.kind == "tool_protocol_error"
+    assert tool.calls == ["first"]
+    assert [message.role for message in session.get_history()] == [
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "user",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_rejected_batch_does_not_claim_any_call_id(tmp_path) -> None:
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(
+                response(
+                    tool_call("retryable", "invalid-first"),
+                    tool_call("retryable", "invalid-second"),
+                )
+            ),
+            ScriptedCall(response(tool_call("retryable", "retried"))),
+        ]
+    )
+    tool = MutableEchoTool()
+    session = build_session(tmp_path, llm, [tool])
+
+    with llm:
+        rejected = await session.start_turn("reject the malformed batch").wait()
+        retried = await session.start_turn("retry its unclaimed ID").wait()
+
+    assert rejected.stop_reason == "failed"
+    assert retried.stop_reason == "max_steps"
+    assert tool.calls == ["retried"]
+
+
+@pytest.mark.asyncio
+async def test_mixed_batch_normalizes_every_result_in_model_order(tmp_path) -> None:
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(
+                response(
+                    tool_call("success", "ok"),
+                    tool_call("unknown", "missing", name="missing"),
+                    tool_call("exception", "explode", name="explode"),
+                    tool_call("invalid", "invalid", name="invalid"),
+                )
+            )
+        ]
+    )
+    echo = MutableEchoTool()
+    exploding = ExplodingTool("explode")
+    invalid = InvalidResultTool("invalid")
+    session = build_session(tmp_path, llm, [echo, exploding, invalid])
+    events = []
+
+    with llm:
+        outcome = await session.start_turn(
+            "run a mixed batch",
+            event_sink=events.append,
+        ).wait()
+
+    assert outcome.stop_reason == "max_steps"
+    assert echo.calls == ["ok"]
+    assert exploding.calls == ["explode"]
+    assert invalid.calls == ["invalid"]
+    tool_messages = session.get_history()[-4:]
+    assert [message.tool_call_id for message in tool_messages] == [
+        "success",
+        "unknown",
+        "exception",
+        "invalid",
+    ]
+    assert tool_messages[0].content == "echo:ok"
+    assert tool_messages[1].content == "Error: Unknown tool: missing"
+    assert (
+        "Error: Tool execution failed: ValueError: boom:explode"
+        in tool_messages[2].content
+    )
+    assert (
+        "Error: Tool contract violation: invalid returned NoneType"
+        in tool_messages[3].content
+    )
+    assert [
+        envelope.event.index
+        for envelope in events
+        if isinstance(envelope.event, ToolStarted)
+    ] == [1, 2, 3, 4]
+    assert [
+        envelope.event.index
+        for envelope in events
+        if isinstance(envelope.event, ToolFinished)
+    ] == [1, 2, 3, 4]
+
+
+@pytest.mark.asyncio
+async def test_observer_failure_mid_batch_does_not_leave_partial_history(
+    tmp_path,
+) -> None:
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(
+                response(
+                    tool_call("first", "first"),
+                    tool_call("second", "second"),
+                )
+            )
+        ]
+    )
+    tool = MutableEchoTool()
+    session = build_session(tmp_path, llm, [tool])
+
+    def fail_after_first_result(envelope) -> None:
+        if (
+            isinstance(envelope.event, ToolFinished)
+            and envelope.event.index == 1
+        ):
+            raise OSError("observer failed mid-batch")
+
+    with llm:
+        outcome = await session.start_turn(
+            "finish the admitted batch",
+            event_sink=fail_after_first_result,
+        ).wait()
+
+    assert outcome.stop_reason == "failed"
+    assert outcome.error is not None
+    assert outcome.error.kind == "observer_error"
+    assert tool.calls == ["first", "second"]
+    assert [message.role for message in session.get_history()[-3:]] == [
+        "assistant",
+        "tool",
+        "tool",
+    ]
+    assert [
+        message.tool_call_id for message in session.get_history()[-2:]
+    ] == ["first", "second"]
+
+
+@pytest.mark.asyncio
+async def test_history_is_unmodified_while_a_batch_is_in_progress(tmp_path) -> None:
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(
+                response(
+                    tool_call("first", "first"),
+                    tool_call("blocked", "blocked", name="block"),
+                )
+            )
+        ]
+    )
+    first = MutableEchoTool()
+    blocked = BlockingEchoTool("block", block_text="blocked")
+    session = build_session(tmp_path, llm, [first, blocked])
+
+    handle = session.start_turn("commit only a complete batch")
+    await blocked.entered.wait()
+
+    assert first.calls == ["first"]
+    assert blocked.calls == ["blocked"]
+    assert [message.role for message in session.get_history()] == ["system", "user"]
+
+    blocked.release.set()
+    outcome = await handle.wait()
+    llm.assert_complete()
+
+    assert outcome.stop_reason == "max_steps"
+    assert [message.role for message in session.get_history()[-3:]] == [
+        "assistant",
+        "tool",
+        "tool",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_batch_is_serial_and_interrupts_only_after_all_calls_finish(
+    tmp_path,
+) -> None:
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(
+                response(
+                    tool_call("first", "first"),
+                    tool_call("second", "second"),
+                    tool_call("third", "third"),
+                )
+            )
+        ]
+    )
+    tool = BlockingEchoTool(block_text="first")
+    session = build_session(tmp_path, llm, [tool], max_steps=2)
+    events = []
+
+    handle = session.start_turn("interrupt inside the batch", event_sink=events.append)
+    await tool.entered.wait()
+    # Give an incorrectly parallel executor enough scheduling opportunities to
+    # start later calls while the first one is still blocked.
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert tool.calls == ["first"]
+    assert handle.interrupt() is True
+    tool.release.set()
+    outcome = await handle.wait()
+    llm.assert_complete()
+
+    assert outcome.stop_reason == "interrupted"
+    assert tool.calls == ["first", "second", "third"]
+    assert [
+        (
+            "started"
+            if isinstance(envelope.event, ToolStarted)
+            else "finished",
+            envelope.event.index,
+        )
+        for envelope in events
+        if isinstance(envelope.event, (ToolStarted, ToolFinished))
+    ] == [
+        ("started", 1),
+        ("finished", 1),
+        ("started", 2),
+        ("finished", 2),
+        ("started", 3),
+        ("finished", 3),
+    ]
+    assert [message.tool_call_id for message in session.get_history()[-3:]] == [
+        "first",
+        "second",
+        "third",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cancellation_claims_started_id_but_not_unstarted_batch_ids(
+    tmp_path,
+) -> None:
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(
+                response(
+                    tool_call("started", "cancel-now", name="cancel"),
+                    tool_call("not-started", "queued"),
+                )
+            ),
+            ScriptedCall(response(tool_call("not-started", "retried"))),
+            ScriptedCall(
+                response(tool_call("started", "must-not-repeat", name="cancel"))
+            ),
+        ]
+    )
+    cancelling = CancellingTool("cancel")
+    echo = MutableEchoTool()
+    session = build_session(tmp_path, llm, [cancelling, echo])
+    cancellation_events = []
+
+    with pytest.raises(asyncio.CancelledError):
+        await session.start_turn(
+            "cancel during the first call",
+            event_sink=cancellation_events.append,
+        ).wait()
+    retried = await session.start_turn("retry the call that never started").wait()
+    rejected = await session.start_turn("do not repeat the started call").wait()
+    llm.assert_complete()
+
+    assert retried.stop_reason == "max_steps"
+    assert rejected.stop_reason == "failed"
+    assert rejected.error is not None
+    assert rejected.error.kind == "tool_protocol_error"
+    assert "already claimed" in rejected.error.message
+    assert cancelling.calls == ["cancel-now"]
+    assert echo.calls == ["retried"]
+    assert [
+        (type(envelope.event), envelope.event.index)
+        for envelope in cancellation_events
+        if isinstance(envelope.event, (ToolStarted, ToolFinished))
+    ] == [(ToolStarted, 1)]
+
+
+@pytest.mark.asyncio
+async def test_tool_argument_mutation_cannot_change_events_or_history(tmp_path) -> None:
+    call = ToolCall(
+        id="mutation",
+        type="function",
+        function=FunctionCall(
+            name="mutate",
+            arguments={"payload": {"items": ["original"]}},
+        ),
+    )
+    llm = ScriptedLLM([ScriptedCall(response(call))])
+    tool = MutatingArgumentsTool()
+    session = build_session(tmp_path, llm, [tool])
+    events = []
+
+    with llm:
+        outcome = await session.start_turn(
+            "keep the model call immutable",
+            event_sink=events.append,
+        ).wait()
+
+    assert outcome.stop_reason == "max_steps"
+    assert tool.received_payload == {"items": ["original", "mutated"]}
+    call_events = [
+        envelope.event.call
+        for envelope in events
+        if isinstance(envelope.event, (ToolStarted, ToolFinished))
+    ]
+    assert [event.function.arguments for event in call_events] == [
+        {"payload": {"items": ["original"]}},
+        {"payload": {"items": ["original"]}},
+    ]
+    assistant_call = session.get_history()[-2].tool_calls[0]
+    assert assistant_call.function.arguments == {
+        "payload": {"items": ["original"]}
+    }
+
+
+@pytest.mark.asyncio
+async def test_agent_step_delegates_the_complete_batch_once(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    calls = [
+        tool_call("first", "first"),
+        tool_call("second", "second"),
+        tool_call("third", "third"),
+    ]
+    llm = ScriptedLLM([ScriptedCall(response(*calls))])
+    tool = MutableEchoTool()
+    session = build_session(tmp_path, llm, [tool])
+    delegated_batches: list[list[ToolCall]] = []
+
+    async def execute_batch(tool_calls, *, emit):
+        delegated_batches.append(deepcopy(tool_calls))
+        return tuple(
+            Message(
+                role="tool",
+                content=f"delegated:{call.id}",
+                tool_call_id=call.id,
+                name=call.function.name,
+            )
+            for call in tool_calls
+        )
+
+    monkeypatch.setattr(session._tool_executor, "execute_batch", execute_batch)
+
+    with llm:
+        outcome = await session.start_turn("delegate one batch").wait()
+
+    assert outcome.stop_reason == "max_steps"
+    assert [[call.id for call in batch] for batch in delegated_batches] == [
+        ["first", "second", "third"]
+    ]
+    assert tool.calls == []
+    assert [message.content for message in session.get_history()[-3:]] == [
+        "delegated:first",
+        "delegated:second",
+        "delegated:third",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cli_renders_tool_protocol_failure_detail(tmp_path, capsys) -> None:
+    llm = ScriptedLLM(
+        [
+            ScriptedCall(
+                response(
+                    tool_call("duplicate", "first"),
+                    tool_call("duplicate", "second"),
+                )
+            )
+        ]
+    )
+    session = build_session(tmp_path, llm, [MutableEchoTool()])
+
+    with llm:
+        outcome = await session.start_turn(
+            "render the failure",
+            event_sink=CliEventSink(logger=MagicMock()),
+        ).wait()
+
+    output = capsys.readouterr().out
+    assert outcome.error is not None
+    assert "(tool_protocol_error):" in output
+    assert "duplicate tool call ID 'duplicate'" in output

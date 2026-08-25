@@ -116,10 +116,13 @@ class CliEventSink:
                 )
             elif event.outcome.stop_reason == "failed":
                 assert event.outcome.error is not None
-                if event.outcome.error.kind == "internal_error":
+                if event.outcome.error.kind in {
+                    "internal_error",
+                    "tool_protocol_error",
+                }:
                     print(
                         f"\n{Colors.BRIGHT_RED}❌ Turn ended "
-                        f"(internal_error):{Colors.RESET} "
+                        f"({event.outcome.error.kind}):{Colors.RESET} "
                         f"{event.outcome.error.message}"
                     )
                 else:

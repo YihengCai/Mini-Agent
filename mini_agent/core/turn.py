@@ -15,6 +15,7 @@ TurnStopReason: TypeAlias = Literal[
 ]
 TurnErrorKind: TypeAlias = Literal[
     "model_error",
+    "tool_protocol_error",
     "internal_error",
     "observer_error",
 ]

@@ -286,8 +286,8 @@ async def test_active_turn_uses_an_admission_time_tool_snapshot(tmp_path):
     with pytest.raises(AttributeError):
         session.session_id = "replacement-session"  # type: ignore[misc]
 
-    # Even an accidental private mutation cannot change this admitted Turn.
-    session._tools.clear()
+    # Even an accidental private replacement cannot change this admitted Turn.
+    session._tool_executor = None  # type: ignore[assignment]
     llm.release.set()
     outcome = await handle.wait()
 

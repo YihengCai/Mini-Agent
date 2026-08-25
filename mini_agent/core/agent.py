@@ -7,13 +7,12 @@ from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from types import MappingProxyType
 from typing import Mapping
 from uuid import uuid4
 
 from ..llm.protocol import ModelClient, ToolDefinition
 from ..schema import Message
-from ..tools.base import Tool, ToolResult
+from ..tools.base import Tool
 from .events import (
     AgentEvent,
     AgentEventEnvelope,
@@ -24,8 +23,6 @@ from .events import (
     StepFinished,
     StepStatus,
     StepStarted,
-    ToolFinished,
-    ToolStarted,
     TurnFinished,
     TurnStarted,
 )
@@ -36,6 +33,7 @@ from .turn import (
     TurnOutcome,
     TurnStopReason,
 )
+from .tool_execution import InvalidToolBatchError, ToolBatchExecutor
 
 
 @dataclass(frozen=True)
@@ -44,7 +42,7 @@ class _TurnContext:
     turn_id: str
     interrupt_event: asyncio.Event
     llm: ModelClient
-    tools: Mapping[str, Tool]
+    tool_executor: ToolBatchExecutor
     max_steps: int
 
 
@@ -101,7 +99,7 @@ class AgentSession:
     ):
         self._session_id = session_id or uuid4().hex
         self._llm = llm_client
-        self._tools = {tool.name: tool for tool in tools}
+        self._tool_executor = ToolBatchExecutor(tools)
         self._max_steps = max_steps
         self.workspace_dir = Path(workspace_dir)
         self._turn_counter = 0
@@ -144,9 +142,13 @@ class AgentSession:
 
     @property
     def tools(self) -> Mapping[str, Tool]:
-        """Expose the configured tools without exposing the mutable registry."""
+        """Expose raw tools to trusted host code for inspection only.
 
-        return MappingProxyType(self._tools)
+        Every model-response call is dispatched through the Session-owned batch
+        executor; this compatibility view is not that execution interface.
+        """
+
+        return self._tool_executor.tools
 
     @property
     def max_steps(self) -> int:
@@ -177,7 +179,7 @@ class AgentSession:
             turn_id=turn_id,
             interrupt_event=interrupt_event,
             llm=self._llm,
-            tools=MappingProxyType(dict(self._tools)),
+            tool_executor=self._tool_executor,
             max_steps=self._max_steps,
         )
         self._turn_counter = next_turn_number
@@ -309,15 +311,7 @@ class _AgentLoop:
             if emitter.error is not None:
                 return self._observer_failed_step(emitter.error)
 
-            tool_list = list(context.tools.values())
-            model_tools = [
-                ToolDefinition(
-                    name=tool.name,
-                    description=tool.description,
-                    parameters=deepcopy(tool.parameters),
-                )
-                for tool in tool_list
-            ]
+            model_tools = context.tool_executor.snapshot_definitions()
             event_tools = tuple(
                 ToolDefinition(
                     name=tool.name,
@@ -410,74 +404,26 @@ class _AgentLoop:
                     last_assistant_message=response.content,
                 )
 
-            tool_messages: list[Message] = []
-            for tool_index, tool_call in enumerate(response.tool_calls, start=1):
-                function_name = tool_call.function.name
-                arguments = tool_call.function.arguments
-                emitter.emit(
-                    ToolStarted(
-                        index=tool_index,
-                        call=tool_call.model_copy(deep=True),
-                    ),
-                    step=step_number,
+            try:
+                tool_messages = await context.tool_executor.execute_batch(
+                    response.tool_calls,
+                    emit=lambda event: emitter.emit(event, step=step_number),
                 )
-
-                if function_name not in context.tools:
-                    result = ToolResult(
-                        success=False,
-                        content="",
-                        error=f"Unknown tool: {function_name}",
-                    )
-                else:
-                    try:
-                        raw_result = await context.tools[function_name].execute(
-                            **arguments
-                        )
-                        if not isinstance(raw_result, ToolResult):
-                            result = ToolResult(
-                                success=False,
-                                content="",
-                                error=(
-                                    f"Tool contract violation: {function_name} "
-                                    f"returned {type(raw_result).__name__}, expected "
-                                    "ToolResult"
-                                ),
-                            )
-                        else:
-                            result = raw_result
-                    except Exception as error:
-                        import traceback
-
-                        error_detail = f"{type(error).__name__}: {error}"
-                        error_trace = traceback.format_exc()
-                        result = ToolResult(
-                            success=False,
-                            content="",
-                            error=(
-                                f"Tool execution failed: {error_detail}\n\n"
-                                f"Traceback:\n{error_trace}"
-                            ),
-                        )
-
-                emitter.emit(
-                    ToolFinished(
-                        index=tool_index,
-                        call=tool_call.model_copy(deep=True),
-                        result=result.model_copy(deep=True),
-                    ),
-                    step=step_number,
+            except InvalidToolBatchError as error:
+                self._emit_step_finished(
+                    emitter=emitter,
+                    step_number=step_number,
+                    status="failed",
+                    step_start_time=step_start_time,
+                    turn_start_time=turn_start_time,
                 )
-                tool_messages.append(
-                    Message(
-                        role="tool",
-                        content=(
-                            result.content
-                            if result.success
-                            else f"Error: {result.error}"
-                        ),
-                        tool_call_id=tool_call.id,
-                        name=function_name,
-                    )
+                return _StepResult(
+                    stop_reason="failed",
+                    last_assistant_message=None,
+                    error=TurnError(
+                        kind="tool_protocol_error",
+                        message=str(error),
+                    ),
                 )
 
             # Commit an assistant tool-call message and all corresponding results
