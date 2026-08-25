@@ -9,7 +9,7 @@ import yaml
 import mini_agent.llm.anthropic_client as anthropic_module
 import mini_agent.llm.factory as adapter_factory
 import mini_agent.llm.openai_client as openai_module
-from mini_agent.config import Config
+from mini_agent.config import Config, LLMConfig
 from mini_agent.llm import AdapterName, create_model_client
 from mini_agent.llm.anthropic_client import AnthropicAdapter
 from mini_agent.llm.openai_client import OpenAIAdapter
@@ -70,6 +70,18 @@ def test_config_rejects_legacy_provider_field(tmp_path):
 
     with pytest.raises(ValueError, match="'provider'.*'adapter'"):
         Config.from_yaml(path)
+
+
+def test_llm_config_rejects_unknown_programmatic_fields():
+    with pytest.raises(ValueError, match="provider"):
+        LLMConfig(
+            api_key="test-key",
+            adapter="anthropic",
+            api_base="https://model.example.test/messages",
+            model="test-model",
+            max_output_tokens=37,
+            provider="openai",
+        )
 
 
 def test_config_preserves_explicit_model_adapter_fields(tmp_path):

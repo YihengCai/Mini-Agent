@@ -6,7 +6,7 @@ Provides unified configuration loading and management functionality
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .llm.factory import AdapterName
 
@@ -23,6 +23,8 @@ class RetryConfig(BaseModel):
 
 class LLMConfig(BaseModel):
     """LLM configuration"""
+
+    model_config = ConfigDict(extra="forbid")
 
     api_key: str
     adapter: AdapterName

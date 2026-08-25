@@ -1,4 +1,4 @@
-"""Vendor-neutral model contract and configured wire adapters."""
+"""Core-facing model contract and configured wire adapters."""
 
 from .base import LLMAdapter
 from .factory import AdapterName, create_model_client

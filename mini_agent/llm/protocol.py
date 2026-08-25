@@ -1,4 +1,4 @@
-"""Vendor-neutral model call contract used by the agent loop."""
+"""Core-facing model call contract and protocol-neutral tool definition."""
 
 from dataclasses import dataclass
 from typing import Any, Protocol
