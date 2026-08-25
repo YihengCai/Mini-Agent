@@ -121,6 +121,7 @@ CLI 分别构造启动、读取与终止工具，退出路径却只调用 MCP �
 | Skill 重扫保留已删除条目，重名来源静默覆盖 | `git show 9c15477^:mini_agent/tools/skill_loader.py` 的 `194-214` | 当前完整扫描后一次替换注册表并拒绝重名；回归见 `tests/test_skill_loader.py:115-157`，取舍见 ADR-0020 |
 | `async_retry()` 忽略 `enabled`，两个 adapter 重复解释开关 | `git show 262761f^:mini_agent/retry.py` 的 `24-58,87-143`；`git show 262761f^:mini_agent/llm/anthropic_client.py` 的 `240-277`；`git show 262761f^:mini_agent/llm/openai_client.py` 的 `233-268` | 当前由重试 wrapper 单一持有开关，adapter 只保留协议调用；回归见 `tests/test_retry.py:98-131`，取舍见 ADR-0021 |
 | core 把模型总调用次数误写为重试次数 | `git show 11a0bcf^:mini_agent/core/agent.py` 的 `346-380` | 当前统一保留模型异常自身文本与原对象，不再导入具体 retry 类型；回归见 `tests/test_agent_session_offline.py:517-544`，取舍见 ADR-0022 |
+| 后台 shell 在退出码出现后停止读取缓冲输出 | `git show a6d4881^:mini_agent/tools/bash_tool.py` 的 `151-181` | 当前自然完成以 stdout EOF 为读取边界，再等待并发布退出状态；回归见 `tests/test_background_shell_lifecycle.py:165-188`，取舍见 ADR-0023 |
 
 ## 审计不直接决定实现
 

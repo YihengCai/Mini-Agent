@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-项目已在上游 baseline 上完成二十四项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收；每条模型可见工具结果现在还有统一的 UTF-8 字节预算；配置模型现在拒绝未知字段并单独持有默认值；Note 存储损坏时会失败关闭并保留原字节；MCP server 的错误正文会归一化到内部失败结果；显式非法 MCP transport 会在连接前隔离；配置与 core 都拒绝非正 Step 预算；配置与运行时都约束重试次数和退避数值，并由重试模块单一解释 enabled 开关；core 不再把模型异常的总调用次数改写成重试次数；每个 Session 的模型请求都包含本次真实工作区事实；相对系统提示词与 MCP 配置现在绑定到已选主配置的目录；每个 Turn 的人类可读日志都排他占用新文件；Skill 发现会以完整快照替换注册表并拒绝重名来源。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
+项目已在上游 baseline 上完成二十五项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收，后台 shell 自然完成前还会读到 stdout EOF；每条模型可见工具结果现在还有统一的 UTF-8 字节预算；配置模型现在拒绝未知字段并单独持有默认值；Note 存储损坏时会失败关闭并保留原字节；MCP server 的错误正文会归一化到内部失败结果；显式非法 MCP transport 会在连接前隔离；配置与 core 都拒绝非正 Step 预算；配置与运行时都约束重试次数和退避数值，并由重试模块单一解释 enabled 开关；core 不再把模型异常的总调用次数改写成重试次数；每个 Session 的模型请求都包含本次真实工作区事实；相对系统提示词与 MCP 配置现在绑定到已选主配置的目录；每个 Turn 的人类可读日志都排他占用新文件；Skill 发现会以完整快照替换注册表并拒绝重名来源。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
 
 `read_file` 现在返回 1-based 行窗口，编号正文最多 2000 个完整行或 50 KiB，并给出下一次 `offset`；`edit_file` 仅把 LF/CRLF 视为等价，其他文本必须精确匹配且只能出现一次。写入和编辑通过同目录临时文件和 `os.replace()` 提交，已有文件保留 CRLF 约定与权限位。代码可以运行，但仍保留重要限制：
 
@@ -45,7 +45,7 @@ Turn 日志也不再以秒级名称覆写已有证据：普通文件名保持不
 
 模型可见工具输出预算已经落地：批次执行器在完整 `ToolFinished` 发出后，才把成功内容或带 `Error: ` 前缀的失败文本投影成最多 64 KiB 的模型消息；超限时保留合法 UTF-8 首尾，并报告原始、保留、省略和上限字节数。Session 历史与下一次模型请求使用同一个有界视图，原始工具结果、事件和日志不被改写。该预算逐条生效，不限制整批合计，也没有让省略正文可恢复；取舍见 [ADR-0010](docs/decisions/0010-model-facing-tool-output-budget.md)。
 
-后台 shell 所有权已经落地：配置与模型客户端构造成功后，CLI 创建一个 manager 并显式注入 `bash`、`bash_output` 和 `bash_kill`；`/clear` 只替换逻辑对话，退出时才按 shell、MCP 顺序清理。manager 拒绝重复标识符和关闭后登记，等待 monitor 取消与强杀后的 subprocess，并保留失败项供后续关闭重试。25 项定向离线回归覆盖跨 runtime 隔离、并发关闭、取消和清理双失败；取舍见 [ADR-0009](docs/decisions/0009-runtime-owned-background-shells.md)。
+后台 shell 所有权已经落地：配置与模型客户端构造成功后，CLI 创建一个 manager 并显式注入 `bash`、`bash_output` 和 `bash_kill`；`/clear` 只替换逻辑对话，退出时才按 shell、MCP 顺序清理。manager 拒绝重复标识符和关闭后登记，等待 monitor 取消与强杀后的 subprocess，并保留失败项供后续关闭重试。自然完成的 monitor 会继续读取到 stdout EOF，再等待进程并发布状态，短进程退出后仍在管道中的行不会丢失；主动终止期间的尾部输出、内部容量和进程组仍无保证。所有权取舍见 [ADR-0009](docs/decisions/0009-runtime-owned-background-shells.md)，输出完成边界见 [ADR-0023](docs/decisions/0023-background-shell-completes-after-stdout-eof.md)。
 
 MCP 运行时所有权也已经落地：CLI 用配置构造不可变超时快照，并把同一个 `MCPManager` 交给 loader 与最终清理；不同 runtime 不共享超时或连接。manager 在连接建立前登记所有权，串行化加载与关闭，尝试全部连接并保留失败项；叶子连接只有在 transport 关闭成功后才丢弃句柄，所以取消后的关闭可以真实重试。`isError` 的非空 server 正文现在映射到内部 `error`，因此 `ToolFinished`、模型消息、CLI 和日志使用同一诊断；空正文仍使用通用兜底。MCP `type` 只有在字段完全缺失时才自动推断；显式非法值在构造任何连接前隔离当前 server，合法后续项继续加载。运行时所有权取舍见 [ADR-0011](docs/decisions/0011-runtime-owned-mcp-connections.md)，transport 校验取舍见 [ADR-0016](docs/decisions/0016-reject-explicit-invalid-mcp-transports.md)。
 
@@ -158,7 +158,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-26 实测为 `311 passed, 9 deselected in 13.27s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-26 实测为 `312 passed, 9 deselected in 13.07s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 

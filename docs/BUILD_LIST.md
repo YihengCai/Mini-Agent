@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-core 模型失败语义已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
+后台 shell 输出完成边界已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@ core 模型失败语义已经完成并移入“最近完成”。下一项仍从
 
 ## 最近完成
 
+- **后台 shell 输出完成边界**：自然完成的 monitor 持续读取到 stdout EOF，再等待进程并发布 `completed` 或 `failed`；进程已退出但仍缓冲的行不再丢失。确定性 fake 回归在恢复旧退出码条件时转红；既有真实 bash 定向集合保持通过。定向集合实测 `40 passed in 9.77s`，完整离线集合实测 `312 passed, 9 deselected in 13.07s`。主动终止尾部输出仍不在保证内，取舍见 [`decisions/0023-background-shell-completes-after-stdout-eof.md`](decisions/0023-background-shell-completes-after-stdout-eof.md)。
 - **core 模型失败语义**：模型异常统一形成 `LLM call failed: {error}`，原对象继续进入事件，事件结果与 Turn 错误使用同一文本；core 删除具体重试类型依赖，不再把总调用次数改写成重试次数。1 项新回归覆盖一次调用的耗尽异常、对象身份和两处文本；恢复旧特判时该项转红。定向集合实测 `66 passed in 0.49s`，完整离线集合实测 `311 passed, 9 deselected in 13.27s`。取舍见 [`decisions/0022-core-preserves-model-error-semantics.md`](decisions/0022-core-preserves-model-error-semantics.md)。
 - **重试 enabled 开关单一所有权**：`async_retry()` 在每次调用入口解释 `enabled`；禁用时只调用一次，不等待、不回调并透传原异常。两个 wire adapter 删除同构启停分支，始终经过公共入口；启用且 `max_retries=0` 的耗尽语义不变。1 项新回归在移除公共守卫时转红；定向集合实测 `65 passed in 0.33s`，完整离线集合实测 `310 passed, 9 deselected in 13.12s`。取舍见 [`decisions/0021-retry-module-owns-enabled-switch.md`](decisions/0021-retry-module-owns-enabled-switch.md)。
 - **Skill 发现注册表快照**：递归路径先稳定排序，成功解析的 Skill 在局部名称索引中完成；重名会报告两个来源并让本次扫描失败，上一完整快照不变，成功重扫则一次替换并清除已删除条目。2 项新回归覆盖删除后重扫、重名诊断与失败状态；退化为累加更新或移除重名守卫时各有 1 项转红。完整离线集合实测 `309 passed, 9 deselected in 13.21s`，取舍见 [`decisions/0020-transactional-skill-discovery.md`](decisions/0020-transactional-skill-discovery.md)。
