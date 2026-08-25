@@ -119,6 +119,7 @@ CLI 分别构造启动、读取与终止工具，退出路径却只调用 MCP �
 | 非法退避数值会绕过、挂起或溢出有限上限 | `git show 1ce3dd6^:mini_agent/retry.py` 的 `23-75` | 当前两层入口要求有限定义域，零初值和有限幂溢出返回有界结果；回归见 `tests/test_retry.py:13-94`，取舍见 ADR-0018 |
 | 同秒 Turn 日志使用同一路径并覆写已有事实 | `git show 1581771^:mini_agent/logger.py` 的 `19-41` | 当前以排他创建和确定性后缀独占新文件；回归见 `tests/test_logger.py`，取舍见 ADR-0019 |
 | Skill 重扫保留已删除条目，重名来源静默覆盖 | `git show 9c15477^:mini_agent/tools/skill_loader.py` 的 `194-214` | 当前完整扫描后一次替换注册表并拒绝重名；回归见 `tests/test_skill_loader.py:115-157`，取舍见 ADR-0020 |
+| `async_retry()` 忽略 `enabled`，两个 adapter 重复解释开关 | `git show 262761f^:mini_agent/retry.py` 的 `24-58,87-143`；`git show 262761f^:mini_agent/llm/anthropic_client.py` 的 `240-277`；`git show 262761f^:mini_agent/llm/openai_client.py` 的 `233-268` | 当前由重试 wrapper 单一持有开关，adapter 只保留协议调用；回归见 `tests/test_retry.py:98-131`，取舍见 ADR-0021 |
 
 ## 审计不直接决定实现
 
