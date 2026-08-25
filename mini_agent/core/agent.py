@@ -113,10 +113,14 @@ class AgentSession:
         # Ensure workspace exists
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
 
-        # Inject workspace information into system prompt if not already present
-        if "Current Workspace" not in system_prompt:
-            workspace_info = f"\n\n## Current Workspace\nYou are currently working in: `{self.workspace_dir.absolute()}`\nAll relative paths will be resolved relative to this directory."
-            system_prompt = system_prompt + workspace_info
+        workspace_info = (
+            "## Current Workspace\n"
+            f"You are currently working in: `{self.workspace_dir.absolute()}`\n"
+            "All relative paths will be resolved relative to this directory."
+        )
+        if workspace_info not in system_prompt:
+            separator = "\n\n" if system_prompt else ""
+            system_prompt = system_prompt + separator + workspace_info
 
         self.system_prompt = system_prompt
 

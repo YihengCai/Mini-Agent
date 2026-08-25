@@ -109,6 +109,14 @@ def build_session(
     )
 
 
+def workspace_fact(workspace) -> str:
+    return (
+        "## Current Workspace\n"
+        f"You are currently working in: `{workspace.absolute()}`\n"
+        "All relative paths will be resolved relative to this directory."
+    )
+
+
 @pytest.mark.parametrize("max_steps", [0, -1])
 def test_session_rejects_nonpositive_max_steps_before_workspace_creation(
     tmp_path,
@@ -128,6 +136,55 @@ def test_session_rejects_nonpositive_max_steps_before_workspace_creation(
 
     assert not workspace.exists()
     assert llm.requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "base_prompt",
+    [
+        "Explain the phrase Current Workspace before answering.",
+        (
+            "Base prompt\n\n## Current Workspace\n"
+            "You are currently working in: `/stale`\n"
+            "All relative paths will be resolved relative to this directory."
+        ),
+    ],
+)
+async def test_session_appends_current_workspace_fact_to_model_request(
+    tmp_path,
+    base_prompt,
+):
+    workspace = tmp_path / "actual-workspace"
+    llm = ScriptedLLM([ScriptedCall(response("done"))])
+    session = AgentSession(
+        llm_client=llm,
+        system_prompt=base_prompt,
+        tools=[],
+        workspace_dir=str(workspace),
+    )
+
+    with llm:
+        await session.start_turn("question").wait()
+
+    system_content = llm.requests[0].messages[0].content
+    assert isinstance(system_content, str)
+    assert system_content.startswith(base_prompt)
+    assert system_content.endswith(workspace_fact(workspace))
+
+
+def test_session_does_not_duplicate_exact_workspace_fact(tmp_path):
+    workspace = tmp_path / "actual-workspace"
+    fact = workspace_fact(workspace)
+    system_prompt = f"Base prompt\n\n{fact}"
+
+    session = AgentSession(
+        llm_client=ScriptedLLM([]),
+        system_prompt=system_prompt,
+        tools=[],
+        workspace_dir=str(workspace),
+    )
+
+    assert session.get_history()[0].content == system_prompt
 
 
 @pytest.mark.asyncio
