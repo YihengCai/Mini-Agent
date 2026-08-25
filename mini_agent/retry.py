@@ -41,6 +41,8 @@ class RetryConfig:
             exponential_base: Exponential backoff base
             retryable_exceptions: Tuple of retryable exception types
         """
+        if max_retries < 0:
+            raise ValueError("max_retries must be greater than or equal to zero")
         self.enabled = enabled
         self.max_retries = max_retries
         self.initial_delay = initial_delay
@@ -97,16 +99,12 @@ def async_retry(
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_exception: Exception | None = None
-
             for attempt in range(config.max_retries + 1):
                 try:
                     # Try to execute function
                     return await func(*args, **kwargs)
 
                 except config.retryable_exceptions as e:
-                    last_exception = e
-
                     # If this is the last attempt, don't retry
                     if attempt >= config.max_retries:
                         logger.error(f"Function {func.__name__} retry failed, reached maximum retry count {config.max_retries}")
@@ -127,11 +125,6 @@ def async_retry(
 
                     # Wait before retry
                     await asyncio.sleep(delay)
-
-            # Should not reach here in theory
-            if last_exception:
-                raise last_exception
-            raise Exception("Unknown error")
 
         return wrapper
 

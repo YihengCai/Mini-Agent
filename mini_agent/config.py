@@ -33,7 +33,7 @@ class RetryConfig(_StrictConfigModel):
     """Retry configuration"""
 
     enabled: bool = True
-    max_retries: int = 3
+    max_retries: int = Field(default=3, ge=0)
     initial_delay: float = 1.0
     max_delay: float = 60.0
     exponential_base: float = 2.0

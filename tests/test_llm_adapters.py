@@ -252,6 +252,25 @@ def test_config_rejects_nonpositive_max_steps(tmp_path, max_steps):
         Config.from_yaml(path)
 
 
+def test_config_rejects_negative_max_retries(tmp_path):
+    data = config_data()
+    data["retry"] = {"max_retries": -1}
+    path = tmp_path / "config.yaml"
+    write_config(path, data)
+
+    with pytest.raises(ValueError, match="max_retries"):
+        Config.from_yaml(path)
+
+
+def test_config_accepts_zero_max_retries(tmp_path):
+    data = config_data()
+    data["retry"] = {"max_retries": 0}
+    path = tmp_path / "config.yaml"
+    write_config(path, data)
+
+    assert Config.from_yaml(path).llm.retry.max_retries == 0
+
+
 def test_config_example_tracks_explicit_adapter_schema(tmp_path):
     template_path = Path("mini_agent/config/config-example.yaml")
     data = yaml.safe_load(template_path.read_text(encoding="utf-8"))
