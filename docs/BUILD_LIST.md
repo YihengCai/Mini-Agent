@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-重试退避数值边界已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
+Turn 日志排他分配已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **Turn 日志排他分配**：同一秒的独立 logger 通过文件系统排他创建获得基础名与确定性后缀，不再截断已有事实；文件名与表头共用一次时钟采样，默认目录不变且支持显式注入。2 项离线回归覆盖同名保留与跨秒一致性；恢复覆写模式或第二次采样时各有 1 项转红。完整离线集合实测 `307 passed, 9 deselected in 13.20s`，取舍见 [`decisions/0019-exclusive-turn-log-allocation.md`](decisions/0019-exclusive-turn-log-allocation.md)。
 - **重试退避数值与饱和边界**：文件配置和程序化运行时都拒绝负 delay、非正 base 与 `nan`/`inf`；零 delay、递减 base 和首次截断保持合法。零初值跳过幂运算，其他有限输入溢出时按 `max_delay` 饱和。26 项新参数场景覆盖两层输入与四种计算形状；移除两层约束、零初值短路或溢出处理时分别有回归转红。完整离线集合实测 `305 passed, 9 deselected in 13.17s`，取舍见 [`decisions/0018-finite-and-saturating-retry-backoff.md`](decisions/0018-finite-and-saturating-retry-backoff.md)。
 - **非负重试次数双边界**：文件配置与程序化运行时对象都要求 `max_retries >= 0`；`0` 保持一次首次调用，正数保持首次调用外的附加次数。零次循环专用的 `last_exception` 与 `Unknown error` 尾分支已删除。5 项新回归覆盖两层拒绝、零值与正值计数；移除任一守卫时对应测试转红。完整离线集合实测 `279 passed, 9 deselected in 13.42s`，取舍见 [`decisions/0017-nonnegative-retry-count-at-config-and-runtime.md`](decisions/0017-nonnegative-retry-count-at-config-and-runtime.md)。
 - **MCP transport 显式校验**：只有完全缺少 `type` 时才按 URL 推断；四个已知名称保持大小写不敏感，未知、空、`null` 与非字符串会在连接构造前隔离当前 server，并让合法后续项继续加载。6 项新增或扩展回归覆盖显式值、连接入口和 loader 隔离；恢复宽松推断与移除连接守卫时分别有 5 项和 1 项转红。完整离线集合实测 `274 passed, 9 deselected in 13.12s`，取舍见 [`decisions/0016-reject-explicit-invalid-mcp-transports.md`](decisions/0016-reject-explicit-invalid-mcp-transports.md)。

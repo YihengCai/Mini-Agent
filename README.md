@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-项目已在上游 baseline 上完成二十项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收；每条模型可见工具结果现在还有统一的 UTF-8 字节预算；配置模型现在拒绝未知字段并单独持有默认值；Note 存储损坏时会失败关闭并保留原字节；MCP server 的错误正文会归一化到内部失败结果；显式非法 MCP transport 会在连接前隔离；配置与 core 都拒绝非正 Step 预算；配置与运行时都约束重试次数和退避数值；每个 Session 的模型请求都包含本次真实工作区事实；相对系统提示词与 MCP 配置现在绑定到已选主配置的目录。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
+项目已在上游 baseline 上完成二十一项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收；每条模型可见工具结果现在还有统一的 UTF-8 字节预算；配置模型现在拒绝未知字段并单独持有默认值；Note 存储损坏时会失败关闭并保留原字节；MCP server 的错误正文会归一化到内部失败结果；显式非法 MCP transport 会在连接前隔离；配置与 core 都拒绝非正 Step 预算；配置与运行时都约束重试次数和退避数值；每个 Session 的模型请求都包含本次真实工作区事实；相对系统提示词与 MCP 配置现在绑定到已选主配置的目录；每个 Turn 的人类可读日志都排他占用新文件。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
 
 `read_file` 现在返回 1-based 行窗口，编号正文最多 2000 个完整行或 50 KiB，并给出下一次 `offset`；`edit_file` 仅把 LF/CRLF 视为等价，其他文本必须精确匹配且只能出现一次。写入和编辑通过同目录临时文件和 `os.replace()` 提交，已有文件保留 CRLF 约定与权限位。代码可以运行，但仍保留重要限制：
 
@@ -32,6 +32,8 @@
 LLM 测试替身已经落地：所有模型调用共用一条严格 FIFO 脚本；响应不足、响应剩余、首个违规被捕获和工具调用配对错误都会使测试失败。测试会记录模型实际收到的消息和工具定义，并已覆盖真实工具循环、工具失败和最大步数。删除摘要调用后，用途标签已经随 ADR-0001 一起由 [ADR-0006](docs/decisions/0006-remove-legacy-local-compaction.md) 推翻。
 
 默认测试入口也已经收拢：真实模型测试使用模块级 `external` marker，MCP 混合模块只标记 5 项会读取用户配置、连接服务或访问网络的测试；默认配置与根级收集门共同排除它们，普通 marker 过滤不能绕过，拼错 marker 会直接使收集失败。当前该模块的 27 项纯离线测试仍在默认集合中；取舍见 [ADR-0007](docs/decisions/0007-explicit-opt-in-for-external-tests.md)。
+
+Turn 日志也不再以秒级名称覆写已有证据：普通文件名保持不变，同名时由排他创建和 `_1`、`_2` 等后缀分配新文件；文件名与表头来自同一次时钟采样。它仍只是人类可读的追加日志，没有结构化回放、保留策略、脱敏或崩溃刷盘保证；取舍见 [ADR-0019](docs/decisions/0019-exclusive-turn-log-allocation.md)。
 
 文件工具改造也已经落地：读取预算、续读提示、歧义拒绝、CRLF、权限位和原子替换失败都有离线回归；删除唯一匹配判断、`os.replace()` 或超长行早停时，对应测试会转红。取舍见 [ADR-0002](docs/decisions/0002-bounded-and-atomic-file-tools.md)。
 
@@ -154,7 +156,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-25 实测为 `305 passed, 9 deselected in 13.17s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-25 实测为 `307 passed, 9 deselected in 13.20s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 
