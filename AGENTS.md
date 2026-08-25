@@ -67,11 +67,11 @@ PITFALL 只记录实现或诊断过程中亲历的错误假设：我原以为是
 
 ## 模型服务约束（硬约束）
 
-这个项目跑在**当前配置的端点**上（现在是 MiniMax，走 Anthropic 兼容协议）。出于成本和兼容性：**不采用 OpenAI API，不采用 DeepSeek 模型；任何设计也不要推广或依赖 Anthropic 的模型与 API。**
+这个项目跑在**本地配置明确指定的端点**上，仓库不预设模型服务。出于成本和兼容性：**不采用 OpenAI API，不采用 DeepSeek 模型；任何设计也不要推广或依赖 Anthropic 的模型与 API。**
 
 要分清三件事，别混为一谈：
 
-1. **协议格式** —— Anthropic 兼容消息协议是当前端点的兼容层。`mini_agent/llm/anthropic_client.py` 是协议客户端，不表示依赖 Anthropic 模型。
+1. **协议格式** —— `adapter: anthropic` 与 `adapter: openai` 只选择本地 wire 编解码。`mini_agent/llm/anthropic_client.py` 和 `mini_agent/llm/openai_client.py` 使用对应 SDK 做协议传输，不表示采用、依赖或验证同名 vendor 服务；保留 OpenAI-compatible adapter 也不构成使用 OpenAI API 的授权。
 2. **vendor 能力** —— `cache_control`、服务端 `context_management`、extended-thinking 签名往返、`usage` 语义等一律先探测再依赖，结果记进 [`docs/PROVIDER_CAPABILITIES.md`](docs/PROVIDER_CAPABILITIES.md)。
 3. **外部设计** —— Anthropic / Claude Code / Codex / aider 的公开设计可以参考，但要写清楚借鉴内容以及为什么适用于本项目。
 
@@ -111,12 +111,12 @@ PITFALL 只记录实现或诊断过程中亲历的错误假设：我原以为是
 
 ## 跑测试
 
-**不要直接跑 `pytest`。** `tests/test_llm.py`、`tests/test_llm_clients.py`、`tests/test_integration.py` 会读 `mini_agent/config/config.yaml` 打**真实 API**，实测 240 秒跑不完（exit 124），而且花钱。
+**不要直接跑 `pytest`。** `tests/test_agent.py` 和 `tests/test_integration.py` 会读 `mini_agent/config/config.yaml` 打**真实 API**；上游同类集合曾实测 240 秒跑不完（exit 124），而且花钱。
 
 离线可跑的子集：
 
 ```bash
-.venv/bin/python -m pytest -q tests/test_tools.py tests/test_bash_tool.py tests/test_skill_loader.py tests/test_skill_tool.py tests/test_note_tool.py tests/test_tool_schema.py tests/test_terminal_utils.py tests/test_session_integration.py tests/test_markdown_links.py tests/test_agent_loop_offline.py tests/test_agent_session_offline.py
+.venv/bin/python -m pytest -q tests/test_tools.py tests/test_bash_tool.py tests/test_skill_loader.py tests/test_skill_tool.py tests/test_note_tool.py tests/test_tool_schema.py tests/test_terminal_utils.py tests/test_session_integration.py tests/test_markdown_links.py tests/test_llm_adapters.py tests/test_agent_loop_offline.py tests/test_agent_session_offline.py
 ```
 
 ## 和我协作时

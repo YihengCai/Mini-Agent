@@ -111,6 +111,28 @@
 - 教训：测试工具的插件配置和插件启停必须作为一个整体维护；如果决定禁用插件，就要同时删除它的专属配置，不能把配置警告长期当作无害噪声。
 - 关联：`pyproject.toml:51-54`、`AGENTS.md:114-119`、`README.md:119-138`、提交 `1a64d0c`。
 
+## P-006 · 关闭项目重试不等于 SDK 不会重试
+
+- 日期：2026-08-25
+- 原以为：adapter 的 `RetryConfig(enabled=False)` 已经绕过项目重试装饰器，所以一次 `generate()` 最多发出一次 HTTP 请求。
+- 实际是：Anthropic 与 OpenAI SDK 自己都有独立重试策略；不传 `max_retries` 时，当前安装版本的客户端对象都显示为 `2`。启用项目重试时，两层还会叠加，实际尝试次数不再由一处配置决定。
+- 根因：项目重试层只包住 `_make_api_request()`，不能改变 SDK 传输层的默认策略；两个层都拥有同一失败的重试权，却没有共同的计数和事件 contract。
+- 复现：下列命令只构造 SDK 客户端，不访问网络。
+
+  ```bash
+  .venv/bin/python -c 'import anthropic, openai; a=anthropic.AsyncAnthropic(api_key="k", base_url="https://example.test"); o=openai.AsyncOpenAI(api_key="k", base_url="https://example.test/v1"); print("anthropic", a.max_retries); print("openai", o.max_retries)'
+  ```
+
+  2026-08-25 实测输出：
+
+  ```text
+  anthropic 2
+  openai 2
+  ```
+
+- 教训：任何 agent 的外部调用只能有一个可观察的重试策略所有者；采用 SDK 时要显式关闭或纳入它的默认重试，并用客户端构造参数测试锁住这个边界。
+- 关联：`mini_agent/llm/anthropic_client.py:42-46`、`mini_agent/llm/openai_client.py:44-48`、`tests/test_llm_adapters.py:220-426`、[ADR-0005](decisions/0005-explicit-model-api-adapters.md)、提交 `204c022`。
+
 ## 模板
 
 ```markdown

@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-项目已在上游 baseline 上完成四项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖已经删除。
+项目已在上游 baseline 上完成五项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖已经删除。
 
 `read_file` 现在返回 1-based 行窗口，编号正文最多 2000 个完整行或 50 KiB，并给出下一次 `offset`；`edit_file` 仅把 LF/CRLF 视为等价，其他文本必须精确匹配且只能出现一次。写入和编辑通过同目录临时文件和 `os.replace()` 提交，已有文件保留 CRLF 约定与权限位。代码可以运行，但仍保留重要限制：
 
@@ -16,7 +16,8 @@
 - `TurnOutcome` 只解释 core 为什么交还控制权，不判断用户任务是否完成；目前没有 TaskSupervisor、BenchmarkEvaluator 或 SWE-bench 接入；
 - core 事件目前只是带 Session、Turn、Step 身份的进程内同步通知，不是可持久化、可回放的轨迹格式，也还没有独立统计或基准评测消费者；
 - Esc 没有真正取消正在运行的模型或工具任务；中断只在完整 Step 边界生效，延迟可能覆盖一次模型调用和整批工具执行；
-- 上下文压缩会破坏工具调用结构，失败时甚至可能扩大上下文；
+- 当前只实现 Anthropic-compatible messages 与 OpenAI-compatible chat completions 的非流式基础 adapter；名称只表示 wire 格式，没有运行真实端点验证，也没有统一错误分类，`finish_reason` 是可空的 adapter 原生元数据；
+- `usage` 只作为观察数据，不参与上下文控制；自动压缩默认关闭，显式启用的旧本地估算仍可能破坏工具调用结构，失败时甚至可能扩大上下文；
 - 文件工具仍接受绝对路径和解析到工作区外的路径，也没有读取版本回执或并发覆盖检测；
 - 没有权限引擎、工作区边界限制、操作系统沙箱、跨文件回滚或检查点。
 
@@ -32,6 +33,8 @@ LLM 测试替身已经落地：agent 与摘要调用共用一条按用途标注�
 
 执行生命周期改造也已经落地：`AgentSession.start_turn()` 原子接纳输入并返回 `TurnHandle`，同一 Session 只允许一个活动 Turn；`TurnOutcome` 区分模型交回控制权、用户中断、Step 上限和失败，但没有 `success` 或 `completed`。工具调用继续同一 Turn，摘要模型调用不算 Step；事件载荷使用独立快照，Turn 配置在接纳时固化，接收器失败也不会留下缺少工具结果的历史。CLI 分别显示 Turn 的控制权边界和内部 Step，把 `end_turn` 写成中性的“交还控制权”，不显示任务成功标记。取舍与中断延迟见 [ADR-0004](docs/decisions/0004-session-turn-step-lifecycle.md)。
 
+模型 API 边界改造已经落地：core 只通过 `ModelClient` 调用模型，并把中性 `ToolDefinition` 与现有内部消息结构交给 adapter；静态注册表依据显式 `adapter` 选择具体 wire 编解码。配置必须提供 API key、原样端点、模型和输出上限，未知 adapter 或旧 `provider` 字段会立即失败；项目不会根据域名拼接路径，也不默认启用未经探测的推理状态续传、缓存计量或服务端扩展。Anthropic 与 OpenAI SDK 只作为协议传输实现，具体 adapter 持有认证头与 wire 编解码，SDK 自带重试已关闭，由项目重试层单独持有策略。取舍见 [ADR-0005](docs/decisions/0005-explicit-model-api-adapters.md)。
+
 ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生命周期的端到端测试；继续维护它只会让协议层提前塑造执行框架。因此当前版本主动删除 ACP，而不是把 CLI 改成 ACP 客户端。重新引入协议层的条件见 [ADR-0003](docs/decisions/0003-remove-acp-and-extract-core-loop.md)。下一项工作尚未自动选择；继续从 [BUILD_LIST](docs/BUILD_LIST.md) 中挑选有当前失败证据的主题。
 
 ## 设计原则
@@ -46,7 +49,7 @@ ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生�
 
 ### 模型服务能力先探测再依赖
 
-项目使用当前配置的 MiniMax 端点，通过 Anthropic 兼容消息协议通信。协议兼容不代表支持所有 vendor 扩展；当前实现需要依赖某项能力时，必须先把实测结果记录到[模型服务能力记录](docs/PROVIDER_CAPABILITIES.md)。
+项目只使用本地配置明确指定的端点与 wire adapter，不预设模型服务。协议格式兼容不代表支持同名 vendor 或其扩展；当前实现需要依赖某项能力时，必须先把实测结果记录到[模型服务能力记录](docs/PROVIDER_CAPABILITIES.md)。
 
 ### 安全功能不发布半成品
 
@@ -63,7 +66,10 @@ mini_agent/core/             UI 无关的 agent loop 与进程内事件 contract
 mini_agent/cli.py            终端输入、中断轮询和运行时组装
 mini_agent/cli_events.py     终端渲染与原有文本日志的事件适配器
 mini_agent/agent.py          AgentSession 的公开导入层
-mini_agent/                  模型客户端、工具、MCP/skills 与配置
+mini_agent/llm/protocol.py   core 使用的中性模型 contract 与工具定义
+mini_agent/llm/factory.py    显式 wire adapter 注册表与组装入口
+mini_agent/llm/              具体协议的 SDK 传输与 wire 编解码
+mini_agent/                  工具、MCP/skills 与配置
 tests/                       上游测试、LLM 测试替身与离线回归
 docs/BUILD_LIST.md           当前工作与可选研究主题
 docs/UPSTREAM_AUDIT.md       上游代码审计
@@ -84,7 +90,7 @@ uv sync
 cp mini_agent/config/config-example.yaml mini_agent/config/config.yaml
 ```
 
-编辑 `mini_agent/config/config.yaml`，填入自己的 API key、端点和模型。`config.yaml` 与 `mcp.json` 包含密钥，已被 `.gitignore` 排除，不要提交。
+编辑 `mini_agent/config/config.yaml`，删除旧 `provider` 字段，并显式填写 `adapter`、`api_key`、`api_base`、`model` 和正整数 `max_output_tokens`。`adapter` 当前可选 `anthropic` 或 `openai`，只选择 wire 格式；`api_base` 会逐字交给对应 adapter，因此需要包含目标端点要求的完整基础路径。模板中的占位值故意不能直接运行，避免把任一 vendor 的端点、模型或输出上限伪装成通用默认值。`local_compaction_token_limit` 默认为 `null`；它只在显式设置正整数时启用旧本地估算，不代表模型的 tokenizer 或上下文上限。`config.yaml` 与 `mcp.json` 包含密钥，已被 `.gitignore` 排除，不要提交。
 
 ### 交互式手动体验
 
@@ -131,11 +137,12 @@ uv run mini-agent log
   tests/test_terminal_utils.py \
   tests/test_session_integration.py \
   tests/test_markdown_links.py \
+  tests/test_llm_adapters.py \
   tests/test_agent_loop_offline.py \
   tests/test_agent_session_offline.py
 ```
 
-以上命令在 2026-08-25 实测为 `144 passed`，没有产生 warning。
+以上命令在 2026-08-25 实测为 `162 passed in 9.87s`，没有产生 warning，也没有访问真实 API。
 
 ## 文档入口
 
