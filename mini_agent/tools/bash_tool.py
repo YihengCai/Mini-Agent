@@ -238,6 +238,14 @@ class BackgroundShellManager:
                     raise result
 
 
+async def _kill_and_wait(process: asyncio.subprocess.Process) -> None:
+    """Kill a direct subprocess if needed, then wait for it to be reaped."""
+
+    if process.returncode is None:
+        process.kill()
+    await process.wait()
+
+
 class BashTool(Tool):
     """Execute shell commands in foreground or background.
 
@@ -440,7 +448,7 @@ Examples:
                 try:
                     stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
                 except asyncio.TimeoutError:
-                    process.kill()
+                    await _kill_and_wait(process)
                     error_msg = f"Command timed out after {timeout} seconds"
                     return BashOutputResult(
                         success=False,
@@ -449,6 +457,12 @@ Examples:
                         stderr=error_msg,
                         exit_code=-1,
                     )
+                except BaseException as execution_error:
+                    try:
+                        await _kill_and_wait(process)
+                    except BaseException as cleanup_error:
+                        raise execution_error from cleanup_error
+                    raise
 
                 # Decode output
                 stdout_text = stdout.decode("utf-8", errors="replace")

@@ -1,4 +1,4 @@
-"""Offline ownership and cleanup tests for background shell runtimes."""
+"""Offline ownership and cleanup tests for shell subprocesses."""
 
 import asyncio
 from types import SimpleNamespace
@@ -85,6 +85,18 @@ class FakeProcess:
         return completed_wait()
 
 
+class BlockingForegroundProcess(FakeProcess):
+    def __init__(self) -> None:
+        super().__init__()
+        self.communicate_calls = 0
+        self.communicate_started = asyncio.Event()
+
+    async def communicate(self):
+        self.communicate_calls += 1
+        self.communicate_started.set()
+        await asyncio.Future()
+
+
 class TerminateFailingProcess(FakeProcess):
     def __init__(self, error: BaseException) -> None:
         super().__init__()
@@ -140,6 +152,67 @@ def make_cli_config():
             )
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_foreground_timeout_kills_and_waits_for_process(monkeypatch) -> None:
+    process = BlockingForegroundProcess()
+
+    async def create_process(*_args, **_kwargs):
+        return process
+
+    async def force_timeout(awaitable, timeout):
+        communication = asyncio.create_task(awaitable)
+        await wait_for_event(process.communicate_started)
+        communication.cancel()
+        await asyncio.gather(communication, return_exceptions=True)
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(
+        bash_module.asyncio,
+        "create_subprocess_shell",
+        create_process,
+    )
+    monkeypatch.setattr(bash_module.asyncio, "wait_for", force_timeout)
+    tool = BashTool(manager=BackgroundShellManager())
+    tool.is_windows = False
+
+    result = await tool.execute("fake command", timeout=7)
+
+    assert not result.success
+    assert result.error == "Command timed out after 7 seconds"
+    assert process.communicate_calls == 1
+    assert process.kill_calls == 1
+    assert process.wait_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_foreground_cancellation_kills_and_waits_before_propagating(
+    monkeypatch,
+) -> None:
+    process = BlockingForegroundProcess()
+
+    async def create_process(*_args, **_kwargs):
+        return process
+
+    monkeypatch.setattr(
+        bash_module.asyncio,
+        "create_subprocess_shell",
+        create_process,
+    )
+    tool = BashTool(manager=BackgroundShellManager())
+    tool.is_windows = False
+    execution = asyncio.create_task(tool.execute("fake command"))
+    await wait_for_event(process.communicate_started)
+
+    execution.cancel("foreground cancelled")
+    with pytest.raises(asyncio.CancelledError) as raised:
+        await execution
+
+    assert raised.value.args == ("foreground cancelled",)
+    assert process.communicate_calls == 1
+    assert process.kill_calls == 1
+    assert process.wait_calls == 1
 
 
 @pytest.mark.asyncio
