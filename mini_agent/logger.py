@@ -16,29 +16,45 @@ class AgentLogger:
     - Tool calls and results
     """
 
-    def __init__(self):
+    def __init__(self, log_dir: str | Path | None = None):
         """Initialize logger
 
         Logs are stored in ~/.mini-agent/log/ directory
         """
-        # Use ~/.mini-agent/log/ directory for logs
-        self.log_dir = Path.home() / ".mini-agent" / "log"
+        self.log_dir = (
+            Path(log_dir)
+            if log_dir is not None
+            else Path.home() / ".mini-agent" / "log"
+        )
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.log_file: Path | None = None
+        self.log_index = 0
+
+    def start_new_run(self) -> None:
+        """Start new run, create new log file"""
+        started_at = datetime.now()
+        log_stem = f"agent_run_{started_at.strftime('%Y%m%d_%H%M%S')}"
+        collision_index = 0
         self.log_file = None
         self.log_index = 0
 
-    def start_new_run(self):
-        """Start new run, create new log file"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_filename = f"agent_run_{timestamp}.log"
-        self.log_file = self.log_dir / log_filename
-        self.log_index = 0
+        while True:
+            suffix = "" if collision_index == 0 else f"_{collision_index}"
+            candidate = self.log_dir / f"{log_stem}{suffix}.log"
+            try:
+                with open(candidate, "x", encoding="utf-8") as f:
+                    f.write("=" * 80 + "\n")
+                    f.write(
+                        "Agent Run Log - "
+                        f"{started_at.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    )
+                    f.write("=" * 80 + "\n\n")
+            except FileExistsError:
+                collision_index += 1
+                continue
 
-        # Write log header
-        with open(self.log_file, "w", encoding="utf-8") as f:
-            f.write("=" * 80 + "\n")
-            f.write(f"Agent Run Log - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write("=" * 80 + "\n\n")
+            self.log_file = candidate
+            return
 
     def log_request(self, messages: list[Message], tools: list[Any] | None = None):
         """Log LLM request
@@ -173,6 +189,6 @@ class AgentLogger:
             f.write("-" * 80 + "\n")
             f.write(content + "\n")
 
-    def get_log_file_path(self) -> Path:
+    def get_log_file_path(self) -> Path | None:
         """Get current log file path"""
         return self.log_file
