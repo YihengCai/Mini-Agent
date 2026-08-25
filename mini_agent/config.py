@@ -11,6 +11,18 @@ from pydantic import BaseModel, ConfigDict, Field
 from .llm.factory import AdapterName
 
 
+def resolve_config_companion(
+    config_path: str | Path,
+    configured_path: str | Path,
+) -> Path:
+    """Resolve one companion path from the selected main configuration."""
+
+    candidate = Path(configured_path)
+    if candidate.is_absolute():
+        return candidate
+    return Path(config_path).parent / candidate
+
+
 class _StrictConfigModel(BaseModel):
     """Base model for configuration fields that must not be ignored."""
 

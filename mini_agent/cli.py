@@ -29,7 +29,7 @@ from prompt_toolkit.styles import Style
 
 from mini_agent import create_model_client
 from mini_agent.cli_events import CliEventSink
-from mini_agent.config import Config
+from mini_agent.config import Config, resolve_config_companion
 from mini_agent.core import AgentSession, TurnHandle, TurnOutcome
 from mini_agent.tools.base import Tool
 from mini_agent.tools.bash_tool import (
@@ -351,6 +351,7 @@ Examples:
 async def initialize_base_tools(
     config: Config,
     *,
+    config_path: Path,
     shell_manager: BackgroundShellManager,
     mcp_manager: MCPManager,
 ):
@@ -361,6 +362,7 @@ async def initialize_base_tools(
 
     Args:
         config: Configuration object
+        config_path: Selected main configuration file
 
     Returns:
         Tuple of (list of tools, skill loader if skills enabled)
@@ -415,7 +417,7 @@ async def initialize_base_tools(
         except Exception as e:
             print(f"{Colors.YELLOW}⚠️  Failed to load Skills: {e}{Colors.RESET}")
 
-    # 4. MCP tools (loaded with priority search)
+    # 4. MCP tools (relative to the selected main configuration)
     if config.tools.enable_mcp:
         print(f"{Colors.BRIGHT_CYAN}Loading MCP tools...{Colors.RESET}")
         try:
@@ -425,9 +427,11 @@ async def initialize_base_tools(
                 f"execute={mcp_config.execute_timeout}s, sse_read={mcp_config.sse_read_timeout}s{Colors.RESET}"
             )
 
-            # Use priority search for mcp.json
-            mcp_config_path = Config.find_config_file(config.tools.mcp_config_path)
-            if mcp_config_path:
+            mcp_config_path = resolve_config_companion(
+                config_path,
+                config.tools.mcp_config_path,
+            )
+            if mcp_config_path.exists():
                 mcp_tools = await mcp_manager.load_tools(str(mcp_config_path))
                 if mcp_tools:
                     tools.extend(mcp_tools)
@@ -435,7 +439,7 @@ async def initialize_base_tools(
                 else:
                     print(f"{Colors.YELLOW}⚠️  No available MCP tools found{Colors.RESET}")
             else:
-                print(f"{Colors.YELLOW}⚠️  MCP config file not found: {config.tools.mcp_config_path}{Colors.RESET}")
+                print(f"{Colors.YELLOW}⚠️  MCP config file not found: {mcp_config_path}{Colors.RESET}")
         except Exception as e:
             print(f"{Colors.YELLOW}⚠️  Failed to load MCP tools: {e}{Colors.RESET}")
 
@@ -633,6 +637,7 @@ async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
             workspace_dir,
             task=task,
             config=config,
+            config_path=config_path,
             llm_client=llm_client,
             session_start=session_start,
             shell_manager=shell_manager,
@@ -648,6 +653,7 @@ async def _run_configured_runtime(
     task: str | None = None,
     *,
     config: Config,
+    config_path: Path,
     llm_client,
     session_start: datetime,
     shell_manager: BackgroundShellManager,
@@ -658,6 +664,7 @@ async def _run_configured_runtime(
     # 3. Initialize base tools (independent of workspace)
     tools, skill_loader = await initialize_base_tools(
         config,
+        config_path=config_path,
         shell_manager=shell_manager,
         mcp_manager=mcp_manager,
     )
@@ -670,9 +677,12 @@ async def _run_configured_runtime(
         shell_manager=shell_manager,
     )
 
-    # 5. Load System Prompt (with priority search)
-    system_prompt_path = Config.find_config_file(config.agent.system_prompt_path)
-    if system_prompt_path and system_prompt_path.exists():
+    # 5. Load System Prompt from the selected configuration source.
+    system_prompt_path = resolve_config_companion(
+        config_path,
+        config.agent.system_prompt_path,
+    )
+    if system_prompt_path.exists():
         system_prompt = system_prompt_path.read_text(encoding="utf-8")
         print(f"{Colors.GREEN}✅ Loaded system prompt (from: {system_prompt_path}){Colors.RESET}")
     else:

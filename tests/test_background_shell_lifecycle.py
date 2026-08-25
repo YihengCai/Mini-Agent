@@ -539,6 +539,7 @@ async def test_cli_assembles_all_bash_tools_with_one_runtime_manager(
 
     tools, skill_loader = await cli.initialize_base_tools(
         config,
+        config_path=tmp_path / "config.yaml",
         shell_manager=manager,
         mcp_manager=mcp_manager,
     )
@@ -562,11 +563,11 @@ async def test_cli_assembles_all_bash_tools_with_one_runtime_manager(
 
 @pytest.mark.asyncio
 async def test_cli_loads_mcp_tools_through_passed_runtime_manager(
-    monkeypatch,
     tmp_path,
 ) -> None:
-    config_path = tmp_path / "mcp.json"
-    config_path.write_text("{}", encoding="utf-8")
+    config_path = tmp_path / "config.yaml"
+    mcp_config_path = tmp_path / "mcp.json"
+    mcp_config_path.write_text("{}", encoding="utf-8")
     mcp_tool = object()
     loaded_paths = []
 
@@ -590,23 +591,19 @@ async def test_cli_loads_mcp_tools_through_passed_runtime_manager(
             ),
         )
     )
-    monkeypatch.setattr(
-        cli.Config,
-        "find_config_file",
-        classmethod(lambda _cls, _filename: config_path),
-    )
     shell_manager = BackgroundShellManager()
     mcp_manager = RecordingMCPManager()
 
     tools, skill_loader = await cli.initialize_base_tools(
         config,
+        config_path=config_path,
         shell_manager=shell_manager,
         mcp_manager=mcp_manager,
     )
 
     assert tools == [mcp_tool]
     assert skill_loader is None
-    assert loaded_paths == [str(config_path)]
+    assert loaded_paths == [str(mcp_config_path)]
     await shell_manager.close()
 
 
@@ -704,6 +701,7 @@ async def test_run_agent_uses_the_same_manager_for_runtime_and_cleanup(
         runtime_shell_managers.append(kwargs["shell_manager"])
         runtime_mcp_managers.append(kwargs["mcp_manager"])
         assert kwargs["config"] is config
+        assert kwargs["config_path"] == config_path
         assert kwargs["llm_client"] is llm_client
 
     async def quiet_cleanup(mcp_manager) -> None:
