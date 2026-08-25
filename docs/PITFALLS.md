@@ -266,6 +266,23 @@
 - 教训：agent 接纳模型、MCP 或工具返回的可变结构时，要先取得整个返回对象的所有权再验证；只在更深的执行层复制叶子数据，无法阻止校验与使用之间的改写。
 - 关联：`mini_agent/core/agent.py:339-345`、`tests/test_tool_execution.py:139-149,661-695`、[ADR-0008](decisions/0008-session-owned-tool-batch-executor.md)、提交 `565e266`。
 
+## P-014 · 管理器保留失败项不等于叶子资源仍可重试
+
+- 日期：2026-08-25
+- 原以为：`MCPManager.close()` 把抛出异常的连接留在内部表，下一次关闭就一定能重试 transport 清理。
+- 实际是：初版沿用了 `MCPServerConnection.disconnect()` 的无条件 `finally` 清空；`AsyncExitStack.aclose()` 首次抛 `CancelledError` 后，manager 虽保留连接，叶子对象却已经丢掉 `exit_stack` 与 `session`，第二次关闭不会再次调用 transport。
+- 根因：可重试所有权同时依赖聚合层的登记和叶子层的句柄；外层保留对象只能证明“还有一个名字”，不能证明完成副作用所需的能力仍存在。
+- 复现：把 `mini_agent/tools/mcp_loader.py:255-260` 改回在 `finally` 中清空两个字段，再运行：
+
+  ```bash
+  .venv/bin/python -m pytest -q \
+    tests/test_mcp_runtime_ownership.py::test_cancelled_disconnect_retains_transport_for_close_retry
+  ```
+
+  本次故障注入实测为 `1 failed in 0.49s`，失败点是 `connection.exit_stack is exit_stack`；恢复为只在 `aclose()` 成功后清空，实测 `6 passed in 0.45s`。
+- 教训：agent 资源 manager 声称关闭可重试时，要从登记表一路验证到最底层句柄；任何内层 `finally` 或异常吞噬都可能让外层重试只剩形式。
+- 关联：`mini_agent/tools/mcp_loader.py:255-260,394-411`、`tests/test_mcp_runtime_ownership.py:155-201`、[ADR-0011](decisions/0011-runtime-owned-mcp-connections.md)、提交 `243ffe1`。
+
 ## 模板
 
 ```markdown

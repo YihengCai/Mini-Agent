@@ -6,9 +6,9 @@
 
 选择一个主题时，先为它找到当前代码中的失败证据和一分钟内可运行的离线验证，再写改动前简报。具体接口、类名和文件布局到实现时再决定，不为候选主题提前创建规格或 ADR。
 
-## 当前工作：MCP 运行时所有权
+## 当前工作：待选择
 
-当前 MCP loader 用模块级变量保存默认超时与全部连接；第二次 runtime 改超时后，第一次 runtime 的连接会动态读到新值，而任一清理入口都会关闭两个 runtime 的连接（`mini_agent/tools/mcp_loader.py:21-57,159-169,284-285,359-433`）。下一步只收拢一次 CLI runtime 的超时快照、连接登记与关闭；不展开通用 Tool 生命周期、传输重写、重连、权限或并行连接。完成条件是两个 runtime 互不漂移、互不关闭，连接建立期间取消仍可回收，且 CLI 正常、错误和取消路径都关闭同一 owner。
+MCP 运行时所有权已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **MCP 状态与连接运行时所有权**：不可变超时快照、连接接纳与关闭现在由一次 CLI runtime 的 `MCPManager` 持有；server 覆盖仍优先，连接在 `await connect()` 前登记，关闭串行化并只移除成功项，取消后的 transport 句柄可重试。6 项新增所有权回归与 MCP/CLI 定向集合实测 `55 passed, 5 deselected in 0.71s`；显式排除 `external` 的完整集合实测 `237 passed, 9 deselected in 13.10s`。取舍见 [`decisions/0011-runtime-owned-mcp-connections.md`](decisions/0011-runtime-owned-mcp-connections.md)。
 - **模型可见工具输出预算**：原始 `ToolResult` 与 `ToolFinished` 保持完整，批次执行器只把模型消息投影限制为每条 64 KiB UTF-8 字节；精确边界不变，超限保留首尾并报告原始、保留、省略和上限字节数，失败前缀计入预算。3 项新增回归覆盖 UTF-8、事件所有权、观察者变异、历史、下一次请求与批次顺序；删除挂钩时集成回归实测转红。显式排除 `external` 的完整集合实测 `230 passed, 9 deselected in 13.57s`，取舍见 [`decisions/0010-model-facing-tool-output-budget.md`](decisions/0010-model-facing-tool-output-budget.md)。
 - **后台 shell 状态与资源所有权**：配置和模型客户端成功后，一次 CLI runtime 持有显式注入三个 shell 工具的 manager；`/clear` 保留它，退出才按 shell、MCP 顺序关闭。manager 隔离状态，拒绝重复与关闭后登记，串行化并发 `close()`，等待 monitor 和强杀后 subprocess，并保留失败项供重试。25 项定向回归与显式排除 `external` 的完整集合实测为 `227 passed, 9 deselected in 14.00s`，取舍见 [`decisions/0009-runtime-owned-background-shells.md`](decisions/0009-runtime-owned-background-shells.md)。
 - **模型工具批次强制点**：Session 持有冻结注册与调用标识符账本；agent loop 在接纳边界深拷贝整个模型响应，批次随后在首个副作用前完整预检，再逐项认领并串行执行。结构错误使用 `tool_protocol_error`，工具自身失败保留为同序结果，模型客户端、参数、事件和历史使用独立快照，assistant 调用与全部结果成组提交。20 项定向回归覆盖重名、跨 Step/Turn 重放、非法批次零副作用、取消、串行中断、参数变异和校验后响应变异；显式排除 `external` 的完整集合实测 `231 passed, 9 deselected in 13.51s`。取舍见 [`decisions/0008-session-owned-tool-batch-executor.md`](decisions/0008-session-owned-tool-batch-executor.md)。

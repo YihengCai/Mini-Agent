@@ -86,6 +86,12 @@ CLI 分别构造启动、读取与终止工具，退出路径却只调用 MCP �
 
 实现结果没有改写以上 baseline 证据：当前由一次 CLI runtime 持有实例 manager，显式注入三个工具，并在 shell、MCP 统一退出边界中等待收敛，见 [ADR-0009](decisions/0009-runtime-owned-background-shells.md)。
 
+### 9. MCP 超时与连接使用进程级全局状态
+
+默认超时是模块级可变对象，已经构造的 `MCPServerConnection` 在每次取值时重新读取它（`mini_agent/tools/mcp_loader.py:21-57,159-169`）。连接也只在 `await connect()` 成功后进入全局表，cleanup 会关闭并清空进程中的全部连接（`mini_agent/tools/mcp_loader.py:284-285,397-433`）；因此两个宿主无法隔离超时和关闭责任，连接建立期间取消还会落在登记之前。
+
+实现结果没有改写以上 baseline 证据：当前由一次 CLI runtime 持有不可变超时快照和连接 manager，在首个连接 `await` 前登记，并串行关闭自己拥有的连接，见 [ADR-0011](decisions/0011-runtime-owned-mcp-connections.md)。
+
 ## 已确认缺陷索引
 
 | 缺陷 | 证据 | 去向 |
@@ -100,6 +106,7 @@ CLI 分别构造启动、读取与终止工具，退出路径却只调用 MCP �
 | 后台 shell 使用进程级共享表 | `mini_agent/tools/bash_tool.py:108-127` | 当前已改为 CLI runtime 持有的实例 manager；隔离回归见 `tests/test_background_shell_lifecycle.py` |
 | monitor 取消和强杀不等待收敛 | `mini_agent/tools/bash_tool.py:96-105,181-188` | 当前 terminate/close 会等待 monitor，强杀后再次等待 subprocess |
 | CLI 没有后台 shell 关闭入口 | `mini_agent/cli.py:805-806` | 当前正常、异常和取消路径都按 shell、MCP 顺序清理；取舍见 ADR-0009 |
+| MCP 超时与连接使用进程级全局状态 | `mini_agent/tools/mcp_loader.py:21-57,159-169,284-285,397-433` | 当前由 CLI runtime 的 `MCPManager` 隔离并关闭；取消与重试回归见 `tests/test_mcp_runtime_ownership.py` |
 | 成功与失败工具输出可无界进入模型历史 | `mini_agent/tools/bash_tool.py:32-49`、`mini_agent/agent.py:436-469` | 当前由批次执行器统一生成每条最多 64 KiB 的模型投影；原始事件与日志保持完整，取舍见 ADR-0010 |
 
 ## 审计不直接决定实现

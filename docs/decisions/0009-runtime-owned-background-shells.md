@@ -44,3 +44,5 @@ CLI 的清理顺序是 shell、MCP，失败优先级是 runtime、shell、MCP；
 初版 CLI wrapper 包住了配置早退路径，会在还没有 runtime 资源时清理全局 MCP 并永久替换事件循环异常处理器；MCP 清理的 `CancelledError` 还能覆盖已捕获的 runtime 主异常。最终把 owner 边界移到配置与模型客户端成功之后，并显式定义三层失败优先级，见 [P-010](../PITFALLS.md)。
 
 初版 `close()` 只快照当前表并并发 terminate，串行重复调用的测试不能暴露关闭途中新登记和并发二次终止。故障注入后增加封闭门与关闭锁，失败项保留供下次重试，见 [P-011](../PITFALLS.md)。最终实现没有引入通用 Tool 生命周期 contract，也没有把输出预算或进程组混入本轮。
+
+后续 [ADR-0011](0011-runtime-owned-mcp-connections.md) 让 MCP 成为第二类 runtime owner。重新评估通用资源协议后仍没有合并：shell 的登记同时拥有 subprocess 与 monitor，MCP 的 `AsyncExitStack` 则要求同一任务内串行关闭，目前稳定共享的只有 CLI 中的关闭顺序。若以后出现第三类资源或多个宿主需要同一套取得与失败 contract，再引入注册表更合适。

@@ -17,7 +17,7 @@ baseline 的 `BackgroundShellManager` 用类变量保存 shell 和监控任务�
 
 ## 不在范围
 
-不改变 foreground 超时、shell/PowerShell 命令格式、合并 stdout/stderr、增量读取与过滤后丢弃语义、进程组或后代进程、权限与沙箱、后台缓冲及原始事件/日志预算、MCP 内部 owner 或 AgentSession core。模型可见消息后来由 [模型可见工具输出预算](05-tool-output-budget.md) 统一约束。
+不改变 foreground 超时、shell/PowerShell 命令格式、合并 stdout/stderr、增量读取与过滤后丢弃语义、进程组或后代进程、权限与沙箱、后台缓冲及原始事件/日志预算、MCP 内部 owner 或 AgentSession core。模型可见消息后来由 [模型可见工具输出预算](05-tool-output-budget.md) 统一约束；MCP owner 后来由 [MCP 超时与连接的运行时所有权](06-mcp-runtime-ownership.md) 单独实现。
 
 ## 离线验证
 

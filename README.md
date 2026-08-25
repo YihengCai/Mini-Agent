@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-项目已在上游 baseline 上完成十项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 改由一次 CLI runtime 持有的 manager 隔离并统一回收；每条模型可见工具结果现在还有统一的 UTF-8 字节预算。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
+项目已在上游 baseline 上完成十一项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收；每条模型可见工具结果现在还有统一的 UTF-8 字节预算。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
 
 `read_file` 现在返回 1-based 行窗口，编号正文最多 2000 个完整行或 50 KiB，并给出下一次 `offset`；`edit_file` 仅把 LF/CRLF 视为等价，其他文本必须精确匹配且只能出现一次。写入和编辑通过同目录临时文件和 `os.replace()` 提交，已有文件保留 CRLF 约定与权限位。代码可以运行，但仍保留重要限制：
 
@@ -18,6 +18,7 @@
 - Esc 没有真正取消正在运行的模型或工具任务；中断只在完整 Step 边界生效，延迟可能覆盖一次模型调用和整批工具执行；
 - 工具批次目前只做结构预检、串行执行和单条模型消息预算，没有 JSON Schema 参数校验、权限、自动重试或整批合计预算；调用标识符账本只存在于进程内，取消后不生成可恢复的模型可见事实；
 - 后台 shell 现在会在 CLI runtime 退出时收敛 monitor 并回收直接 subprocess，但内部输出缓冲、原始事件与日志仍无容量预算，也没有进程组或后代进程清理，不构成权限或沙箱边界；
+- MCP 超时与连接现在按 CLI runtime 隔离并串行关闭，但仍没有重连、并行连接、权限或真实网络能力验证；server 返回 `isError` 时仍只生成通用错误文本；
 - 当前只实现 Anthropic-compatible messages 与 OpenAI-compatible chat completions 的非流式基础 adapter；名称只表示 wire 格式，没有运行真实端点验证，也没有统一错误分类，`finish_reason` 是可空的 adapter 原生元数据；
 - `usage` 只作为观察数据，不参与上下文控制；当前没有自动上下文预算或压缩，完整历史会持续增长并可能触及配置端点的上限；
 - 文件工具仍接受绝对路径和解析到工作区外的路径，也没有读取版本回执或并发覆盖检测；
@@ -29,7 +30,7 @@
 
 LLM 测试替身已经落地：所有模型调用共用一条严格 FIFO 脚本；响应不足、响应剩余、首个违规被捕获和工具调用配对错误都会使测试失败。测试会记录模型实际收到的消息和工具定义，并已覆盖真实工具循环、工具失败和最大步数。删除摘要调用后，用途标签已经随 ADR-0001 一起由 [ADR-0006](docs/decisions/0006-remove-legacy-local-compaction.md) 推翻。
 
-默认测试入口也已经收拢：真实模型测试使用模块级 `external` marker，MCP 混合模块只标记 5 项会读取用户配置、连接服务或访问网络的测试；默认配置与根级收集门共同排除它们，普通 marker 过滤不能绕过，拼错 marker 会直接使收集失败。24 项纯离线 MCP 测试仍在默认集合中；取舍见 [ADR-0007](docs/decisions/0007-explicit-opt-in-for-external-tests.md)。
+默认测试入口也已经收拢：真实模型测试使用模块级 `external` marker，MCP 混合模块只标记 5 项会读取用户配置、连接服务或访问网络的测试；默认配置与根级收集门共同排除它们，普通 marker 过滤不能绕过，拼错 marker 会直接使收集失败。28 项纯离线 MCP 测试仍在默认集合中；取舍见 [ADR-0007](docs/decisions/0007-explicit-opt-in-for-external-tests.md)。
 
 文件工具改造也已经落地：读取预算、续读提示、歧义拒绝、CRLF、权限位和原子替换失败都有离线回归；删除唯一匹配判断、`os.replace()` 或超长行早停时，对应测试会转红。取舍见 [ADR-0002](docs/decisions/0002-bounded-and-atomic-file-tools.md)。
 
@@ -42,6 +43,8 @@ LLM 测试替身已经落地：所有模型调用共用一条严格 FIFO 脚本�
 模型可见工具输出预算已经落地：批次执行器在完整 `ToolFinished` 发出后，才把成功内容或带 `Error: ` 前缀的失败文本投影成最多 64 KiB 的模型消息；超限时保留合法 UTF-8 首尾，并报告原始、保留、省略和上限字节数。Session 历史与下一次模型请求使用同一个有界视图，原始工具结果、事件和日志不被改写。该预算逐条生效，不限制整批合计，也没有让省略正文可恢复；取舍见 [ADR-0010](docs/decisions/0010-model-facing-tool-output-budget.md)。
 
 后台 shell 所有权已经落地：配置与模型客户端构造成功后，CLI 创建一个 manager 并显式注入 `bash`、`bash_output` 和 `bash_kill`；`/clear` 只替换逻辑对话，退出时才按 shell、MCP 顺序清理。manager 拒绝重复标识符和关闭后登记，等待 monitor 取消与强杀后的 subprocess，并保留失败项供后续关闭重试。25 项定向离线回归覆盖跨 runtime 隔离、并发关闭、取消和清理双失败；取舍见 [ADR-0009](docs/decisions/0009-runtime-owned-background-shells.md)。
+
+MCP 运行时所有权也已经落地：CLI 用配置构造不可变超时快照，并把同一个 `MCPManager` 交给 loader 与最终清理；不同 runtime 不共享超时或连接。manager 在连接建立前登记所有权，串行化加载与关闭，尝试全部连接并保留失败项；叶子连接只有在 transport 关闭成功后才丢弃句柄，所以取消后的关闭可以真实重试。它不改变 transport、配置查找、工具结果语义或权限；取舍见 [ADR-0011](docs/decisions/0011-runtime-owned-mcp-connections.md)。
 
 模型 API 边界改造已经落地：core 只通过 `ModelClient` 调用模型，并把中性 `ToolDefinition` 与现有内部消息结构交给 adapter；静态注册表依据显式 `adapter` 选择具体 wire 编解码。配置必须提供 API key、原样端点、模型和输出上限，未知 adapter 或旧 `provider` 字段会立即失败；项目不会根据域名拼接路径，也不默认启用未经探测的推理状态续传、缓存计量或服务端扩展。Anthropic 与 OpenAI SDK 只作为协议传输实现，具体 adapter 持有认证头与 wire 编解码，SDK 自带重试已关闭，由项目重试层单独持有策略。取舍见 [ADR-0005](docs/decisions/0005-explicit-model-api-adapters.md)。
 
@@ -142,7 +145,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-25 实测为 `231 passed, 9 deselected in 13.51s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-25 实测为 `237 passed, 9 deselected in 13.10s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 
