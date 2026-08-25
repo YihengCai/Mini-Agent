@@ -5,7 +5,7 @@ import json
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
@@ -16,6 +16,24 @@ from .base import Tool, ToolResult
 
 # Connection type aliases
 ConnectionType = Literal["stdio", "sse", "http", "streamable_http"]
+_CONNECTION_TYPES: tuple[ConnectionType, ...] = (
+    "stdio",
+    "sse",
+    "http",
+    "streamable_http",
+)
+
+
+def _normalize_connection_type(value: object) -> ConnectionType:
+    if isinstance(value, str):
+        normalized = value.lower()
+        if normalized in _CONNECTION_TYPES:
+            return cast(ConnectionType, normalized)
+
+    allowed = ", ".join(_CONNECTION_TYPES)
+    raise ValueError(
+        f"Unsupported MCP connection type {value!r}; expected one of: {allowed}"
+    )
 
 
 @dataclass(frozen=True)
@@ -118,7 +136,7 @@ class MCPServerConnection:
         sse_read_timeout: float | None = None,
     ):
         self.name = name
-        self.connection_type = connection_type
+        self.connection_type = _normalize_connection_type(connection_type)
         # STDIO
         self.command = command
         self.args = args or []
@@ -173,8 +191,12 @@ class MCPServerConnection:
                     read_stream, write_stream = await self._connect_stdio()
                 elif self.connection_type == "sse":
                     read_stream, write_stream = await self._connect_sse()
-                else:  # http / streamable_http
+                elif self.connection_type in ("http", "streamable_http"):
                     read_stream, write_stream = await self._connect_streamable_http()
+                else:
+                    raise ValueError(
+                        f"Unsupported MCP connection type: {self.connection_type!r}"
+                    )
 
                 # Enter client session context
                 session = await self.exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
@@ -266,9 +288,8 @@ class MCPServerConnection:
 
 def _determine_connection_type(server_config: dict) -> ConnectionType:
     """Determine connection type from server config."""
-    explicit_type = server_config.get("type", "").lower()
-    if explicit_type in ("stdio", "sse", "http", "streamable_http"):
-        return explicit_type
+    if "type" in server_config:
+        return _normalize_connection_type(server_config["type"])
     # Auto-detect: if url exists, default to streamable_http; otherwise stdio
     if server_config.get("url"):
         return "streamable_http"
@@ -348,7 +369,11 @@ class MCPManager:
                     print(f"Skipping disabled server: {server_name}")
                     continue
 
-                conn_type = _determine_connection_type(server_config)
+                try:
+                    conn_type = _determine_connection_type(server_config)
+                except ValueError as error:
+                    print(f"Invalid MCP server '{server_name}': {error}")
+                    continue
                 url = server_config.get("url")
                 command = server_config.get("command")
 

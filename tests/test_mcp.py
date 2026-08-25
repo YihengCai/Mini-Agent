@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import mini_agent.tools.mcp_loader as mcp_module
 from mini_agent.tools.mcp_loader import (
     MCPManager,
     MCPServerConnection,
@@ -63,10 +64,16 @@ class TestDetermineConnectionType:
         config = {}
         assert _determine_connection_type(config) == "stdio"
 
-    def test_unknown_type_with_url_defaults_to_streamable_http(self):
-        """Unknown type with URL should default to streamable_http."""
-        config = {"url": "https://mcp.example.com/mcp", "type": "unknown"}
-        assert _determine_connection_type(config) == "streamable_http"
+    @pytest.mark.parametrize("explicit_type", ["unknown", "", None, 1])
+    def test_explicit_invalid_type_is_rejected(self, explicit_type):
+        """Only a missing type may use transport inference."""
+        config = {
+            "url": "https://mcp.example.com/mcp",
+            "type": explicit_type,
+        }
+
+        with pytest.raises(ValueError, match="connection type"):
+            _determine_connection_type(config)
 
 
 # =============================================================================
@@ -125,6 +132,14 @@ class TestMCPServerConnectionInit:
         assert conn.args == []
         assert conn.env == {}
         assert conn.headers == {}
+
+    def test_invalid_connection_type_is_rejected(self):
+        with pytest.raises(ValueError, match="websocket"):
+            MCPServerConnection(
+                name="invalid",
+                connection_type="websocket",
+                url="https://mcp.example.com",
+            )
 
     def test_timeout_overrides(self):
         """Test per-server timeout override initialization."""
@@ -277,6 +292,60 @@ async def test_mixed_config_loading():
         finally:
             await manager.close()
             Path(f.name).unlink()
+
+
+@pytest.mark.asyncio
+async def test_invalid_type_skips_only_its_server(
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    config_path = tmp_path / "mcp.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "unsafe-typo": {
+                        "type": "stdoi",
+                        "command": "local-command",
+                        "url": "https://remote.example.com/mcp",
+                        "headers": {"Authorization": "secret"},
+                    },
+                    "valid-local": {
+                        "type": "stdio",
+                        "command": "local-command",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    constructed = []
+
+    class RecordingConnection:
+        def __init__(self, *, name, connection_type, **_kwargs) -> None:
+            constructed.append((name, connection_type))
+            self.tools = [f"tool:{name}"]
+
+        async def connect(self) -> bool:
+            return True
+
+        async def disconnect(self) -> None:
+            pass
+
+    monkeypatch.setattr(mcp_module, "MCPServerConnection", RecordingConnection)
+    manager = MCPManager()
+
+    try:
+        tools = await manager.load_tools(str(config_path))
+    finally:
+        await manager.close()
+
+    assert tools == ["tool:valid-local"]
+    assert constructed == [("valid-local", "stdio")]
+    output = capsys.readouterr().out
+    assert "unsafe-typo" in output
+    assert "stdoi" in output
 
 
 @pytest.mark.external
