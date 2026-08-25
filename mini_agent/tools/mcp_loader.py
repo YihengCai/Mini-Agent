@@ -80,8 +80,12 @@ class MCPTool(Tool):
             content_str = "\n".join(content_parts)
 
             is_error = result.isError if hasattr(result, "isError") else False
-
-            return ToolResult(success=not is_error, content=content_str, error=None if not is_error else "Tool returned error")
+            if is_error:
+                return ToolResult(
+                    success=False,
+                    error=content_str or "Tool returned error",
+                )
+            return ToolResult(success=True, content=content_str)
 
         except TimeoutError:
             return ToolResult(
