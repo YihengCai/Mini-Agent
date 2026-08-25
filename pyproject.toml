@@ -48,9 +48,13 @@ exclude = ["tests*"]
 mini_agent = ["skills/**/*"]
 
 [tool.pytest.ini_options]
+addopts = "--strict-markers -m 'not external'"
 testpaths = ["tests"]
 cache_dir = "workspace/.pytest_cache"
 asyncio_mode = "auto"
+markers = [
+    "external: accesses configured model/MCP services or the network",
+]
 
 [tool.pylint.messages_control]
 # Disable warnings for Tool.execute method signature differences

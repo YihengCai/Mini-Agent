@@ -15,6 +15,9 @@ from mini_agent.tools.mcp_loader import load_mcp_tools_async
 from mini_agent.tools.note_tool import RecallNoteTool, SessionNoteTool
 
 
+pytestmark = pytest.mark.external
+
+
 @pytest.mark.asyncio
 async def test_basic_agent_usage():
     """Test basic agent usage with file creation task.

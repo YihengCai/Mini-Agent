@@ -12,6 +12,9 @@ from mini_agent.config import Config
 from mini_agent.tools import BashTool, EditTool, ReadTool, WriteTool
 
 
+pytestmark = pytest.mark.external
+
+
 @pytest.mark.asyncio
 async def test_agent_simple_task():
     """Test agent with a simple file creation task."""

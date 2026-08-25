@@ -322,6 +322,7 @@ async def test_mixed_config_loading():
             Path(f.name).unlink()
 
 
+@pytest.mark.external
 @pytest.mark.asyncio
 async def test_mcp_tools_loading():
     """Test loading MCP tools from mcp.json."""
@@ -348,6 +349,7 @@ async def test_mcp_tools_loading():
         await cleanup_mcp_connections()
 
 
+@pytest.mark.external
 @pytest.mark.asyncio
 async def test_git_mcp_tool_availability():
     """Test Git MCP tool availability."""
@@ -374,6 +376,7 @@ async def test_git_mcp_tool_availability():
         await cleanup_mcp_connections()
 
 
+@pytest.mark.external
 @pytest.mark.asyncio
 async def test_mcp_tool_execution():
     """Test executing an MCP tool if available (memory server)."""
@@ -418,6 +421,7 @@ async def test_mcp_tool_execution():
         await cleanup_mcp_connections()
 
 
+@pytest.mark.external
 @pytest.mark.asyncio
 async def test_connection_timeout_on_unreachable_server():
     """Test that connection to unreachable server times out properly."""
@@ -452,6 +456,7 @@ async def test_connection_timeout_on_unreachable_server():
         await cleanup_mcp_connections()
 
 
+@pytest.mark.external
 @pytest.mark.asyncio
 async def test_per_server_timeout_override_in_config():
     """Test that per-server timeout overrides from config are respected."""
