@@ -14,6 +14,7 @@ from mini_agent.tools.bash_tool import (
     BashOutputTool,
     BashTool,
 )
+from mini_agent.tools.mcp_loader import MCPManager
 
 
 ORIGINAL_WAIT_FOR = asyncio.wait_for
@@ -120,7 +121,14 @@ def make_cli_config():
             model="offline",
             max_output_tokens=1,
             retry=retry,
-        )
+        ),
+        tools=SimpleNamespace(
+            mcp=SimpleNamespace(
+                connect_timeout=10.0,
+                execute_timeout=60.0,
+                sse_read_timeout=120.0,
+            )
+        ),
     )
 
 
@@ -527,10 +535,12 @@ async def test_cli_assembles_all_bash_tools_with_one_runtime_manager(
         )
     )
     manager = BackgroundShellManager()
+    mcp_manager = MCPManager()
 
     tools, skill_loader = await cli.initialize_base_tools(
         config,
         shell_manager=manager,
+        mcp_manager=mcp_manager,
     )
     cli.add_workspace_tools(
         tools,
@@ -547,6 +557,57 @@ async def test_cli_assembles_all_bash_tools_with_one_runtime_manager(
     ]
     assert len(shell_tools) == 3
     assert all(tool._manager is manager for tool in shell_tools)
+    await mcp_manager.close()
+
+
+@pytest.mark.asyncio
+async def test_cli_loads_mcp_tools_through_passed_runtime_manager(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "mcp.json"
+    config_path.write_text("{}", encoding="utf-8")
+    mcp_tool = object()
+    loaded_paths = []
+
+    class RecordingMCPManager:
+        async def load_tools(self, path: str):
+            loaded_paths.append(path)
+            return [mcp_tool]
+
+    config = SimpleNamespace(
+        tools=SimpleNamespace(
+            enable_bash=False,
+            enable_skills=False,
+            enable_mcp=True,
+            enable_file_tools=False,
+            enable_note=False,
+            mcp_config_path="mcp.json",
+            mcp=SimpleNamespace(
+                connect_timeout=10.0,
+                execute_timeout=60.0,
+                sse_read_timeout=120.0,
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        cli.Config,
+        "find_config_file",
+        classmethod(lambda _cls, _filename: config_path),
+    )
+    shell_manager = BackgroundShellManager()
+    mcp_manager = RecordingMCPManager()
+
+    tools, skill_loader = await cli.initialize_base_tools(
+        config,
+        shell_manager=shell_manager,
+        mcp_manager=mcp_manager,
+    )
+
+    assert tools == [mcp_tool]
+    assert skill_loader is None
+    assert loaded_paths == [str(config_path)]
+    await shell_manager.close()
 
 
 @pytest.mark.asyncio
@@ -556,20 +617,31 @@ async def test_invalid_config_returns_before_runtime_resources_exist(
     tmp_path,
     failure,
 ) -> None:
-    manager_creations = 0
-    manager_closes = 0
+    shell_manager_creations = 0
+    shell_manager_closes = 0
+    mcp_manager_creations = 0
+    mcp_manager_closes = 0
     cleanup_calls = 0
 
-    class RecordingManager:
+    class RecordingShellManager:
         def __init__(self) -> None:
-            nonlocal manager_creations
-            manager_creations += 1
+            nonlocal shell_manager_creations
+            shell_manager_creations += 1
 
         async def close(self) -> None:
-            nonlocal manager_closes
-            manager_closes += 1
+            nonlocal shell_manager_closes
+            shell_manager_closes += 1
 
-    async def quiet_cleanup() -> None:
+    class RecordingMCPManager:
+        def __init__(self, _timeout_config) -> None:
+            nonlocal mcp_manager_creations
+            mcp_manager_creations += 1
+
+        async def close(self) -> None:
+            nonlocal mcp_manager_closes
+            mcp_manager_closes += 1
+
+    async def quiet_cleanup(_mcp_manager) -> None:
         nonlocal cleanup_calls
         cleanup_calls += 1
 
@@ -583,13 +655,16 @@ async def test_invalid_config_returns_before_runtime_resources_exist(
         monkeypatch.setattr(cli.Config, "from_yaml", reject_config)
 
     monkeypatch.setattr(cli.Config, "get_default_config_path", lambda: config_path)
-    monkeypatch.setattr(cli, "BackgroundShellManager", RecordingManager)
+    monkeypatch.setattr(cli, "BackgroundShellManager", RecordingShellManager)
+    monkeypatch.setattr(cli, "MCPManager", RecordingMCPManager)
     monkeypatch.setattr(cli, "_quiet_cleanup", quiet_cleanup)
 
     await cli.run_agent(tmp_path)
 
-    assert manager_creations == 0
-    assert manager_closes == 0
+    assert shell_manager_creations == 0
+    assert shell_manager_closes == 0
+    assert mcp_manager_creations == 0
+    assert mcp_manager_closes == 0
     assert cleanup_calls == 0
 
 
@@ -602,39 +677,59 @@ async def test_run_agent_uses_the_same_manager_for_runtime_and_cleanup(
     config_path.write_text("offline", encoding="utf-8")
     config = make_cli_config()
     llm_client = object()
-    managers = []
-    runtime_managers = []
-    closed_managers = []
+    shell_managers = []
+    mcp_managers = []
+    runtime_shell_managers = []
+    runtime_mcp_managers = []
+    closed_shell_managers = []
+    closed_mcp_managers = []
     cleanup_calls = 0
 
-    class RecordingManager:
+    class RecordingShellManager:
         def __init__(self) -> None:
-            managers.append(self)
+            shell_managers.append(self)
 
         async def close(self) -> None:
-            closed_managers.append(self)
+            closed_shell_managers.append(self)
+
+    class RecordingMCPManager:
+        def __init__(self, timeout_config) -> None:
+            self.timeout_config = timeout_config
+            mcp_managers.append(self)
+
+        async def close(self) -> None:
+            closed_mcp_managers.append(self)
 
     async def record_runtime(_workspace_dir, **kwargs) -> None:
-        runtime_managers.append(kwargs["shell_manager"])
+        runtime_shell_managers.append(kwargs["shell_manager"])
+        runtime_mcp_managers.append(kwargs["mcp_manager"])
         assert kwargs["config"] is config
         assert kwargs["llm_client"] is llm_client
 
-    async def quiet_cleanup() -> None:
+    async def quiet_cleanup(mcp_manager) -> None:
         nonlocal cleanup_calls
         cleanup_calls += 1
+        await mcp_manager.close()
 
     monkeypatch.setattr(cli.Config, "get_default_config_path", lambda: config_path)
     monkeypatch.setattr(cli.Config, "from_yaml", lambda _path: config)
     monkeypatch.setattr(cli, "create_model_client", lambda **_kwargs: llm_client)
-    monkeypatch.setattr(cli, "BackgroundShellManager", RecordingManager)
+    monkeypatch.setattr(cli, "BackgroundShellManager", RecordingShellManager)
+    monkeypatch.setattr(cli, "MCPManager", RecordingMCPManager)
     monkeypatch.setattr(cli, "_run_configured_runtime", record_runtime)
     monkeypatch.setattr(cli, "_quiet_cleanup", quiet_cleanup)
 
     await cli.run_agent(tmp_path)
 
-    assert len(managers) == 1
-    assert runtime_managers == managers
-    assert closed_managers == managers
+    assert len(shell_managers) == 1
+    assert len(mcp_managers) == 1
+    assert mcp_managers[0].timeout_config.connect_timeout == 10.0
+    assert mcp_managers[0].timeout_config.execute_timeout == 60.0
+    assert mcp_managers[0].timeout_config.sse_read_timeout == 120.0
+    assert runtime_shell_managers == shell_managers
+    assert runtime_mcp_managers == mcp_managers
+    assert closed_shell_managers == shell_managers
+    assert closed_mcp_managers == mcp_managers
     assert cleanup_calls == 1
 
 
@@ -646,32 +741,40 @@ async def test_model_client_failure_precedes_runtime_resource_creation(
     config_path = tmp_path / "config.yaml"
     config_path.write_text("offline", encoding="utf-8")
     model_error = RuntimeError("model client construction failed")
-    manager_creations = 0
+    shell_manager_creations = 0
+    mcp_manager_creations = 0
     cleanup_calls = 0
 
-    class RecordingManager:
+    class RecordingShellManager:
         def __init__(self) -> None:
-            nonlocal manager_creations
-            manager_creations += 1
+            nonlocal shell_manager_creations
+            shell_manager_creations += 1
+
+    class RecordingMCPManager:
+        def __init__(self, _timeout_config) -> None:
+            nonlocal mcp_manager_creations
+            mcp_manager_creations += 1
 
     def fail_model_client(**_kwargs):
         raise model_error
 
-    async def quiet_cleanup() -> None:
+    async def quiet_cleanup(_mcp_manager) -> None:
         nonlocal cleanup_calls
         cleanup_calls += 1
 
     monkeypatch.setattr(cli.Config, "get_default_config_path", lambda: config_path)
     monkeypatch.setattr(cli.Config, "from_yaml", lambda _path: make_cli_config())
     monkeypatch.setattr(cli, "create_model_client", fail_model_client)
-    monkeypatch.setattr(cli, "BackgroundShellManager", RecordingManager)
+    monkeypatch.setattr(cli, "BackgroundShellManager", RecordingShellManager)
+    monkeypatch.setattr(cli, "MCPManager", RecordingMCPManager)
     monkeypatch.setattr(cli, "_quiet_cleanup", quiet_cleanup)
 
     with pytest.raises(RuntimeError) as raised:
         await cli.run_agent(tmp_path)
 
     assert raised.value is model_error
-    assert manager_creations == 0
+    assert shell_manager_creations == 0
+    assert mcp_manager_creations == 0
     assert cleanup_calls == 0
 
 
@@ -691,7 +794,10 @@ async def test_runtime_boundary_always_cleans_shell_before_mcp(
         async def close(self) -> None:
             order.append("shell")
 
-    async def quiet_cleanup() -> None:
+    mcp_manager = object()
+
+    async def quiet_cleanup(owner) -> None:
+        assert owner is mcp_manager
         order.append("mcp")
 
     async def runtime_body() -> None:
@@ -703,10 +809,18 @@ async def test_runtime_boundary_always_cleans_shell_before_mcp(
     manager = RecordingManager()
 
     if body_error is None:
-        await cli._run_with_runtime_cleanup(runtime_body(), manager)
+        await cli._run_with_runtime_cleanup(
+            runtime_body(),
+            manager,
+            mcp_manager,
+        )
     else:
         with pytest.raises(type(body_error)) as raised:
-            await cli._run_with_runtime_cleanup(runtime_body(), manager)
+            await cli._run_with_runtime_cleanup(
+                runtime_body(),
+                manager,
+                mcp_manager,
+            )
         assert raised.value is body_error
 
     assert order == ["body", "shell", "mcp"]
@@ -725,7 +839,10 @@ async def test_runtime_error_wins_over_cleanup_error_but_mcp_still_closes(
             order.append("shell")
             raise OSError("secondary shell cleanup failure")
 
-    async def quiet_cleanup() -> None:
+    mcp_manager = object()
+
+    async def quiet_cleanup(owner) -> None:
+        assert owner is mcp_manager
         order.append("mcp")
 
     async def runtime_body() -> None:
@@ -735,7 +852,11 @@ async def test_runtime_error_wins_over_cleanup_error_but_mcp_still_closes(
     monkeypatch.setattr(cli, "_quiet_cleanup", quiet_cleanup)
 
     with pytest.raises(RuntimeError) as raised:
-        await cli._run_with_runtime_cleanup(runtime_body(), FailingManager())
+        await cli._run_with_runtime_cleanup(
+            runtime_body(),
+            FailingManager(),
+            mcp_manager,
+        )
 
     assert raised.value is body_error
     assert order == ["body", "shell", "mcp"]
@@ -754,7 +875,10 @@ async def test_runtime_error_wins_over_mcp_cleanup_cancellation(
         async def close(self) -> None:
             pass
 
-    async def cancelled_cleanup() -> None:
+    mcp_manager = object()
+
+    async def cancelled_cleanup(owner) -> None:
+        assert owner is mcp_manager
         raise mcp_error
 
     async def runtime_body() -> None:
@@ -763,7 +887,11 @@ async def test_runtime_error_wins_over_mcp_cleanup_cancellation(
     monkeypatch.setattr(cli, "_quiet_cleanup", cancelled_cleanup)
 
     with pytest.raises(RuntimeError) as raised:
-        await cli._run_with_runtime_cleanup(runtime_body(), RecordingManager())
+        await cli._run_with_runtime_cleanup(
+            runtime_body(),
+            RecordingManager(),
+            mcp_manager,
+        )
 
     assert raised.value is body_error
     assert "secondary MCP cleanup cancellation" in capsys.readouterr().err
@@ -781,7 +909,10 @@ async def test_shell_cleanup_error_wins_over_mcp_cleanup_cancellation(
         async def close(self) -> None:
             raise shell_error
 
-    async def cancelled_cleanup() -> None:
+    mcp_manager = object()
+
+    async def cancelled_cleanup(owner) -> None:
+        assert owner is mcp_manager
         raise mcp_error
 
     async def runtime_body() -> None:
@@ -790,7 +921,11 @@ async def test_shell_cleanup_error_wins_over_mcp_cleanup_cancellation(
     monkeypatch.setattr(cli, "_quiet_cleanup", cancelled_cleanup)
 
     with pytest.raises(OSError) as raised:
-        await cli._run_with_runtime_cleanup(runtime_body(), FailingManager())
+        await cli._run_with_runtime_cleanup(
+            runtime_body(),
+            FailingManager(),
+            mcp_manager,
+        )
 
     assert raised.value is shell_error
     assert "secondary MCP cleanup cancellation" in capsys.readouterr().err
@@ -806,7 +941,10 @@ async def test_mcp_cleanup_cancellation_surfaces_when_no_prior_error_exists(
         async def close(self) -> None:
             pass
 
-    async def cancelled_cleanup() -> None:
+    mcp_manager = object()
+
+    async def cancelled_cleanup(owner) -> None:
+        assert owner is mcp_manager
         raise mcp_error
 
     async def runtime_body() -> None:
@@ -815,7 +953,11 @@ async def test_mcp_cleanup_cancellation_surfaces_when_no_prior_error_exists(
     monkeypatch.setattr(cli, "_quiet_cleanup", cancelled_cleanup)
 
     with pytest.raises(asyncio.CancelledError) as raised:
-        await cli._run_with_runtime_cleanup(runtime_body(), RecordingManager())
+        await cli._run_with_runtime_cleanup(
+            runtime_body(),
+            RecordingManager(),
+            mcp_manager,
+        )
 
     assert raised.value is mcp_error
 
@@ -832,7 +974,10 @@ async def test_cleanup_error_surfaces_after_successful_runtime_and_mcp_cleanup(
             order.append("shell")
             raise cleanup_error
 
-    async def quiet_cleanup() -> None:
+    mcp_manager = object()
+
+    async def quiet_cleanup(owner) -> None:
+        assert owner is mcp_manager
         order.append("mcp")
 
     async def runtime_body() -> None:
@@ -841,7 +986,34 @@ async def test_cleanup_error_surfaces_after_successful_runtime_and_mcp_cleanup(
     monkeypatch.setattr(cli, "_quiet_cleanup", quiet_cleanup)
 
     with pytest.raises(OSError) as raised:
-        await cli._run_with_runtime_cleanup(runtime_body(), FailingManager())
+        await cli._run_with_runtime_cleanup(
+            runtime_body(),
+            FailingManager(),
+            mcp_manager,
+        )
 
     assert raised.value is cleanup_error
     assert order == ["body", "shell", "mcp"]
+
+
+@pytest.mark.asyncio
+async def test_quiet_cleanup_uses_owner_and_propagates_close_failure() -> None:
+    close_error = OSError("MCP close failed")
+    close_calls = 0
+
+    class FailingMCPManager:
+        async def close(self) -> None:
+            nonlocal close_calls
+            close_calls += 1
+            raise close_error
+
+    loop = asyncio.get_running_loop()
+    original_handler = loop.get_exception_handler()
+    try:
+        with pytest.raises(OSError) as raised:
+            await cli._quiet_cleanup(FailingMCPManager())
+    finally:
+        loop.set_exception_handler(original_handler)
+
+    assert raised.value is close_error
+    assert close_calls == 1

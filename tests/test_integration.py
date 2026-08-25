@@ -17,7 +17,7 @@ from mini_agent.tools import (
     ReadTool,
     WriteTool,
 )
-from mini_agent.tools.mcp_loader import load_mcp_tools_async
+from mini_agent.tools.mcp_loader import MCPManager, MCPTimeoutConfig
 from mini_agent.tools.note_tool import RecallNoteTool, SessionNoteTool
 
 
@@ -66,59 +66,68 @@ async def test_basic_agent_usage():
 
         # Initialize basic tools
         shell_manager = BackgroundShellManager()
-        tools = [
-            ReadTool(workspace_dir=workspace_dir),
-            WriteTool(workspace_dir=workspace_dir),
-            EditTool(workspace_dir=workspace_dir),
-            BashTool(manager=shell_manager),
-        ]
-
-        # Add Note tools for session memory
-        memory_file = Path(workspace_dir) / ".agent_memory.json"
-        tools.extend(
-            [
-                SessionNoteTool(memory_file=str(memory_file)),
-                RecallNoteTool(memory_file=str(memory_file)),
-            ]
-        )
-
-        # Load MCP tools (optional) - with timeout protection
-        try:
-            # MCP tools are disabled by default to prevent test hangs
-            # Enable specific MCP servers in mcp.json if needed
-            mcp_tools = await load_mcp_tools_async(
-                config_path="mini_agent/config/mcp.json"
+        mcp_manager = MCPManager(
+            MCPTimeoutConfig(
+                connect_timeout=config.tools.mcp.connect_timeout,
+                execute_timeout=config.tools.mcp.execute_timeout,
+                sse_read_timeout=config.tools.mcp.sse_read_timeout,
             )
-            if mcp_tools:
-                print(f"✓ Loaded {len(mcp_tools)} MCP tools")
-                tools.extend(mcp_tools)
-            else:
-                print("⚠️  No MCP tools configured (mcp.json is empty)")
-        except Exception as e:
-            print(f"⚠️  MCP tools not loaded: {e}")
-
-        # Create agent
-        agent = AgentSession(
-            llm_client=llm_client,
-            system_prompt=system_prompt,
-            tools=tools,
-            max_steps=config.agent.max_steps,
-            workspace_dir=workspace_dir,
         )
-
-        # Task: Create a Python file with hello world
-        task = """
-        Create a Python file named hello.py in the workspace that prints "Hello, Mini Agent!".
-        Then execute it to verify it works.
-        """
-
-        print(f"\nTask: {task}")
-        print("\n" + "=" * 80 + "\n")
-
         try:
+            tools = [
+                ReadTool(workspace_dir=workspace_dir),
+                WriteTool(workspace_dir=workspace_dir),
+                EditTool(workspace_dir=workspace_dir),
+                BashTool(manager=shell_manager),
+            ]
+
+            # Add Note tools for session memory
+            memory_file = Path(workspace_dir) / ".agent_memory.json"
+            tools.extend(
+                [
+                    SessionNoteTool(memory_file=str(memory_file)),
+                    RecallNoteTool(memory_file=str(memory_file)),
+                ]
+            )
+
+            # Load MCP tools (optional) - with timeout protection
+            try:
+                # MCP tools are disabled by default to prevent test hangs
+                # Enable specific MCP servers in mcp.json if needed
+                mcp_tools = await mcp_manager.load_tools(
+                    "mini_agent/config/mcp.json"
+                )
+                if mcp_tools:
+                    print(f"✓ Loaded {len(mcp_tools)} MCP tools")
+                    tools.extend(mcp_tools)
+                else:
+                    print("⚠️  No MCP tools configured (mcp.json is empty)")
+            except Exception as e:
+                print(f"⚠️  MCP tools not loaded: {e}")
+
+            # Create agent
+            agent = AgentSession(
+                llm_client=llm_client,
+                system_prompt=system_prompt,
+                tools=tools,
+                max_steps=config.agent.max_steps,
+                workspace_dir=workspace_dir,
+            )
+
+            # Task: Create a Python file with hello world
+            task = """
+            Create a Python file named hello.py in the workspace that prints "Hello, Mini Agent!".
+            Then execute it to verify it works.
+            """
+
+            print(f"\nTask: {task}")
+            print("\n" + "=" * 80 + "\n")
             outcome = await agent.start_turn(task).wait()
         finally:
-            await shell_manager.close()
+            try:
+                await shell_manager.close()
+            finally:
+                await mcp_manager.close()
         result = outcome.last_assistant_message or ""
 
         print("\n" + "=" * 80)

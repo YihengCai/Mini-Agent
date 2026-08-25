@@ -39,7 +39,7 @@ from mini_agent.tools.bash_tool import (
     BashTool,
 )
 from mini_agent.tools.file_tools import EditTool, ReadTool, WriteTool
-from mini_agent.tools.mcp_loader import cleanup_mcp_connections, load_mcp_tools_async, set_mcp_timeout_config
+from mini_agent.tools.mcp_loader import MCPManager, MCPTimeoutConfig
 from mini_agent.tools.note_tool import SessionNoteTool
 from mini_agent.tools.skill_tool import create_skill_tools
 from mini_agent.utils import Colors, calculate_display_width
@@ -352,6 +352,7 @@ async def initialize_base_tools(
     config: Config,
     *,
     shell_manager: BackgroundShellManager,
+    mcp_manager: MCPManager,
 ):
     """Initialize base tools (independent of workspace)
 
@@ -418,13 +419,7 @@ async def initialize_base_tools(
     if config.tools.enable_mcp:
         print(f"{Colors.BRIGHT_CYAN}Loading MCP tools...{Colors.RESET}")
         try:
-            # Apply MCP timeout configuration from config.yaml
             mcp_config = config.tools.mcp
-            set_mcp_timeout_config(
-                connect_timeout=mcp_config.connect_timeout,
-                execute_timeout=mcp_config.execute_timeout,
-                sse_read_timeout=mcp_config.sse_read_timeout,
-            )
             print(
                 f"{Colors.DIM}  MCP timeouts: connect={mcp_config.connect_timeout}s, "
                 f"execute={mcp_config.execute_timeout}s, sse_read={mcp_config.sse_read_timeout}s{Colors.RESET}"
@@ -433,7 +428,7 @@ async def initialize_base_tools(
             # Use priority search for mcp.json
             mcp_config_path = Config.find_config_file(config.tools.mcp_config_path)
             if mcp_config_path:
-                mcp_tools = await load_mcp_tools_async(str(mcp_config_path))
+                mcp_tools = await mcp_manager.load_tools(str(mcp_config_path))
                 if mcp_tools:
                     tools.extend(mcp_tools)
                     print(f"{Colors.GREEN}✅ Loaded {len(mcp_tools)} MCP tools (from: {mcp_config_path}){Colors.RESET}")
@@ -493,8 +488,8 @@ def add_workspace_tools(
         print(f"{Colors.GREEN}✅ Loaded session note tool{Colors.RESET}")
 
 
-async def _quiet_cleanup() -> None:
-    """Clean up MCP connections, suppressing noisy asyncgen teardown tracebacks."""
+async def _quiet_cleanup(mcp_manager: MCPManager) -> None:
+    """Clean up MCP connections and suppress late asyncgen traceback noise."""
     # Silence the asyncgen finalization noise that anyio/mcp emits when
     # stdio_client's task group is torn down across tasks.  The handler is
     # intentionally NOT restored: asyncgen finalization happens during
@@ -503,15 +498,13 @@ async def _quiet_cleanup() -> None:
     # right before process exit, swallowing late exceptions is safe.
     loop = asyncio.get_event_loop()
     loop.set_exception_handler(lambda _loop, _ctx: None)
-    try:
-        await cleanup_mcp_connections()
-    except Exception:
-        pass
+    await mcp_manager.close()
 
 
 async def _run_with_runtime_cleanup(
     runtime: Awaitable[None],
     shell_manager: BackgroundShellManager,
+    mcp_manager: MCPManager,
 ) -> None:
     """Run one CLI lifetime and preserve its primary failure during cleanup."""
 
@@ -529,7 +522,7 @@ async def _run_with_runtime_cleanup(
             cleanup_errors.append(("Background shell", error))
 
         try:
-            await _quiet_cleanup()
+            await _quiet_cleanup(mcp_manager)
         except BaseException as error:
             cleanup_errors.append(("MCP", error))
 
@@ -627,6 +620,14 @@ async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
         print(f"{Colors.GREEN}✅ LLM retry mechanism enabled (max {config.llm.retry.max_retries} retries){Colors.RESET}")
 
     shell_manager = BackgroundShellManager()
+    mcp_config = config.tools.mcp
+    mcp_manager = MCPManager(
+        MCPTimeoutConfig(
+            connect_timeout=mcp_config.connect_timeout,
+            execute_timeout=mcp_config.execute_timeout,
+            sse_read_timeout=mcp_config.sse_read_timeout,
+        )
+    )
     await _run_with_runtime_cleanup(
         _run_configured_runtime(
             workspace_dir,
@@ -635,8 +636,10 @@ async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
             llm_client=llm_client,
             session_start=session_start,
             shell_manager=shell_manager,
+            mcp_manager=mcp_manager,
         ),
         shell_manager,
+        mcp_manager,
     )
 
 
@@ -648,6 +651,7 @@ async def _run_configured_runtime(
     llm_client,
     session_start: datetime,
     shell_manager: BackgroundShellManager,
+    mcp_manager: MCPManager,
 ) -> None:
     """Run the CLI after configuration and model client setup have succeeded."""
 
@@ -655,6 +659,7 @@ async def _run_configured_runtime(
     tools, skill_loader = await initialize_base_tools(
         config,
         shell_manager=shell_manager,
+        mcp_manager=mcp_manager,
     )
 
     # 4. Add workspace-dependent tools

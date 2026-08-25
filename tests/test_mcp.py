@@ -8,13 +8,10 @@ from pathlib import Path
 import pytest
 
 from mini_agent.tools.mcp_loader import (
+    MCPManager,
     MCPServerConnection,
     MCPTimeoutConfig,
     _determine_connection_type,
-    cleanup_mcp_connections,
-    get_mcp_timeout_config,
-    load_mcp_tools_async,
-    set_mcp_timeout_config,
 )
 
 
@@ -170,47 +167,6 @@ class TestMCPTimeoutConfig:
         assert config.execute_timeout == 30.0
         assert config.sse_read_timeout == 60.0
 
-    def test_set_global_timeout_config(self):
-        """Test setting global timeout configuration."""
-        # Save original config
-        original = get_mcp_timeout_config()
-        original_connect = original.connect_timeout
-        original_execute = original.execute_timeout
-
-        try:
-            # Set new values
-            set_mcp_timeout_config(connect_timeout=20.0, execute_timeout=120.0)
-            config = get_mcp_timeout_config()
-            assert config.connect_timeout == 20.0
-            assert config.execute_timeout == 120.0
-        finally:
-            # Restore original values
-            set_mcp_timeout_config(
-                connect_timeout=original_connect,
-                execute_timeout=original_execute,
-            )
-
-    def test_partial_timeout_config_update(self):
-        """Test partial update of timeout configuration."""
-        original = get_mcp_timeout_config()
-        original_connect = original.connect_timeout
-        original_execute = original.execute_timeout
-        original_sse = original.sse_read_timeout
-
-        try:
-            # Only update connect_timeout
-            set_mcp_timeout_config(connect_timeout=25.0)
-            config = get_mcp_timeout_config()
-            assert config.connect_timeout == 25.0
-            # Other values should remain unchanged from previous test state
-        finally:
-            set_mcp_timeout_config(
-                connect_timeout=original_connect,
-                execute_timeout=original_execute,
-                sse_read_timeout=original_sse,
-            )
-
-
 class TestMCPServerConnectionTimeout:
     """Tests for MCPServerConnection timeout behavior."""
 
@@ -231,9 +187,7 @@ class TestMCPServerConnectionTimeout:
             connection_type="sse",
             url="https://example.com",
         )
-        # Should use global default
-        global_config = get_mcp_timeout_config()
-        assert conn._get_connect_timeout() == global_config.connect_timeout
+        assert conn._get_connect_timeout() == MCPTimeoutConfig().connect_timeout
 
     def test_get_effective_execute_timeout_with_override(self):
         """Test getting effective execute timeout with per-server override."""
@@ -254,6 +208,7 @@ class TestMCPServerConnectionTimeout:
 @pytest.mark.asyncio
 async def test_url_config_validation():
     """Test that URL-based config without url is rejected."""
+    manager = MCPManager()
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         config = {
             "mcpServers": {
@@ -267,17 +222,18 @@ async def test_url_config_validation():
         f.flush()
 
         try:
-            tools = await load_mcp_tools_async(f.name)
+            tools = await manager.load_tools(f.name)
             # Should return empty list (server skipped due to missing url)
             assert tools == []
         finally:
-            await cleanup_mcp_connections()
+            await manager.close()
             Path(f.name).unlink()
 
 
 @pytest.mark.asyncio
 async def test_stdio_config_validation():
     """Test that STDIO config without command is rejected."""
+    manager = MCPManager()
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         config = {
             "mcpServers": {
@@ -291,17 +247,18 @@ async def test_stdio_config_validation():
         f.flush()
 
         try:
-            tools = await load_mcp_tools_async(f.name)
+            tools = await manager.load_tools(f.name)
             # Should return empty list (server skipped due to missing command)
             assert tools == []
         finally:
-            await cleanup_mcp_connections()
+            await manager.close()
             Path(f.name).unlink()
 
 
 @pytest.mark.asyncio
 async def test_mixed_config_loading():
     """Test loading config with both STDIO and URL-based servers."""
+    manager = MCPManager()
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         config = {
             "mcpServers": {
@@ -315,10 +272,10 @@ async def test_mixed_config_loading():
 
         try:
             # All servers are disabled, should return empty but not error
-            tools = await load_mcp_tools_async(f.name)
+            tools = await manager.load_tools(f.name)
             assert tools == []
         finally:
-            await cleanup_mcp_connections()
+            await manager.close()
             Path(f.name).unlink()
 
 
@@ -327,10 +284,11 @@ async def test_mixed_config_loading():
 async def test_mcp_tools_loading():
     """Test loading MCP tools from mcp.json."""
     print("\n=== Testing MCP Tool Loading ===")
+    manager = MCPManager()
 
     try:
         # Load MCP tools
-        tools = await load_mcp_tools_async("mini_agent/config/mcp.json")
+        tools = await manager.load_tools("mini_agent/config/mcp.json")
 
         print(f"Loaded {len(tools)} MCP tools")
 
@@ -346,7 +304,7 @@ async def test_mcp_tools_loading():
 
     finally:
         # Cleanup MCP connections
-        await cleanup_mcp_connections()
+        await manager.close()
 
 
 @pytest.mark.external
@@ -354,9 +312,10 @@ async def test_mcp_tools_loading():
 async def test_git_mcp_tool_availability():
     """Test Git MCP tool availability."""
     print("\n=== Testing Git MCP Tool Availability ===")
+    manager = MCPManager()
 
     try:
-        tools = await load_mcp_tools_async("mini_agent/config/mcp.json")
+        tools = await manager.load_tools("mini_agent/config/mcp.json")
 
         if not tools:
             pytest.skip("No MCP tools loaded")
@@ -373,7 +332,7 @@ async def test_git_mcp_tool_availability():
         print(f"✅ Found search tool: {search_tool.name}")
 
     finally:
-        await cleanup_mcp_connections()
+        await manager.close()
 
 
 @pytest.mark.external
@@ -381,9 +340,10 @@ async def test_git_mcp_tool_availability():
 async def test_mcp_tool_execution():
     """Test executing an MCP tool if available (memory server)."""
     print("\n=== Testing MCP Tool Execution ===")
+    manager = MCPManager()
 
     try:
-        tools = await load_mcp_tools_async("mini_agent/config/mcp.json")
+        tools = await manager.load_tools("mini_agent/config/mcp.json")
 
         if not tools:
             print("⚠️  No MCP tools loaded, skipping execution test")
@@ -418,7 +378,7 @@ async def test_mcp_tool_execution():
             pytest.skip("create_entities tool not available")
 
     finally:
-        await cleanup_mcp_connections()
+        await manager.close()
 
 
 @pytest.mark.external
@@ -427,17 +387,13 @@ async def test_connection_timeout_on_unreachable_server():
     """Test that connection to unreachable server times out properly."""
     print("\n=== Testing Connection Timeout ===")
 
-    # Set a short timeout for testing
-    original = get_mcp_timeout_config()
-    original_connect = original.connect_timeout
-
+    conn = None
     try:
-        set_mcp_timeout_config(connect_timeout=2.0)
-
         conn = MCPServerConnection(
             name="unreachable-test",
             connection_type="streamable_http",
             url="https://10.255.255.1:9999/mcp",  # Non-routable IP, will timeout
+            timeout_config=MCPTimeoutConfig(connect_timeout=2.0),
         )
 
         import time
@@ -452,8 +408,8 @@ async def test_connection_timeout_on_unreachable_server():
         print(f"✅ Connection timed out as expected in {elapsed:.1f}s")
 
     finally:
-        set_mcp_timeout_config(connect_timeout=original_connect)
-        await cleanup_mcp_connections()
+        if conn is not None:
+            await conn.disconnect()
 
 
 @pytest.mark.external
@@ -461,6 +417,7 @@ async def test_connection_timeout_on_unreachable_server():
 async def test_per_server_timeout_override_in_config():
     """Test that per-server timeout overrides from config are respected."""
     print("\n=== Testing Per-Server Timeout Override ===")
+    manager = MCPManager()
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         config = {
@@ -479,7 +436,7 @@ async def test_per_server_timeout_override_in_config():
             import time
 
             start = time.time()
-            tools = await load_mcp_tools_async(f.name)
+            tools = await manager.load_tools(f.name)
             elapsed = time.time() - start
 
             # Should fail due to unreachable server
@@ -489,7 +446,7 @@ async def test_per_server_timeout_override_in_config():
             print(f"✅ Per-server timeout override worked, failed in {elapsed:.1f}s")
 
         finally:
-            await cleanup_mcp_connections()
+            await manager.close()
             Path(f.name).unlink()
 
 
