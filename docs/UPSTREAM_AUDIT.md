@@ -110,6 +110,7 @@ CLI 分别构造启动、读取与终止工具，退出路径却只调用 MCP �
 | 成功与失败工具输出可无界进入模型历史 | `mini_agent/tools/bash_tool.py:32-49`、`mini_agent/agent.py:436-469` | 当前由批次执行器统一生成每条最多 64 KiB 的模型投影；原始事件与日志保持完整，取舍见 ADR-0010 |
 | 配置解析重复默认值并静默忽略未知键 | `git show 7a013e9^:mini_agent/config.py` 的 `14-192` | 当前从模型字段派生根级分片，并由共享严格模型拒绝未知键；回归见 `tests/test_llm_adapters.py:48-255`，取舍见 ADR-0012 |
 | Note 写入把损坏存储当成空列表并覆盖 | `git show 358f561^:mini_agent/tools/note_tool.py` 的 `69-114` | 当前读写工具共享对象数组校验，任何已有无效存储都失败并保留原字节；回归见 `tests/test_note_tool.py:60-90`，取舍见 ADR-0013 |
+| MCP `isError` 正文没有进入内部错误字段 | `git show e6dded1^:mini_agent/tools/mcp_loader.py` 的 `72-84` | 当前在 MCP 转换边界把非空正文映射到 `ToolResult.error`；直接与批次回归见 `tests/test_mcp_tool_results.py` |
 
 ## 审计不直接决定实现
 
