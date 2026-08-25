@@ -14,6 +14,19 @@ from typing import Any
 from .base import Tool, ToolResult
 
 
+def _load_notes(memory_file: Path) -> list[dict[str, Any]]:
+    """Load a valid note array, treating only a missing file as empty."""
+    if not memory_file.exists():
+        return []
+
+    notes = json.loads(memory_file.read_text(encoding="utf-8"))
+    if not isinstance(notes, list) or not all(
+        isinstance(note, dict) for note in notes
+    ):
+        raise ValueError("Note storage must be a JSON array of objects")
+    return notes
+
+
 class SessionNoteTool(Tool):
     """Tool for recording and recalling session notes.
 
@@ -66,27 +79,17 @@ class SessionNoteTool(Tool):
             "required": ["content"],
         }
 
-    def _load_from_file(self) -> list:
-        """Load notes from file.
-        
-        Returns empty list if file doesn't exist (lazy loading).
-        """
-        if not self.memory_file.exists():
-            return []
-        
-        try:
-            return json.loads(self.memory_file.read_text())
-        except Exception:
-            return []
-
-    def _save_to_file(self, notes: list):
+    def _save_to_file(self, notes: list[dict[str, Any]]) -> None:
         """Save notes to file.
-        
+
         Creates parent directory and file if they don't exist (lazy initialization).
         """
         # Ensure parent directory exists when actually saving
         self.memory_file.parent.mkdir(parents=True, exist_ok=True)
-        self.memory_file.write_text(json.dumps(notes, indent=2, ensure_ascii=False))
+        self.memory_file.write_text(
+            json.dumps(notes, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
     async def execute(self, content: str, category: str = "general") -> ToolResult:
         """Record a session note.
@@ -100,7 +103,7 @@ class SessionNoteTool(Tool):
         """
         try:
             # Load existing notes
-            notes = self._load_from_file()
+            notes = _load_notes(self.memory_file)
 
             # Add new note with timestamp
             note = {
@@ -160,7 +163,7 @@ class RecallNoteTool(Tool):
             },
         }
 
-    async def execute(self, category: str = None) -> ToolResult:
+    async def execute(self, category: str | None = None) -> ToolResult:
         """Recall session notes.
 
         Args:
@@ -170,13 +173,7 @@ class RecallNoteTool(Tool):
             ToolResult with notes content
         """
         try:
-            if not self.memory_file.exists():
-                return ToolResult(
-                    success=True,
-                    content="No notes recorded yet.",
-                )
-
-            notes = json.loads(self.memory_file.read_text())
+            notes = _load_notes(self.memory_file)
 
             if not notes:
                 return ToolResult(

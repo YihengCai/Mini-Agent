@@ -57,3 +57,31 @@ async def test_note_persists_across_tool_instances(tmp_path):
     assert recorded.success
     assert recalled.success
     assert "Important fact to remember" in recalled.content
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stored_bytes",
+    [
+        b"{corrupt but important bytes",
+        b'{"unexpected": "object"}',
+        b'["not an object"]',
+    ],
+)
+async def test_note_tools_reject_invalid_storage_without_overwriting(
+    tmp_path,
+    stored_bytes,
+):
+    note_file = tmp_path / "notes.json"
+    note_file.write_bytes(stored_bytes)
+
+    recalled = await RecallNoteTool(memory_file=str(note_file)).execute()
+    recorded = await SessionNoteTool(memory_file=str(note_file)).execute(
+        content="new note",
+    )
+
+    assert not recalled.success
+    assert "Failed to recall notes" in recalled.error
+    assert not recorded.success
+    assert "Failed to record note" in recorded.error
+    assert note_file.read_bytes() == stored_bytes
