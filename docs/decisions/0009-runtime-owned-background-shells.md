@@ -48,3 +48,5 @@ CLI 的清理顺序是 shell、MCP，失败优先级是 runtime、shell、MCP；
 后续 [ADR-0011](0011-runtime-owned-mcp-connections.md) 让 MCP 成为第二类 runtime owner。重新评估通用资源协议后仍没有合并：shell 的登记同时拥有 subprocess 与 monitor，MCP 的 `AsyncExitStack` 则要求同一任务内串行关闭，目前稳定共享的只有 CLI 中的关闭顺序。若以后出现第三类资源或多个宿主需要同一套取得与失败 contract，再引入注册表更合适。
 
 后续 [ADR-0023](0023-background-shell-completes-after-stdout-eof.md) 进一步收紧自然完成语义：monitor 不能因进程已经退出就停止消费仍在管道中的事实，`completed` 现在晚于 stdout EOF。主动终止期间的尾部输出仍不在该保证内。
+
+2026-08-26 的后续复审发现前台路径也有独立的直接子进程责任：超时只调用 `kill()` 而不 `wait()`，取消则不清理。现在由调用局部在中断返回前完成终止与等待，且没有把前台进程塞入 `BackgroundShellManager`；取舍见 [ADR-0026](0026-foreground-shell-reaps-on-interruption.md)。

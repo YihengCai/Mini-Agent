@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-工具返回值接纳所有权已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
+前台 shell 中断回收已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **前台 shell 中断时回收直接子进程**：正常 `communicate()` 语义不变；超时与取消在返回或传播前共用直接子进程的 `kill()` 后 `wait()` 清理，前台进程不进入 `BackgroundShellManager`。2 项故障注入在删除各自清理挂钩时转红；shell 定向集合实测 `42 passed in 9.72s`，完整离线集合实测 `317 passed, 9 deselected in 13.23s`。取舍见 [`decisions/0026-foreground-shell-reaps-on-interruption.md`](decisions/0026-foreground-shell-reaps-on-interruption.md)。
 - **工具返回值的接纳所有权**：合法 `ToolResult` 在执行器接纳处立即深拷贝；工具保留的返回别名即使在同步 `ToolFinished` 观察期间被修改，也不能让事件事实与模型历史分叉。1 项新回归在删除接纳复制时转红；定向集合实测 `47 passed in 0.62s`，完整离线集合实测 `315 passed, 9 deselected in 13.33s`。取舍见 [`decisions/0025-executor-owns-admitted-tool-results.md`](decisions/0025-executor-owns-admitted-tool-results.md)。
 - **运行时工作区的单一所有权**：删除从未被运行时消费的 `AgentConfig.workspace_dir` 与示例字段；CLI 的 `--workspace` / 当前目录继续作为唯一来源，程序化模型拒绝旧字段，旧 YAML 会明确指向 `--workspace`。2 项新回归覆盖模型与迁移边界；删除定向错误时 YAML 回归转红。定向集合实测 `77 passed in 0.69s`，完整离线集合实测 `314 passed, 9 deselected in 13.18s`。取舍见 [`decisions/0024-cli-owns-runtime-workspace.md`](decisions/0024-cli-owns-runtime-workspace.md)。
 - **后台 shell 输出完成边界**：自然完成的 monitor 持续读取到 stdout EOF，再等待进程并发布 `completed` 或 `failed`；进程已退出但仍缓冲的行不再丢失。确定性 fake 回归在恢复旧退出码条件时转红；既有真实 bash 定向集合保持通过。定向集合实测 `40 passed in 9.77s`，完整离线集合实测 `312 passed, 9 deselected in 13.07s`。主动终止尾部输出仍不在保证内，取舍见 [`decisions/0023-background-shell-completes-after-stdout-eof.md`](decisions/0023-background-shell-completes-after-stdout-eof.md)。

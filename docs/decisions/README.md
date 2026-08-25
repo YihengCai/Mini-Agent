@@ -60,5 +60,6 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0023](0023-background-shell-completes-after-stdout-eof.md) | 后台 shell 在 stdout EOF 后才完成 | 已采纳 |
 | [0024](0024-cli-owns-runtime-workspace.md) | CLI 单一持有运行时工作区 | 已采纳 |
 | [0025](0025-executor-owns-admitted-tool-results.md) | 执行器取得工具返回值所有权 | 已采纳 |
+| [0026](0026-foreground-shell-reaps-on-interruption.md) | 前台 shell 中断前回收直接子进程 | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。

@@ -106,6 +106,7 @@ CLI 分别构造启动、读取与终止工具，退出路径却只调用 MCP �
 | 后台 shell 使用进程级共享表 | `mini_agent/tools/bash_tool.py:108-127` | 当前已改为 CLI runtime 持有的实例 manager；隔离回归见 `tests/test_background_shell_lifecycle.py` |
 | monitor 取消和强杀不等待收敛 | `mini_agent/tools/bash_tool.py:96-105,181-188` | 当前 terminate/close 会等待 monitor，强杀后再次等待 subprocess |
 | CLI 没有后台 shell 关闭入口 | `mini_agent/cli.py:805-806` | 当前正常、异常和取消路径都按 shell、MCP 顺序清理；取舍见 ADR-0009 |
+| 前台 shell 超时只调用 `kill()` 而不 `wait()`，取消不清理 | `mini_agent/tools/bash_tool.py:381-409,431-438` | 当前前台调用在超时与逃逸异常返回前统一终止并等待直接子进程；回归见 `tests/test_background_shell_lifecycle.py:157-215`，取舍见 ADR-0026 |
 | MCP 超时与连接使用进程级全局状态 | `mini_agent/tools/mcp_loader.py:21-57,159-169,284-285,397-433` | 当前由 CLI runtime 的 `MCPManager` 隔离并关闭；取消与重试回归见 `tests/test_mcp_runtime_ownership.py` |
 | 成功与失败工具输出可无界进入模型历史 | `mini_agent/tools/bash_tool.py:32-49`、`mini_agent/agent.py:436-469` | 当前由批次执行器统一生成每条最多 64 KiB 的模型投影；原始事件与日志保持完整，取舍见 ADR-0010 |
 | 配置解析重复默认值并静默忽略未知键 | `git show 7a013e9^:mini_agent/config.py` 的 `14-192` | 当前从模型字段派生根级分片，并由共享严格模型拒绝未知键；回归见 `tests/test_llm_adapters.py:48-255`，取舍见 ADR-0012 |
