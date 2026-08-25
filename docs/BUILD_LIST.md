@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-严格配置解析已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
+Note 存储失败关闭已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **Note 存储损坏时失败关闭**：`record_note` 与 `recall_notes` 共享 UTF-8 JSON 对象数组校验，只有文件不存在才表示空状态；损坏 JSON、对象根或含非对象元素的数组都会让两个工具失败，写入不会开始且原字节逐字不变。测试先去掉依赖空临时文件吞错的夹具，再增加 3 项结构回归；恢复宽泛异常降级时回归转红。完整离线集合实测 `253 passed, 9 deselected in 13.89s`，取舍见 [`decisions/0013-fail-closed-note-storage.md`](decisions/0013-fail-closed-note-storage.md)。
 - **严格配置解析与默认值单一真源**：根级允许集合、必填字段与分片从现有模型字段派生，嵌套默认值只由模型持有；所有配置模型拒绝未知字段，旧配置键仍保留定向迁移错误。13 项新增或扩展回归覆盖非映射根、根级与三层嵌套错键、程序化构造、全部默认值和全部显式非默认值；移除根级检查与恢复嵌套忽略时分别有 1 项和 3 项转红。完整离线集合实测 `250 passed, 9 deselected in 13.82s`，取舍见 [`decisions/0012-strict-single-source-config-loading.md`](decisions/0012-strict-single-source-config-loading.md)。
 - **MCP 状态与连接运行时所有权**：不可变超时快照、连接接纳与关闭现在由一次 CLI runtime 的 `MCPManager` 持有；server 覆盖仍优先，连接在 `await connect()` 前登记，关闭串行化并只移除成功项，取消后的 transport 句柄可重试。6 项新增所有权回归与 MCP/CLI 定向集合实测 `55 passed, 5 deselected in 0.71s`；显式排除 `external` 的完整集合实测 `237 passed, 9 deselected in 13.10s`。取舍见 [`decisions/0011-runtime-owned-mcp-connections.md`](decisions/0011-runtime-owned-mcp-connections.md)。
 - **模型可见工具输出预算**：原始 `ToolResult` 与 `ToolFinished` 保持完整，批次执行器只把模型消息投影限制为每条 64 KiB UTF-8 字节；精确边界不变，超限保留首尾并报告原始、保留、省略和上限字节数，失败前缀计入预算。3 项新增回归覆盖 UTF-8、事件所有权、观察者变异、历史、下一次请求与批次顺序；删除挂钩时集成回归实测转红。显式排除 `external` 的完整集合实测 `230 passed, 9 deselected in 13.57s`，取舍见 [`decisions/0010-model-facing-tool-output-budget.md`](decisions/0010-model-facing-tool-output-budget.md)。
