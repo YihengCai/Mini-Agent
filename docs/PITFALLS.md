@@ -74,6 +74,8 @@
 - 教训：agent 事件边界要验证嵌套对象的所有权，而不只看最外层类型；观察接口应发送独立快照或真正的不可变值，尤其不能把同一消息对象同时交给日志接收器和模型客户端。
 - 关联：`mini_agent/core/agent.py:312-390`、`mini_agent/core/events.py:42-69`、`tests/test_agent_session_offline.py:340-367`、[ADR-0004](decisions/0004-session-turn-step-lifecycle.md)、[ADR-0006](decisions/0006-remove-legacy-local-compaction.md)、提交 `fdcd945`。
 
+- 后续复现：2026-08-25 同一问题在工具调度边界再次出现。初版 `ToolBatchExecutor` 用 `**tool_call.function.arguments` 传参，以为外层 kwargs 副本足以隔离调用；实际嵌套字典仍与事件和 assistant 消息共享。删除执行前的深拷贝后，`.venv/bin/python -m pytest -q tests/test_tool_execution.py::test_tool_argument_mutation_cannot_change_events_or_history` 会稳定转红。
+
 ## P-004 · 事件分层正确不等于 CLI 已表达分层
 
 - 日期：2026-08-25
@@ -170,6 +172,23 @@
   2026-08-25 实测第一条为 `33 tests collected in 0.69s`；第二条只留下 24 项离线 MCP 测试并报告 9 项被排除。
 - 教训：agent 项目的测试安全边界要按“会不会读取用户配置、访问真实端点、启动配置驱动的服务或触网”标记，并在收集阶段统一强制；文件白名单和测试体内的 skip 都不足以证明默认离线。
 - 关联：`conftest.py:11-41`、`pyproject.toml:50-58`、`tests/test_mcp.py:325-493`、`tests/test_pytest_entrypoint.py:66-112`、[ADR-0007](decisions/0007-explicit-opt-in-for-external-tests.md)、提交 `8616739`。
+
+## P-009 · 整批预检不等于整批调用都已开始
+
+- 日期：2026-08-25
+- 原以为：工具批次完整预检通过后，在首个副作用前一次性认领全部调用标识符，最能保证取消期间不会重复副作用。
+- 实际是：首个工具抛出 `CancelledError` 时，后项没有产生 `ToolStarted`、也从未执行，但初版账本已经永久占用后项标识符；下一 Turn 单独重试它会得到 `tool_protocol_error`。与此同时，已启动首项确实需要保持认领，不能简单把认领推迟到成功返回后。
+- 根因：批次结构合法、调用被接纳和副作用开始是三个不同状态；`BaseException` 可以在合法批次中途逃逸。完整预检必须先于全部副作用，但调用标识符只能在该项即将发出 `ToolStarted` 并执行时认领。
+- 复现：把 `mini_agent/core/tool_execution.py:98-106` 改回“预检后、循环前把整批标识符写入账本”，再运行：
+
+  ```bash
+  .venv/bin/python -m pytest -q \
+    tests/test_tool_execution.py::test_cancellation_claims_started_id_but_not_unstarted_batch_ids
+  ```
+
+  初版语义会让 `not-started` 的下一 Turn 重试失败；修复后实测输出为 `1 passed in 0.44s`，并同时断言取消路径只有 `ToolStarted(1)`、没有 `ToolFinished` 或后项工具事件。
+- 教训：任何 agent 工具执行器都要把“整批验证”和“逐项副作用所有权”分开；最多执行一次账本应在每项真正开始前认领，不能把尚未启动的合法后项当成已执行事实。
+- 关联：`mini_agent/core/tool_execution.py:90-158`、`tests/test_tool_execution.py:566-612`、[ADR-0008](decisions/0008-session-owned-tool-batch-executor.md)、提交 `528da1f`。
 
 ## 模板
 

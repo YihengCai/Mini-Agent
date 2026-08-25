@@ -6,9 +6,9 @@
 
 选择一个主题时，先为它找到当前代码中的失败证据和一分钟内可运行的离线验证，再写改动前简报。具体接口、类名和文件布局到实现时再决定，不为候选主题提前创建规格或 ADR。
 
-## 当前工作：建立唯一的工具批次强制点
+## 当前工作：收拢后台 shell 的状态与资源所有权
 
-生产运行时虽只有一处直接 `Tool.execute()`，但 `_AgentLoop._run_step()` 仍内联整批查找、执行、异常归一化、事件和消息提交（`mini_agent/core/agent.py:413-485`），没有在首个副作用前验证批内/历史重复调用标识符；严格配对检查只存在于测试替身的下一次模型请求边界（`tests/llm_test_double.py:30-70`）。Session 注册还用字典推导静默覆盖同名工具，并会在注册后重新读取可变 `tool.name`（`mini_agent/core/agent.py:93-105,312-349`）。当前工作把冻结注册、整批预检、串行执行和结果规范化收进一个可独立验证的 core 强制点；不顺手加入并行、重试、权限、输出预算、取消、MCP 生命周期或后台 shell 管理。完成后才进入后台 shell 的状态与资源所有权。
+`BackgroundShellManager` 把 shell 与监控任务放在进程级类变量中，所有工具实例和 Session 共享同一可变表（`mini_agent/tools/bash_tool.py:108-127`）；监控用裸 `asyncio.create_task()` 启动，取消时只调用 `task.cancel()` 并立刻从表中删除，没有等待任务收敛，也没有 owner 级关闭入口（`mini_agent/tools/bash_tool.py:136-188`）。CLI 分开构造 `bash_output`、`bash_kill` 与工作区相关的 `bash`，`/clear` 又只替换 AgentSession（`mini_agent/cli.py:346-371,442-459,714-722`）。当前工作先用离线故障注入证明跨运行时可见性和清理泄漏，再让一次运行时组装显式持有并关闭一个共享 manager；不顺手改 shell 语法、输出预算、权限、操作系统沙箱、进程组策略或 MCP 生命周期。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **模型工具批次强制点**：Session 持有冻结注册与调用标识符账本；模型批次在首个副作用前完整预检，再逐项认领并串行执行。结构错误使用 `tool_protocol_error`，工具自身失败保留为同序结果，参数、事件和历史使用独立快照，assistant 调用与全部结果成组提交。19 项定向回归覆盖重名、跨 Step/Turn 重放、非法批次零副作用、取消、串行中断和参数变异；默认入口实测 `202 passed, 9 deselected in 13.34s`。取舍见 [`decisions/0008-session-owned-tool-batch-executor.md`](decisions/0008-session-owned-tool-batch-executor.md)。
 - **默认测试入口安全、离线**：真实模型、用户 MCP 配置和网络测试统一使用 `external` marker；默认配置与根级收集门双层排除，只有显式 `--run-external` 才放行。MCP 混合模块的 24 项离线测试保留在默认集合，入口回归能检出漏标、普通 `-m` 绕过和 marker 拼错；完整默认入口实测 `183 passed, 9 deselected in 13.82s`。取舍见 [`decisions/0007-explicit-opt-in-for-external-tests.md`](decisions/0007-explicit-opt-in-for-external-tests.md)。
 - **删除旧本地压缩**：Session 暂以完整模型历史直传；本地 token 估算、摘要替换、四类压缩事件、配置字段、摘要用途标签和 `tiktoken`/`regex` 依赖已经删除，旧配置键明确失败。64 项定向回归与锁文件校验通过，标准离线集合共 `157 passed`。取舍见 [`decisions/0006-remove-legacy-local-compaction.md`](decisions/0006-remove-legacy-local-compaction.md)。
 - **模型 API adapter 边界**：core 通过 `ModelClient` 调用模型并使用中性 `ToolDefinition`；显式注册表选择具体 wire adapter，端点、模型和输出上限不再由域名或 vendor 默认值推断。18 项 adapter 定向离线测试覆盖配置迁移、逐字端点传递、SDK 请求、工具历史、基础响应和单一重试所有权；未探测 `usage` 只供观察。取舍见 [`decisions/0005-explicit-model-api-adapters.md`](decisions/0005-explicit-model-api-adapters.md)。

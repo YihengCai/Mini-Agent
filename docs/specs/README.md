@@ -6,6 +6,6 @@
 2. 实现开始前才创建规格，完成后由代码、测试和 ADR 接管事实来源。
 3. 中文是唯一文档语言；有成熟译法的词使用中文，没有稳定译法的专有概念才保留英文。
 
-最近完成的规格包括 [LLM 测试替身、模型请求结构与默认收集边界](00-test-harness.md)、[Session、Turn、Step 生命周期与 CLI 观察边界](01-core-agent-loop.md) 和 [模型调用 contract 与协议 adapter](02-model-adapters.md)；实际接口和行为以其中链接的代码、测试和 ADR 为准。
+最近完成的规格包括 [LLM 测试替身、模型请求结构与默认收集边界](00-test-harness.md)、[Session、Turn、Step 生命周期与 CLI 观察边界](01-core-agent-loop.md)、[模型调用 contract 与协议 adapter](02-model-adapters.md) 和 [工具注册与批次执行强制点](03-tool-batch-enforcement.md)；实际接口和行为以其中链接的代码、测试和 ADR 为准。
 
-当前实现中的规格是 [工具注册与批次执行强制点](03-tool-batch-enforcement.md)；未来问题只保留在 [`BUILD_LIST.md`](../BUILD_LIST.md)，进入相应实现时再根据当时证据写短规格。
+新的当前工作与未来问题只保留在 [`BUILD_LIST.md`](../BUILD_LIST.md)；进入相应实现时，再根据当时的代码、回归测试和端点探测结果写短规格。
