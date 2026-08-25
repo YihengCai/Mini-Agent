@@ -37,7 +37,7 @@ LLM 测试替身已经落地：所有模型调用共用一条严格 FIFO 脚本�
 
 执行生命周期改造也已经落地：`AgentSession.start_turn()` 原子接纳输入并返回 `TurnHandle`，同一 Session 只允许一个活动 Turn；`TurnOutcome` 区分模型交回控制权、用户中断、Step 上限和失败，但没有 `success` 或 `completed`。工具调用继续同一 Turn；事件载荷使用独立快照，Turn 配置在接纳时固化，接收器失败也不会留下缺少工具结果的历史。CLI 分别显示 Turn 的控制权边界和内部 Step，把 `end_turn` 写成中性的“交还控制权”，不显示任务成功标记。取舍与中断延迟见 [ADR-0004](docs/decisions/0004-session-turn-step-lifecycle.md)。
 
-工具批次强制点已经落地：Session 创建时拒绝空名、重名和不合 contract 的工具元数据，并冻结模型定义与调度键；每个模型批次在首个副作用前完成结构预检，再按模型顺序串行执行。跨 Step/Turn 重复调用标识符会以 `tool_protocol_error` 拒绝，未知工具、普通异常和非法返回则各自产生同序失败结果；assistant 工具调用与全部结果仍一次性提交。工具参数、事件和历史互不共享可变嵌套对象。这个入口只约束模型响应触发的调用；可信宿主仍持有原始 Tool 引用，因此它不是权限或沙箱。取舍见 [ADR-0008](docs/decisions/0008-session-owned-tool-batch-executor.md)。
+工具批次强制点已经落地：Session 创建时拒绝空名、重名和不合 contract 的工具元数据，并冻结模型定义与调度键；agent loop 在 `ModelClient` 返回处先深拷贝整个响应，再让事件、预检、执行器和历史消费。每个模型批次在首个副作用前完成结构预检，再按模型顺序串行执行。跨 Step/Turn 重复调用标识符会以 `tool_protocol_error` 拒绝，未知工具、普通异常和非法返回则各自产生同序失败结果；assistant 工具调用与全部结果仍一次性提交。模型客户端、工具参数、事件和历史互不共享可变批次对象。这个入口只约束模型响应触发的调用；可信宿主仍持有原始 Tool 引用，因此它不是权限或沙箱。取舍见 [ADR-0008](docs/decisions/0008-session-owned-tool-batch-executor.md)。
 
 模型可见工具输出预算已经落地：批次执行器在完整 `ToolFinished` 发出后，才把成功内容或带 `Error: ` 前缀的失败文本投影成最多 64 KiB 的模型消息；超限时保留合法 UTF-8 首尾，并报告原始、保留、省略和上限字节数。Session 历史与下一次模型请求使用同一个有界视图，原始工具结果、事件和日志不被改写。该预算逐条生效，不限制整批合计，也没有让省略正文可恢复；取舍见 [ADR-0010](docs/decisions/0010-model-facing-tool-output-budget.md)。
 
@@ -142,7 +142,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-25 实测为 `230 passed, 9 deselected in 13.57s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-25 实测为 `231 passed, 9 deselected in 13.51s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 

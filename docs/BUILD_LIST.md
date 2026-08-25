@@ -6,9 +6,9 @@
 
 选择一个主题时，先为它找到当前代码中的失败证据和一分钟内可运行的离线验证，再写改动前简报。具体接口、类名和文件布局到实现时再决定，不为候选主题提前创建规格或 ADR。
 
-## 当前工作：待选择
+## 当前工作：MCP 运行时所有权
 
-模型可见工具输出预算已经完成并移入“最近完成”。下一项仍按本页的选择条件，从当前代码的可复现失败进入；这里不提前展开规格或承诺实现顺序。
+当前 MCP loader 用模块级变量保存默认超时与全部连接；第二次 runtime 改超时后，第一次 runtime 的连接会动态读到新值，而任一清理入口都会关闭两个 runtime 的连接（`mini_agent/tools/mcp_loader.py:21-57,159-169,284-285,359-433`）。下一步只收拢一次 CLI runtime 的超时快照、连接登记与关闭；不展开通用 Tool 生命周期、传输重写、重连、权限或并行连接。完成条件是两个 runtime 互不漂移、互不关闭，连接建立期间取消仍可回收，且 CLI 正常、错误和取消路径都关闭同一 owner。
 
 ## 可选研究主题
 
@@ -54,7 +54,7 @@
 
 - **模型可见工具输出预算**：原始 `ToolResult` 与 `ToolFinished` 保持完整，批次执行器只把模型消息投影限制为每条 64 KiB UTF-8 字节；精确边界不变，超限保留首尾并报告原始、保留、省略和上限字节数，失败前缀计入预算。3 项新增回归覆盖 UTF-8、事件所有权、观察者变异、历史、下一次请求与批次顺序；删除挂钩时集成回归实测转红。显式排除 `external` 的完整集合实测 `230 passed, 9 deselected in 13.57s`，取舍见 [`decisions/0010-model-facing-tool-output-budget.md`](decisions/0010-model-facing-tool-output-budget.md)。
 - **后台 shell 状态与资源所有权**：配置和模型客户端成功后，一次 CLI runtime 持有显式注入三个 shell 工具的 manager；`/clear` 保留它，退出才按 shell、MCP 顺序关闭。manager 隔离状态，拒绝重复与关闭后登记，串行化并发 `close()`，等待 monitor 和强杀后 subprocess，并保留失败项供重试。25 项定向回归与显式排除 `external` 的完整集合实测为 `227 passed, 9 deselected in 14.00s`，取舍见 [`decisions/0009-runtime-owned-background-shells.md`](decisions/0009-runtime-owned-background-shells.md)。
-- **模型工具批次强制点**：Session 持有冻结注册与调用标识符账本；模型批次在首个副作用前完整预检，再逐项认领并串行执行。结构错误使用 `tool_protocol_error`，工具自身失败保留为同序结果，参数、事件和历史使用独立快照，assistant 调用与全部结果成组提交。19 项定向回归覆盖重名、跨 Step/Turn 重放、非法批次零副作用、取消、串行中断和参数变异；默认入口实测 `202 passed, 9 deselected in 13.34s`。取舍见 [`decisions/0008-session-owned-tool-batch-executor.md`](decisions/0008-session-owned-tool-batch-executor.md)。
+- **模型工具批次强制点**：Session 持有冻结注册与调用标识符账本；agent loop 在接纳边界深拷贝整个模型响应，批次随后在首个副作用前完整预检，再逐项认领并串行执行。结构错误使用 `tool_protocol_error`，工具自身失败保留为同序结果，模型客户端、参数、事件和历史使用独立快照，assistant 调用与全部结果成组提交。20 项定向回归覆盖重名、跨 Step/Turn 重放、非法批次零副作用、取消、串行中断、参数变异和校验后响应变异；显式排除 `external` 的完整集合实测 `231 passed, 9 deselected in 13.51s`。取舍见 [`decisions/0008-session-owned-tool-batch-executor.md`](decisions/0008-session-owned-tool-batch-executor.md)。
 - **默认测试入口安全、离线**：真实模型、用户 MCP 配置和网络测试统一使用 `external` marker；默认配置与根级收集门双层排除，只有显式 `--run-external` 才放行。MCP 混合模块的 24 项离线测试保留在默认集合，入口回归能检出漏标、普通 `-m` 绕过和 marker 拼错；完整默认入口实测 `183 passed, 9 deselected in 13.82s`。取舍见 [`decisions/0007-explicit-opt-in-for-external-tests.md`](decisions/0007-explicit-opt-in-for-external-tests.md)。
 - **删除旧本地压缩**：Session 暂以完整模型历史直传；本地 token 估算、摘要替换、四类压缩事件、配置字段、摘要用途标签和 `tiktoken`/`regex` 依赖已经删除，旧配置键明确失败。64 项定向回归与锁文件校验通过，标准离线集合共 `157 passed`。取舍见 [`decisions/0006-remove-legacy-local-compaction.md`](decisions/0006-remove-legacy-local-compaction.md)。
 - **模型 API adapter 边界**：core 通过 `ModelClient` 调用模型并使用中性 `ToolDefinition`；显式注册表选择具体 wire adapter，端点、模型和输出上限不再由域名或 vendor 默认值推断。18 项 adapter 定向离线测试覆盖配置迁移、逐字端点传递、SDK 请求、工具历史、基础响应和单一重试所有权；未探测 `usage` 只供观察。取舍见 [`decisions/0005-explicit-model-api-adapters.md`](decisions/0005-explicit-model-api-adapters.md)。

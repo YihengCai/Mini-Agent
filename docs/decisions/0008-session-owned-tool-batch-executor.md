@@ -2,7 +2,7 @@
 
 - 日期：2026-08-25
 - 状态：已采纳
-- 关联：`mini_agent/core/tool_execution.py`、`mini_agent/core/agent.py`、`mini_agent/core/turn.py`、`tests/test_tool_execution.py`、提交 `528da1f`、[P-009](../PITFALLS.md)
+- 关联：`mini_agent/core/tool_execution.py`、`mini_agent/core/agent.py`、`mini_agent/core/turn.py`、`tests/test_tool_execution.py`、提交 `528da1f` 与 `565e266`、[P-009](../PITFALLS.md)、[P-013](../PITFALLS.md)
 
 ## 背景
 
@@ -37,9 +37,9 @@
 
 ## 怎么验证它是对的
 
-- `.venv/bin/python -m pytest -q tests/test_tool_execution.py` 实测 `19 passed in 0.39s`，覆盖注册冻结、结构预检、跨 Step/Turn 认领、结果归一、串行顺序、历史成组提交、观察失败、取消和参数所有权。
-- `.venv/bin/python -m pytest -q tests/test_tool_execution.py tests/test_agent_loop_offline.py tests/test_agent_session_offline.py` 实测 `60 passed in 0.68s`，覆盖执行器与既有生命周期、事件和 CLI contract 的组合。
-- `.venv/bin/python -m pytest -q` 实测 `202 passed, 9 deselected in 13.34s`；`.venv/bin/python -m compileall -q mini_agent tests` 与 `git diff --check` 均通过。
+- `.venv/bin/python -m pytest -q tests/test_tool_execution.py` 实测 `20 passed in 0.32s`，覆盖注册冻结、结构预检、跨 Step/Turn 认领、结果归一、串行顺序、历史成组提交、观察失败、取消、参数所有权与模型返回值所有权。
+- `.venv/bin/python -m pytest -q tests/test_tool_execution.py tests/test_agent_loop_offline.py tests/test_agent_session_offline.py` 实测 `61 passed in 0.78s`，覆盖执行器与既有生命周期、事件和 CLI contract 的组合。
+- `.venv/bin/python -m pytest -q -m 'not external'` 实测 `231 passed, 9 deselected in 13.51s`；`.venv/bin/python -m compileall -q mini_agent tests` 与 `git diff --check` 均通过。
 - `rg -n "\\.execute\\(" mini_agent/core mini_agent/cli.py --glob '*.py'` 只返回 `mini_agent/core/tool_execution.py` 中由模型路径触发的直接 `Tool.execute()`。
 
 ## 回头看
@@ -47,5 +47,7 @@
 最初实现选择在首个副作用前认领整个合法批次，以为这对取消最安全。故障注入证明首项抛出 `CancelledError` 时，后项尚未产生 `ToolStarted` 却已经不能重试；最终改为完整预检、逐项开始前认领，并明确该账本是 executor 内部的保守最多执行一次状态，不是模型可见事实，见 [P-009](../PITFALLS.md)。
 
 复审还发现 `**arguments` 只复制外层映射，工具可通过嵌套字典污染 `ToolFinished` 和 assistant 历史；最终在调度边界深拷贝参数，并用变异工具锁定三个观察面。这是 [P-003](../PITFALLS.md) 所述嵌套所有权问题在新边界上的再次出现。
+
+后续故障注入又证明，只深拷贝批次内部的参数仍不等于拥有模型返回批次：测试替身保留 `LLMResponse`，在完整预检后改写尚未启动的第二项调用，可以绕过重复标识符检查并污染副作用与历史。agent loop 现在在 `ModelClient.generate()` 返回处立即深拷贝整个响应，再向事件、执行器和历史分发；删除这一行时对应回归实测为 `1 failed in 0.55s`，见 [P-013](../PITFALLS.md)。
 
 最终实现没有引入通用中间件，也没有把可信宿主的 Tool 引用伪装成安全隔离。后续权限、输出预算与持久恢复可以复用这一模型调用强制点，但各自仍需新的失败证据和离线回归。

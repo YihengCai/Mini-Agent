@@ -249,6 +249,23 @@
 - 教训：agent 项目新增统一策略边界时，除了检查数据所有权，还要反向审计所有模型可见工具描述与错误文案；实现集中不代表 contract 只存在于集中点。
 - 关联：`mini_agent/core/tool_execution.py:114-132`、`mini_agent/core/tool_output.py:6-69`、`mini_agent/tools/skill_tool.py:23-28`、`tests/test_skill_tool.py:92-111`、[ADR-0010](decisions/0010-model-facing-tool-output-budget.md)、提交 `07e272b`。
 
+## P-013 · 深拷贝工具参数不等于拥有模型返回批次
+
+- 日期：2026-08-25
+- 原以为：执行器在完整预检后深拷贝每项工具参数，事件、工具和历史之间不共享嵌套对象，就已经封闭了模型工具批次的可变状态。
+- 实际是：模型客户端仍可保留自己返回的 `LLMResponse`；首项工具阻塞时，它能在预检后改写尚未启动的第二项调用，既绕过批内重复标识符检查，也改变实际副作用、assistant 历史和工具结果标识符。
+- 根因：所有权取得得太晚。叶子参数的分发快照只能隔离执行器之后的消费者，不能保护执行器正在遍历的上游容器；外部组件返回的可变对象必须先在接纳边界整体复制，再做任何验证或分发。
+- 复现：删除 `mini_agent/core/agent.py:340-345` 返回表达式末尾的 `.model_copy(deep=True)`，再运行：
+
+  ```bash
+  .venv/bin/python -m pytest -q \
+    tests/test_tool_execution.py::test_model_client_cannot_mutate_an_admitted_tool_batch
+  ```
+
+  删除前实测为 `1 failed in 0.55s`：第二项副作用变为 `mutated-after-validation`，两个工具结果标识符都变为 `first-call`；恢复后实测为 `1 passed in 0.48s`。
+- 教训：agent 接纳模型、MCP 或工具返回的可变结构时，要先取得整个返回对象的所有权再验证；只在更深的执行层复制叶子数据，无法阻止校验与使用之间的改写。
+- 关联：`mini_agent/core/agent.py:339-345`、`tests/test_tool_execution.py:139-149,661-695`、[ADR-0008](decisions/0008-session-owned-tool-batch-executor.md)、提交 `565e266`。
+
 ## 模板
 
 ```markdown
