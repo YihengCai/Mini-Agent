@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-项目已在上游 baseline 上完成二十三项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收；每条模型可见工具结果现在还有统一的 UTF-8 字节预算；配置模型现在拒绝未知字段并单独持有默认值；Note 存储损坏时会失败关闭并保留原字节；MCP server 的错误正文会归一化到内部失败结果；显式非法 MCP transport 会在连接前隔离；配置与 core 都拒绝非正 Step 预算；配置与运行时都约束重试次数和退避数值，并由重试模块单一解释 enabled 开关；每个 Session 的模型请求都包含本次真实工作区事实；相对系统提示词与 MCP 配置现在绑定到已选主配置的目录；每个 Turn 的人类可读日志都排他占用新文件；Skill 发现会以完整快照替换注册表并拒绝重名来源。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
+项目已在上游 baseline 上完成二十四项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收；每条模型可见工具结果现在还有统一的 UTF-8 字节预算；配置模型现在拒绝未知字段并单独持有默认值；Note 存储损坏时会失败关闭并保留原字节；MCP server 的错误正文会归一化到内部失败结果；显式非法 MCP transport 会在连接前隔离；配置与 core 都拒绝非正 Step 预算；配置与运行时都约束重试次数和退避数值，并由重试模块单一解释 enabled 开关；core 不再把模型异常的总调用次数改写成重试次数；每个 Session 的模型请求都包含本次真实工作区事实；相对系统提示词与 MCP 配置现在绑定到已选主配置的目录；每个 Turn 的人类可读日志都排他占用新文件；Skill 发现会以完整快照替换注册表并拒绝重名来源。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
 
 `read_file` 现在返回 1-based 行窗口，编号正文最多 2000 个完整行或 50 KiB，并给出下一次 `offset`；`edit_file` 仅把 LF/CRLF 视为等价，其他文本必须精确匹配且只能出现一次。写入和编辑通过同目录临时文件和 `os.replace()` 提交，已有文件保留 CRLF 约定与权限位。代码可以运行，但仍保留重要限制：
 
@@ -55,7 +55,7 @@ MCP 运行时所有权也已经落地：CLI 用配置构造不可变超时快照
 
 Skill 发现的状态边界也已经收紧：每次递归扫描先按路径排序并构建局部注册表，重名会明确报告两个来源，只有完整成功后才替换当前快照；删除文件后的重扫不会留下陈旧能力，失败扫描也不会发布部分结果。更严格的 YAML frontmatter（文件头元数据）结构校验、`allowed-tools` 强制、动态监视、来源优先级和信任/权限模型仍未实现；取舍见 [ADR-0020](docs/decisions/0020-transactional-skill-discovery.md)。
 
-重试配置也有了双入口边界：YAML 和程序化 `RetryConfig` 都拒绝负 `max_retries`；`0` 明确表示只执行首次调用，正数表示允许的附加尝试。delay 必须有限且非负，base 必须有限且为正；递减 base 和首次即截断仍合法。零初值不做幂运算，其他有限输入溢出时按 `max_delay` 饱和。`async_retry()` 现在单一解释 `enabled`：禁用时只调用一次，不等待、不回调并透传原异常；两个 wire adapter 不再复制启停分支。次数取舍见 [ADR-0017](docs/decisions/0017-nonnegative-retry-count-at-config-and-runtime.md)，退避取舍见 [ADR-0018](docs/decisions/0018-finite-and-saturating-retry-backoff.md)，开关所有权见 [ADR-0021](docs/decisions/0021-retry-module-owns-enabled-switch.md)。
+重试配置也有了双入口边界：YAML 和程序化 `RetryConfig` 都拒绝负 `max_retries`；`0` 明确表示只执行首次调用，正数表示允许的附加尝试。delay 必须有限且非负，base 必须有限且为正；递减 base 和首次即截断仍合法。零初值不做幂运算，其他有限输入溢出时按 `max_delay` 饱和。`async_retry()` 现在单一解释 `enabled`：禁用时只调用一次，不等待、不回调并透传原异常；两个 wire adapter 不再复制启停分支。core 只添加中性的模型调用失败前缀，保留异常自身文本和原对象，不再导入具体重试类型。次数取舍见 [ADR-0017](docs/decisions/0017-nonnegative-retry-count-at-config-and-runtime.md)，退避取舍见 [ADR-0018](docs/decisions/0018-finite-and-saturating-retry-backoff.md)，开关所有权见 [ADR-0021](docs/decisions/0021-retry-module-owns-enabled-switch.md)，core 错误边界见 [ADR-0022](docs/decisions/0022-core-preserves-model-error-semantics.md)。
 
 Note 存储失败关闭也已经落地：`record_note` 与 `recall_notes` 共用同一个读取入口，只有文件不存在才表示空状态；已有文件必须是 JSON 对象数组。读取、解码、解析或最小结构校验失败时，两个工具都返回失败，写入不会开始，原始字节保持不变。它还没有解决直接整文件写入、并发更新、容量预算或读取工具注册；取舍见 [ADR-0013](docs/decisions/0013-fail-closed-note-storage.md)。
 
@@ -158,7 +158,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-26 实测为 `310 passed, 9 deselected in 13.12s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-26 实测为 `311 passed, 9 deselected in 13.27s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 
