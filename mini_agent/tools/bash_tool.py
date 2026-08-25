@@ -152,25 +152,25 @@ class BackgroundShellManager:
         bash_id = shell.bash_id
         try:
             process = shell.process
-            while process.returncode is None:
+            while process.stdout is not None:
                 try:
-                    if process.stdout:
-                        line = await asyncio.wait_for(
-                            process.stdout.readline(),
-                            timeout=0.1,
-                        )
-                        if line:
-                            decoded_line = line.decode(
-                                "utf-8",
-                                errors="replace",
-                            ).rstrip("\n")
-                            shell.add_output(decoded_line)
-                        else:
-                            break
+                    line = await asyncio.wait_for(
+                        process.stdout.readline(),
+                        timeout=0.1,
+                    )
+                    if not line:
+                        break
+                    decoded_line = line.decode(
+                        "utf-8",
+                        errors="replace",
+                    ).rstrip("\n")
+                    shell.add_output(decoded_line)
                 except asyncio.TimeoutError:
                     await asyncio.sleep(0.1)
                     continue
                 except Exception:
+                    if process.returncode is not None:
+                        break
                     await asyncio.sleep(0.1)
                     continue
 

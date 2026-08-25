@@ -42,6 +42,16 @@ class ControlledStream:
             raise
 
 
+class BufferedStream:
+    def __init__(self, *lines: bytes) -> None:
+        self.lines = list(lines)
+
+    async def readline(self) -> bytes:
+        if self.lines:
+            return self.lines.pop(0)
+        return b""
+
+
 class FakeProcess:
     def __init__(
         self,
@@ -150,6 +160,32 @@ async def test_managers_isolate_shell_state() -> None:
         assert not isolated_result.success
     finally:
         await first.close()
+
+
+@pytest.mark.asyncio
+async def test_monitor_drains_stdout_after_process_exit_before_completion() -> None:
+    manager = BackgroundShellManager()
+    process = FakeProcess(
+        stdout=BufferedStream(b"first\n", b"second\n"),
+        returncode=0,
+    )
+    shell = make_shell("buffered-output", process)
+
+    try:
+        manager.track(shell)
+        monitor = manager._monitor_tasks["buffered-output"]
+        await monitor
+        output = await BashOutputTool(manager=manager).execute(
+            bash_id="buffered-output",
+        )
+
+        assert output.success
+        assert output.stdout == "first\nsecond"
+        assert shell.status == "completed"
+        assert shell.exit_code == 0
+        assert process.wait_calls == 1
+    finally:
+        await manager.close()
 
 
 @pytest.mark.asyncio
