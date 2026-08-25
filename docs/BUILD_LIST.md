@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-正数 Step 预算边界已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
+Session 工作区事实注入已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **Session 工作区事实精确注入**：Session 先生成含本次绝对路径的完整事实块，只有同一块已存在时才跳过；调用者提示词中的偶然 `Current Workspace` 文字和旧路径继续作为前缀保留，但不能阻止真实路径进入模型请求。2 类干扰输入与 1 项准确块幂等回归通过；恢复旧子串门时两项转红。完整离线集合实测 `264 passed, 9 deselected in 13.65s`。
 - **正数 Step 预算双边界**：`AgentConfig` 在 CLI runtime 组装前要求 `max_steps > 0`，公开 `AgentSession` 在工具检查与工作区创建前独立执行同一守卫；`0/-1` 不能再接纳用户消息后以零模型请求返回 `max_steps`。配置与 core 各 2 项回归分别验证字段错误、无目录副作用和无模型请求；移除任一层时对应测试转红。完整离线集合实测 `261 passed, 9 deselected in 13.85s`，取舍见 [`decisions/0014-positive-step-budget-at-config-and-core.md`](decisions/0014-positive-step-budget-at-config-and-core.md)。
 - **MCP 错误正文归一化**：MCP `isError` 的非空正文现在写入内部 `ToolResult.error`，成功正文仍写入 `content`，空错误保留通用兜底；现有批次执行器因此把同一诊断交给原始 `ToolFinished`、模型消息、CLI 和日志。4 项纯离线回归使用真实 MCP SDK 结果类型覆盖成功、多段正文、错误、空错误和 executor 集成；恢复通用错误时集成回归转红。完整离线集合实测 `257 passed, 9 deselected in 13.18s`。
 - **Note 存储损坏时失败关闭**：`record_note` 与 `recall_notes` 共享 UTF-8 JSON 对象数组校验，只有文件不存在才表示空状态；损坏 JSON、对象根或含非对象元素的数组都会让两个工具失败，写入不会开始且原字节逐字不变。测试先去掉依赖空临时文件吞错的夹具，再增加 3 项结构回归；恢复宽泛异常降级时回归转红。完整离线集合实测 `253 passed, 9 deselected in 13.89s`，取舍见 [`decisions/0013-fail-closed-note-storage.md`](decisions/0013-fail-closed-note-storage.md)。

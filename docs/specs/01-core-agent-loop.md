@@ -15,11 +15,11 @@ git show fdcd945^:mini_agent/cli.py
 
 ## 已实现边界
 
-- `AgentSession` 表示一段逻辑对话，持有一份完整模型可见历史、只读配置和至多一个活动 Turn（`mini_agent/core/agent.py:90-218`）。当前没有自动上下文预算或压缩；CLI `/clear` 创建新 Session（`mini_agent/cli.py:722-730`）。
-- `start_turn(user_input, event_sink=...)` 原子接纳输入并返回 `TurnHandle`。同一 Session 有活动 Turn 时拒绝新输入；等待调用者被取消不会取消私有 runner（`mini_agent/core/agent.py:159-218`；`mini_agent/core/turn.py:51-90`）。
+- `AgentSession` 表示一段逻辑对话，持有一份完整模型可见历史、只读配置和至多一个活动 Turn（`mini_agent/core/agent.py:88-233`）。当前没有自动上下文预算或压缩；CLI `/clear` 通过同一工厂创建新 Session（`mini_agent/cli.py:697-707,804-808`）。
+- `start_turn(user_input, event_sink=...)` 原子接纳输入并返回 `TurnHandle`。同一 Session 有活动 Turn 时拒绝新输入；等待调用者被取消不会取消私有 runner（`mini_agent/core/agent.py:168-223`；`mini_agent/core/turn.py:51-90`）。
 - Turn 从客户端交出控制权开始，到 `end_turn`、`interrupted`、`max_steps` 或 `failed` 后交还控制权。`TurnOutcome` 可以带最后回复与结构化错误，但没有任务成功字段（`mini_agent/core/turn.py:10-48`）。
-- Step 是一次模型请求、该响应中的全部工具调用及结果写入。工具调用会继续同一个 Turn；所有模型事件都属于当前 Step（`mini_agent/core/agent.py:294-520`）。
-- 公开 core API 只有 Session、Turn 句柄、结果和观察事件；`_AgentLoop` 是 Session 内部实现，不能绕过接纳不变量（`mini_agent/core/agent.py:227-617`；`mini_agent/core/__init__.py:1-47`）。
+- Step 是一次模型请求、该响应中的全部工具调用及结果写入。工具调用会继续同一个 Turn；所有模型事件都属于当前 Step（`mini_agent/core/agent.py:303-521`）。
+- 公开 core API 只有 Session、Turn 句柄、结果和观察事件；`_AgentLoop` 是 Session 内部实现，不能绕过接纳不变量（`mini_agent/core/agent.py:236-565`；`mini_agent/core/__init__.py:1-47`）。
 - `AgentEventEnvelope` 为每个事件附加 Session、Turn 和可选 Step 身份；CLI 用同步接收器分别渲染 Turn 控制权边界和内部 Step，并写原日志（`mini_agent/core/events.py:20-103`；`mini_agent/cli_events.py:22-146`）。
 
 ## 不变量
@@ -33,6 +33,7 @@ git show fdcd945^:mini_agent/cli.py
 7. `TurnHandle.wait()` 屏蔽等待者取消，CLI 必须先请求中断并等待 runner 收敛，再传播应用取消或开始下一次输入（`mini_agent/cli.py:273-291,830-854`）。
 8. CLI 必须把一次 Turn 中的多个 Step 显示为层级关系；`end_turn` 只显示控制权交还，不使用成功或完成标记。`max_steps` 的用户可见定义是“一个 Turn 内允许的 agent 模型请求数”。
 9. `max_steps` 必须是正整数；配置入口在 runtime 组装前拒绝，`AgentSession` 在工具检查、工作区创建和 Turn 接纳前独立拒绝。
+10. 单条 system message 保留调用者提示词为前缀，并包含基于本次 Session 绝对路径生成的完整工作区事实块；只有同一完整块已经存在时才跳过追加。
 
 ## 未包含
 
@@ -44,10 +45,11 @@ git show fdcd945^:mini_agent/cli.py
 
 ## 已验证行为
 
-- `tests/test_agent_session_offline.py:112-135` 与 `tests/test_llm_adapters.py`：配置和公开 core 入口分别拒绝非正 Step 预算，且不创建工作区；
-- `tests/test_agent_session_offline.py:134-247`：跨 Turn 完整历史、唯一身份、单活动 Turn、可重入接纳和创建失败回滚；
-- `tests/test_agent_session_offline.py:249-359`：等待者取消、CLI 收敛、配置快照和工具驱动的多 Step；
-- `tests/test_agent_session_offline.py:361-608`：观察数据隔离、接收器错误、消息配对、内部错误和结构化停止原因；
-- `tests/test_agent_session_offline.py:610-663`：完整 Step 中断与终止优先级；
+- `tests/test_agent_session_offline.py:121-139` 与 `tests/test_llm_adapters.py`：配置和公开 core 入口分别拒绝非正 Step 预算，且不创建工作区；
+- `tests/test_agent_session_offline.py:153-188`：偶然文字与旧路径不能抑制当前工作区事实，准确块不重复；
+- `tests/test_agent_session_offline.py:191-304`：跨 Turn 完整历史、唯一身份、单活动 Turn、可重入接纳和创建失败回滚；
+- `tests/test_agent_session_offline.py:306-416`：等待者取消、CLI 收敛、配置快照和工具驱动的多 Step；
+- `tests/test_agent_session_offline.py:418-665`：观察数据隔离、接收器错误、消息配对、内部错误和结构化停止原因；
+- `tests/test_agent_session_offline.py:667-720`：完整 Step 中断与终止优先级；
 - `tests/test_agent_loop_offline.py:381-519`：一个多 Step Turn 的 CLI 层级、中性结束标记、失败去重和帮助文案；
-- README 的离线命令在 2026-08-25 实测为 `261 passed, 9 deselected in 13.85s`，没有 warning。
+- README 的离线命令在 2026-08-25 实测为 `264 passed, 9 deselected in 13.65s`，没有 warning。
