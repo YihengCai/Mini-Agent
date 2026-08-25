@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-项目已在上游 baseline 上完成十六项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收；每条模型可见工具结果现在还有统一的 UTF-8 字节预算；配置模型现在拒绝未知字段并单独持有默认值；Note 存储损坏时会失败关闭并保留原字节；MCP server 的错误正文会归一化到内部失败结果；配置与 core 都拒绝非正 Step 预算；每个 Session 的模型请求都包含本次真实工作区事实。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
+项目已在上游 baseline 上完成十七项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试；模型响应触发的工具调用统一经过 Session 持有的冻结注册与批次执行器；后台 shell 与 MCP 连接分别由一次 CLI runtime 持有的 manager 隔离并统一回收；每条模型可见工具结果现在还有统一的 UTF-8 字节预算；配置模型现在拒绝未知字段并单独持有默认值；Note 存储损坏时会失败关闭并保留原字节；MCP server 的错误正文会归一化到内部失败结果；配置与 core 都拒绝非正 Step 预算；每个 Session 的模型请求都包含本次真实工作区事实；相对系统提示词与 MCP 配置现在绑定到已选主配置的目录。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
 
 `read_file` 现在返回 1-based 行窗口，编号正文最多 2000 个完整行或 50 KiB，并给出下一次 `offset`；`edit_file` 仅把 LF/CRLF 视为等价，其他文本必须精确匹配且只能出现一次。写入和编辑通过同目录临时文件和 `os.replace()` 提交，已有文件保留 CRLF 约定与权限位。代码可以运行，但仍保留重要限制：
 
@@ -47,7 +47,9 @@ LLM 测试替身已经落地：所有模型调用共用一条严格 FIFO 脚本�
 
 MCP 运行时所有权也已经落地：CLI 用配置构造不可变超时快照，并把同一个 `MCPManager` 交给 loader 与最终清理；不同 runtime 不共享超时或连接。manager 在连接建立前登记所有权，串行化加载与关闭，尝试全部连接并保留失败项；叶子连接只有在 transport 关闭成功后才丢弃句柄，所以取消后的关闭可以真实重试。`isError` 的非空 server 正文现在映射到内部 `error`，因此 `ToolFinished`、模型消息、CLI 和日志使用同一诊断；空正文仍使用通用兜底。运行时所有权取舍见 [ADR-0011](docs/decisions/0011-runtime-owned-mcp-connections.md)。
 
-配置解析也已经收紧：根级扁平 YAML 仍映射到 `llm`、`agent` 和 `tools`，但所有配置模型现在共享未知字段拒绝策略；根级允许集合、必填字段与分片从模型字段派生，解析器不再重复 18 个默认值。拼错的根级、重试、工具或 MCP 键会在启动时指出原字段，合法缺省值只由模型补全；数值语义和配置文件来源不属于这次改造。取舍见 [ADR-0012](docs/decisions/0012-strict-single-source-config-loading.md)。
+配置解析也已经收紧：根级扁平 YAML 仍映射到 `llm`、`agent` 和 `tools`，但所有配置模型现在共享未知字段拒绝策略；根级允许集合、必填字段与分片从模型字段派生，解析器不再重复 18 个默认值。拼错的根级、重试、工具或 MCP 键会在启动时指出原字段，合法缺省值只由模型补全；数值语义和配置文件来源当时没有改变。取舍见 [ADR-0012](docs/decisions/0012-strict-single-source-config-loading.md)。
+
+配置伴随文件的来源也已经统一：CLI 选择 `config.yaml` 后把路径显式传给同一次 runtime，相对 `system_prompt_path` 与 `mcp_config_path` 只从该目录解析，显式绝对路径保持不变。相对文件缺失时不会跨目录借用同名文件，而是使用内置提示词或保持 MCP 未加载；`skills_dir` 与工作区语义没有随本项改变。取舍见 [ADR-0015](docs/decisions/0015-bind-config-companions-to-selected-source.md)。
 
 Note 存储失败关闭也已经落地：`record_note` 与 `recall_notes` 共用同一个读取入口，只有文件不存在才表示空状态；已有文件必须是 JSON 对象数组。读取、解码、解析或最小结构校验失败时，两个工具都返回失败，写入不会开始，原始字节保持不变。它还没有解决直接整文件写入、并发更新、容量预算或读取工具注册；取舍见 [ADR-0013](docs/decisions/0013-fail-closed-note-storage.md)。
 
@@ -150,7 +152,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-25 实测为 `264 passed, 9 deselected in 13.65s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-25 实测为 `269 passed, 9 deselected in 13.12s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 

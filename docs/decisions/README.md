@@ -49,5 +49,6 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0012](0012-strict-single-source-config-loading.md) | 配置模型同时持有默认值与未知字段边界 | 已采纳 |
 | [0013](0013-fail-closed-note-storage.md) | 损坏的 Note 存储失败关闭并保留原字节 | 已采纳 |
 | [0014](0014-positive-step-budget-at-config-and-core.md) | 配置与 core 共同拒绝非正 Step 预算 | 已采纳 |
+| [0015](0015-bind-config-companions-to-selected-source.md) | 配置伴随文件绑定到已选主配置来源 | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。
