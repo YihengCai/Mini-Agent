@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-MCP transport 显式校验已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
+非负重试次数边界已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@ MCP transport 显式校验已经完成并移入“最近完成”。下一项仍
 
 ## 最近完成
 
+- **非负重试次数双边界**：文件配置与程序化运行时对象都要求 `max_retries >= 0`；`0` 保持一次首次调用，正数保持首次调用外的附加次数。零次循环专用的 `last_exception` 与 `Unknown error` 尾分支已删除。5 项新回归覆盖两层拒绝、零值与正值计数；移除任一守卫时对应测试转红。完整离线集合实测 `279 passed, 9 deselected in 13.42s`，取舍见 [`decisions/0017-nonnegative-retry-count-at-config-and-runtime.md`](decisions/0017-nonnegative-retry-count-at-config-and-runtime.md)。
 - **MCP transport 显式校验**：只有完全缺少 `type` 时才按 URL 推断；四个已知名称保持大小写不敏感，未知、空、`null` 与非字符串会在连接构造前隔离当前 server，并让合法后续项继续加载。6 项新增或扩展回归覆盖显式值、连接入口和 loader 隔离；恢复宽松推断与移除连接守卫时分别有 5 项和 1 项转红。完整离线集合实测 `274 passed, 9 deselected in 13.12s`，取舍见 [`decisions/0016-reject-explicit-invalid-mcp-transports.md`](decisions/0016-reject-explicit-invalid-mcp-transports.md)。
 - **配置伴随文件来源绑定**：CLI 把已选 `config.yaml` 路径显式传入同一次 runtime；相对系统提示词与 MCP 配置只从其词法父目录解析，绝对路径原样保留，缺失时使用内置提示词或保持 MCP 未加载，不再借用其他来源的同名文件。5 项新回归覆盖纯路径函数、相对存在、相对缺失与绝对路径；恢复旧全局搜索时 3 项转红。完整离线集合实测 `269 passed, 9 deselected in 13.12s`，取舍见 [`decisions/0015-bind-config-companions-to-selected-source.md`](decisions/0015-bind-config-companions-to-selected-source.md)。
 - **Session 工作区事实精确注入**：Session 先生成含本次绝对路径的完整事实块，只有同一块已存在时才跳过；调用者提示词中的偶然 `Current Workspace` 文字和旧路径继续作为前缀保留，但不能阻止真实路径进入模型请求。2 类干扰输入与 1 项准确块幂等回归通过；恢复旧子串门时两项转红。完整离线集合实测 `264 passed, 9 deselected in 13.65s`。

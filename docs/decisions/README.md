@@ -51,5 +51,6 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0014](0014-positive-step-budget-at-config-and-core.md) | 配置与 core 共同拒绝非正 Step 预算 | 已采纳 |
 | [0015](0015-bind-config-companions-to-selected-source.md) | 配置伴随文件绑定到已选主配置来源 | 已采纳 |
 | [0016](0016-reject-explicit-invalid-mcp-transports.md) | 显式非法 MCP transport 只隔离当前 server | 已采纳 |
+| [0017](0017-nonnegative-retry-count-at-config-and-runtime.md) | 配置与运行时共同拒绝负重试次数 | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。
