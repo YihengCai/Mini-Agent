@@ -8,11 +8,11 @@
 
 ## 当前状态
 
-项目已在上游 baseline 上完成六项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
+项目已在上游 baseline 上完成七项改造：`tests/` 中新增了脚本化 LLM 测试替身和真实 agent loop 的离线回归；文件工具改成了有界读取、唯一匹配和单文件原子替换；agent loop 已移入不依赖终端的 `mini_agent/core/`；执行生命周期又拆成一段逻辑对话的 `AgentSession`、一次控制权交接的 Turn，以及一次 agent 模型请求与完整工具批次的 Step；模型调用现在通过统一调用 contract、中性工具定义和显式 wire adapter 隔离 API 差异；旧本地压缩及其配置、事件、摘要模型调用和专用依赖已经删除；默认 pytest 入口会排除真实模型、用户 MCP 配置和网络测试。CLI 通过同步事件适配器渲染和写日志，原来的 ACP 适配器、命令入口与依赖也已删除。
 
 `read_file` 现在返回 1-based 行窗口，编号正文最多 2000 个完整行或 50 KiB，并给出下一次 `offset`；`edit_file` 仅把 LF/CRLF 视为等价，其他文本必须精确匹配且只能出现一次。写入和编辑通过同目录临时文件和 `os.replace()` 提交，已有文件保留 CRLF 约定与权限位。代码可以运行，但仍保留重要限制：
 
-- 部分上游测试仍无法有效失败或会访问真实 API；
+- 两份上游真实模型演示仍会吞异常或用返回值代替断言；它们和 5 项外部 MCP/网络测试已从默认集合排除，显式运行也不构成稳定回归；
 - `TurnOutcome` 只解释 core 为什么交还控制权，不判断用户任务是否完成；目前没有 TaskSupervisor、BenchmarkEvaluator 或 SWE-bench 接入；
 - core 事件目前只是带 Session、Turn、Step 身份的进程内同步通知，不是可持久化、可回放的轨迹格式，也还没有独立统计或基准评测消费者；
 - Esc 没有真正取消正在运行的模型或工具任务；中断只在完整 Step 边界生效，延迟可能覆盖一次模型调用和整批工具执行；
@@ -27,6 +27,8 @@
 
 LLM 测试替身已经落地：所有模型调用共用一条严格 FIFO 脚本；响应不足、响应剩余、首个违规被捕获和工具调用配对错误都会使测试失败。测试会记录模型实际收到的消息和工具定义，并已覆盖真实工具循环、工具失败和最大步数。删除摘要调用后，用途标签已经随 ADR-0001 一起由 [ADR-0006](docs/decisions/0006-remove-legacy-local-compaction.md) 推翻。
 
+默认测试入口也已经收拢：真实模型测试使用模块级 `external` marker，MCP 混合模块只标记 5 项会读取用户配置、连接服务或访问网络的测试；默认配置与根级收集门共同排除它们，普通 marker 过滤不能绕过，拼错 marker 会直接使收集失败。24 项纯离线 MCP 测试仍在默认集合中；取舍见 [ADR-0007](docs/decisions/0007-explicit-opt-in-for-external-tests.md)。
+
 文件工具改造也已经落地：读取预算、续读提示、歧义拒绝、CRLF、权限位和原子替换失败都有离线回归；删除唯一匹配判断、`os.replace()` 或超长行早停时，对应测试会转红。取舍见 [ADR-0002](docs/decisions/0002-bounded-and-atomic-file-tools.md)。
 
 核心边界改造已经落地：消息、模型调用、工具执行和终止判断只在 `mini_agent/core/agent.py` 中运行；`mini_agent/cli_events.py` 消费同一条事件序列完成终端渲染与原有文本日志。不给 `event_sink` 时，真实 agent loop 可以无终端输出、无日志副作用地运行。事件顺序、CLI 输出与日志调用都有离线回归；core 没有自动压缩状态，也不导入 UI、日志或传输模块。
@@ -35,7 +37,7 @@ LLM 测试替身已经落地：所有模型调用共用一条严格 FIFO 脚本�
 
 模型 API 边界改造已经落地：core 只通过 `ModelClient` 调用模型，并把中性 `ToolDefinition` 与现有内部消息结构交给 adapter；静态注册表依据显式 `adapter` 选择具体 wire 编解码。配置必须提供 API key、原样端点、模型和输出上限，未知 adapter 或旧 `provider` 字段会立即失败；项目不会根据域名拼接路径，也不默认启用未经探测的推理状态续传、缓存计量或服务端扩展。Anthropic 与 OpenAI SDK 只作为协议传输实现，具体 adapter 持有认证头与 wire 编解码，SDK 自带重试已关闭，由项目重试层单独持有策略。取舍见 [ADR-0005](docs/decisions/0005-explicit-model-api-adapters.md)。
 
-ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生命周期的端到端测试；继续维护它只会让协议层提前塑造执行框架。因此当前版本主动删除 ACP，而不是把 CLI 改成 ACP 客户端。重新引入协议层的条件见 [ADR-0003](docs/decisions/0003-remove-acp-and-extract-core-loop.md)。下一项工作是让默认测试入口安全、离线；边界与证据见 [BUILD_LIST](docs/BUILD_LIST.md)。
+ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生命周期的端到端测试；继续维护它只会让协议层提前塑造执行框架。因此当前版本主动删除 ACP，而不是把 CLI 改成 ACP 客户端。重新引入协议层的条件见 [ADR-0003](docs/decisions/0003-remove-acp-and-extract-core-loop.md)。下一项工作是建立唯一的工具批次强制点；边界与证据见 [BUILD_LIST](docs/BUILD_LIST.md)。
 
 ## 设计原则
 
@@ -124,25 +126,13 @@ uv run mini-agent log
 
 ## 离线测试
 
-不要直接运行完整 `pytest`：部分上游测试会读取本地配置并访问真实 API。
+默认入口只运行离线集合，不读取用户模型/MCP 配置，也不访问真实端点或网络：
 
 ```bash
-.venv/bin/python -m pytest -q \
-  tests/test_tools.py \
-  tests/test_bash_tool.py \
-  tests/test_skill_loader.py \
-  tests/test_skill_tool.py \
-  tests/test_note_tool.py \
-  tests/test_tool_schema.py \
-  tests/test_terminal_utils.py \
-  tests/test_session_integration.py \
-  tests/test_markdown_links.py \
-  tests/test_llm_adapters.py \
-  tests/test_agent_loop_offline.py \
-  tests/test_agent_session_offline.py
+.venv/bin/python -m pytest -q
 ```
 
-以上命令在 2026-08-25 实测为 `157 passed in 10.08s`，没有产生 warning，也没有访问真实 API。
+以上命令在 2026-08-25 实测为 `183 passed, 9 deselected in 13.82s`，没有产生 warning。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 

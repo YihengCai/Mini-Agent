@@ -151,6 +151,26 @@
 - 教训：agent 项目删除依赖时，锁文件一致性检查必须再配合依赖图、针对包名的搜索和完整 diff；不能把 `lock --check` 当成不可达包垃圾回收器。
 - 关联：`pyproject.toml:11-23`、`uv.lock`、[ADR-0006](decisions/0006-remove-legacy-local-compaction.md)、提交 `3cbf242`。
 
+## P-008 · 避开真实模型测试不等于默认集合已经离线
+
+- 日期：2026-08-25
+- 原以为：默认 pytest 的外部风险只来自 `tests/test_agent.py` 和 `tests/test_integration.py` 两个真实模型模块，继续维护离线文件白名单即可避免费用与网络访问。
+- 实际是：`tests/test_mcp.py` 还混有 5 项外部测试；前三项读取用户 `mcp.json` 后才判断是否跳过，可能先启动、连接或调用已配置的 server，后两项主动访问不可达地址。绕过当前收集门但只做 `--collect-only` 时，三份文件共出现 33 项，其中 9 项拥有这些外部能力。
+- 根因：按文件名和“是否调用模型”分类测试，没有按真实副作用分类；跳过判断发生在外部连接之后也不能充当安全门。
+- 复现：第一条命令只收集测试，并显式绕过当前两层门控以重现旧边界；第二条使用当前默认入口。两条都不执行测试体。
+
+  ```bash
+  .venv/bin/python -m pytest --collect-only -q --noconftest \
+    -o 'addopts=--strict-markers' \
+    tests/test_agent.py tests/test_integration.py tests/test_mcp.py
+  .venv/bin/python -m pytest --collect-only -q \
+    tests/test_agent.py tests/test_integration.py tests/test_mcp.py
+  ```
+
+  2026-08-25 实测第一条为 `33 tests collected in 0.69s`；第二条只留下 24 项离线 MCP 测试并报告 9 项被排除。
+- 教训：agent 项目的测试安全边界要按“会不会读取用户配置、访问真实端点、启动配置驱动的服务或触网”标记，并在收集阶段统一强制；文件白名单和测试体内的 skip 都不足以证明默认离线。
+- 关联：`conftest.py:11-41`、`pyproject.toml:50-58`、`tests/test_mcp.py:325-493`、`tests/test_pytest_entrypoint.py:66-112`、[ADR-0007](decisions/0007-explicit-opt-in-for-external-tests.md)、提交 `8616739`。
+
 ## 模板
 
 ```markdown

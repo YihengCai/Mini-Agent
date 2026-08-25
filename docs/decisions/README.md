@@ -41,5 +41,6 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0004](0004-session-turn-step-lifecycle.md) | 以 Session、Turn、Step 分开对话、控制权交接与模型—工具执行 | 已采纳 |
 | [0005](0005-explicit-model-api-adapters.md) | 以中性 contract、静态注册表和具体 adapter 隔离模型 API 差异 | 已采纳 |
 | [0006](0006-remove-legacy-local-compaction.md) | 删除旧本地压缩，暂以完整历史直传 | 已采纳 |
+| [0007](0007-explicit-opt-in-for-external-tests.md) | 外部测试必须通过 marker 与收集门显式允许 | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。

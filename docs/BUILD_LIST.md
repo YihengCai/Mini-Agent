@@ -6,9 +6,9 @@
 
 选择一个主题时，先为它找到当前代码中的失败证据和一分钟内可运行的离线验证，再写改动前简报。具体接口、类名和文件布局到实现时再决定，不为候选主题提前创建规格或 ADR。
 
-## 当前工作：让默认测试入口安全、离线
+## 当前工作：建立唯一的工具批次强制点
 
-仓库仍不能安全运行默认 `pytest`：`tests/test_agent.py` 和 `tests/test_integration.py` 会读取本地配置并调用真实端点，AGENTS 与 README 只能靠人工维护白名单避开它们。当前工作只收拢测试分类与默认入口，使误运行不会访问真实 API；不重写业务测试、模型 adapter 或 agent loop。完成后才进入统一工具批次强制点。
+生产运行时虽只有一处直接 `Tool.execute()`，但 `_AgentLoop._run_step()` 仍内联整批查找、执行、异常归一化、事件和消息提交（`mini_agent/core/agent.py:413-485`），没有在首个副作用前验证批内/历史重复调用标识符；严格配对检查只存在于测试替身的下一次模型请求边界（`tests/llm_test_double.py:30-70`）。Session 注册还用字典推导静默覆盖同名工具，并会在注册后重新读取可变 `tool.name`（`mini_agent/core/agent.py:93-105,312-349`）。当前工作把冻结注册、整批预检、串行执行和结果规范化收进一个可独立验证的 core 强制点；不顺手加入并行、重试、权限、输出预算、取消、MCP 生命周期或后台 shell 管理。完成后才进入后台 shell 的状态与资源所有权。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **默认测试入口安全、离线**：真实模型、用户 MCP 配置和网络测试统一使用 `external` marker；默认配置与根级收集门双层排除，只有显式 `--run-external` 才放行。MCP 混合模块的 24 项离线测试保留在默认集合，入口回归能检出漏标、普通 `-m` 绕过和 marker 拼错；完整默认入口实测 `183 passed, 9 deselected in 13.82s`。取舍见 [`decisions/0007-explicit-opt-in-for-external-tests.md`](decisions/0007-explicit-opt-in-for-external-tests.md)。
 - **删除旧本地压缩**：Session 暂以完整模型历史直传；本地 token 估算、摘要替换、四类压缩事件、配置字段、摘要用途标签和 `tiktoken`/`regex` 依赖已经删除，旧配置键明确失败。64 项定向回归与锁文件校验通过，标准离线集合共 `157 passed`。取舍见 [`decisions/0006-remove-legacy-local-compaction.md`](decisions/0006-remove-legacy-local-compaction.md)。
 - **模型 API adapter 边界**：core 通过 `ModelClient` 调用模型并使用中性 `ToolDefinition`；显式注册表选择具体 wire adapter，端点、模型和输出上限不再由域名或 vendor 默认值推断。18 项 adapter 定向离线测试覆盖配置迁移、逐字端点传递、SDK 请求、工具历史、基础响应和单一重试所有权；未探测 `usage` 只供观察。取舍见 [`decisions/0005-explicit-model-api-adapters.md`](decisions/0005-explicit-model-api-adapters.md)。
 - **显式执行生命周期**：`AgentSession` 表示一段逻辑对话，`TurnHandle` 表示一次控制权交接，Step 表示一次 agent 模型请求及其完整工具批次；结构化停止原因不判断任务成功。44 项 agent loop 与生命周期定向离线测试覆盖原子接纳、状态快照、中断、错误、观察隔离及 CLI 层级；标准离线集合共 `144 passed`。取舍见 [`decisions/0004-session-turn-step-lifecycle.md`](decisions/0004-session-turn-step-lifecycle.md)。

@@ -70,6 +70,8 @@ cli.run_agent()
 
 要研究的问题：可编排的 LLM 测试替身、模型请求中工具调用与结果的配对检查、可区分的结束原因和显式在线测试标记。
 
+后续状态：脚本化 LLM 替身、配对检查与结构化停止原因已经落地；真实模型、用户 MCP 配置和网络测试现由 [ADR-0007](decisions/0007-explicit-opt-in-for-external-tests.md) 统一标记并从默认 pytest 排除。两份上游真实模型演示的弱断言仍保留，只是不再属于默认回归集合。
+
 ### 7. 模型服务能力未经探测
 
 代码使用 Anthropic 兼容协议，不等于当前端点支持所有 vendor 扩展。缓存、流式输出、`thinking` 签名、并行工具调用与上下文上限都必须按 [PROVIDER_CAPABILITIES.md](PROVIDER_CAPABILITIES.md) 探测后再依赖。

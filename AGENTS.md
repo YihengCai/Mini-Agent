@@ -92,10 +92,10 @@ PITFALL 只记录实现或诊断过程中亲历的错误假设：我原以为是
 
 ## 代码约定
 
-- Python ≥ 3.10。只用现有依赖（pydantic / anthropic / openai / httpx / mcp / prompt_toolkit / tiktoken / pyyaml）。**新增依赖必须在 ADR 里说明理由。**
+- Python ≥ 3.10。只用现有依赖（pydantic / anthropic / openai / httpx / mcp / prompt_toolkit / pyyaml）。**新增依赖必须在 ADR 里说明理由。**
 - **不引入 agent 框架**（LangGraph、pydantic-ai 等）。自己掌握 agent loop 是这个项目最重要的学习内容。
 - 优先外科手术式改动：新模块 + 少量挂钩，而不是重写。要能说清楚改了哪些行、为什么。
-- 新代码的回归测试必须离线运行；涉及模型调用时使用 LLM 测试替身。访问真实 API 的测试加 marker 并默认跳过。
+- 新代码的回归测试必须离线运行；涉及模型调用时使用 LLM 测试替身。读取用户模型/MCP 配置、访问真实端点或网络的测试必须加 `external` marker，并由默认入口排除。
 - **不要为了让测试通过而删除或放宽断言。**
 
 ## 自动拆任务与小步提交
@@ -111,13 +111,13 @@ PITFALL 只记录实现或诊断过程中亲历的错误假设：我原以为是
 
 ## 跑测试
 
-**不要直接跑 `pytest`。** `tests/test_agent.py` 和 `tests/test_integration.py` 会读 `mini_agent/config/config.yaml` 打**真实 API**；上游同类集合曾实测 240 秒跑不完（exit 124），而且花钱。
-
-离线可跑的子集：
+默认入口安全运行完整离线集合：
 
 ```bash
-.venv/bin/python -m pytest -q tests/test_tools.py tests/test_bash_tool.py tests/test_skill_loader.py tests/test_skill_tool.py tests/test_note_tool.py tests/test_tool_schema.py tests/test_terminal_utils.py tests/test_session_integration.py tests/test_markdown_links.py tests/test_llm_adapters.py tests/test_agent_loop_offline.py tests/test_agent_session_offline.py
+.venv/bin/python -m pytest -q
 ```
+
+`external` 测试可能访问真实模型、用户 MCP 配置或网络。只有用户明确授权本次外部调用后，才能运行 `.venv/bin/python -m pytest --run-external -m external -q`；不要直接执行 `tests/test_agent.py`、`tests/test_integration.py` 或 `tests/test_mcp.py` 的 `main()`。
 
 ## 和我协作时
 
