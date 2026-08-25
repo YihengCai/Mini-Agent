@@ -54,7 +54,6 @@ class AgentConfig(_StrictConfigModel):
     """Agent configuration"""
 
     max_steps: int = Field(default=50, gt=0)
-    workspace_dir: str = "./workspace"
     system_prompt_path: str = "system_prompt.md"
 
 
@@ -135,6 +134,11 @@ class Config(_StrictConfigModel):
             raise ValueError(
                 "Configuration field 'local_compaction_token_limit' was removed; "
                 "automatic local compaction is no longer available"
+            )
+        if "workspace_dir" in data:
+            raise ValueError(
+                "Configuration field 'workspace_dir' was removed; "
+                "use the '--workspace' CLI option to select the runtime workspace"
             )
 
         known_root_fields = {

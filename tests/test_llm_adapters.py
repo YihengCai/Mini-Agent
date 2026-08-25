@@ -156,7 +156,6 @@ def test_config_models_supply_yaml_defaults(tmp_path):
     }
     assert config.agent.model_dump() == {
         "max_steps": 50,
-        "workspace_dir": "./workspace",
         "system_prompt_path": "system_prompt.md",
     }
     assert config.tools.model_dump() == {
@@ -186,7 +185,6 @@ def test_config_preserves_all_explicit_fields(tmp_path):
             "exponential_base": 3.0,
         },
         max_steps=12,
-        workspace_dir="./different-workspace",
         system_prompt_path="different-prompt.md",
         tools={
             "enable_file_tools": False,
@@ -215,7 +213,6 @@ def test_config_preserves_all_explicit_fields(tmp_path):
     }
     assert config.agent.model_dump() == {
         "max_steps": data["max_steps"],
-        "workspace_dir": data["workspace_dir"],
         "system_prompt_path": data["system_prompt_path"],
     }
     assert config.tools.model_dump() == data["tools"]
@@ -228,6 +225,21 @@ def test_config_rejects_removed_local_compaction_field(tmp_path):
     write_config(path, data)
 
     with pytest.raises(ValueError, match="removed.*compaction"):
+        Config.from_yaml(path)
+
+
+def test_agent_config_rejects_removed_workspace_dir():
+    with pytest.raises(ValueError, match="workspace_dir"):
+        AgentConfig(workspace_dir="./ignored")
+
+
+def test_config_rejects_removed_workspace_dir_with_cli_migration(tmp_path):
+    data = config_data()
+    data["workspace_dir"] = "./ignored"
+    path = tmp_path / "config.yaml"
+    write_config(path, data)
+
+    with pytest.raises(ValueError, match=r"workspace_dir.*--workspace"):
         Config.from_yaml(path)
 
 
