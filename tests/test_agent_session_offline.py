@@ -121,7 +121,7 @@ def test_session_rejects_nonpositive_max_steps_before_model_request(max_steps):
     assert llm.requests == []
 
 
-def test_session_preserves_system_prompt_verbatim():
+def test_session_preserves_prompt_without_public_config_aliases():
     system_prompt = "Base prompt\n\nHost-owned runtime facts."
     session = AgentSession(
         llm_client=ScriptedLLM([]),
@@ -130,6 +130,8 @@ def test_session_preserves_system_prompt_verbatim():
     )
 
     assert session.get_history()[0].content == system_prompt
+    assert not hasattr(session, "llm")
+    assert not hasattr(session, "max_steps")
 
 
 @pytest.mark.asyncio
@@ -288,7 +290,7 @@ async def test_cli_wait_settles_the_turn_before_propagating_cancellation():
 
 
 @pytest.mark.asyncio
-async def test_active_turn_uses_an_admission_time_tool_snapshot():
+async def test_active_turn_uses_an_admission_time_runtime_snapshot():
     call = tool_call("snapshotted-call")
     llm = BlockingLLM(response("", tool_calls=[call], finish_reason="tool_use"))
     tool = EchoTool()
@@ -300,11 +302,11 @@ async def test_active_turn_uses_an_admission_time_tool_snapshot():
     with pytest.raises(TypeError):
         session.tools["replacement"] = EchoTool()  # type: ignore[index]
     with pytest.raises(AttributeError):
-        session.max_steps = 2  # type: ignore[misc]
-    with pytest.raises(AttributeError):
         session.session_id = "replacement-session"  # type: ignore[misc]
 
     # Even an accidental private replacement cannot change this admitted Turn.
+    session._llm = None  # type: ignore[assignment]
+    session._max_steps = 2
     session._tool_executor = None  # type: ignore[assignment]
     llm.release.set()
     outcome = await handle.wait()

@@ -109,17 +109,11 @@ class AgentSession:
     def active_turn(self) -> TurnHandle | None:
         """Return the active Turn, if execution control is currently held."""
 
-        if self._active_turn is not None and self._active_turn.done:
-            self._release_turn(self._active_turn.turn_id)
         return self._active_turn
 
     @property
     def session_id(self) -> str:
         return self._session_id
-
-    @property
-    def llm(self) -> ModelClient:
-        return self._llm
 
     @property
     def tools(self) -> Mapping[str, Tool]:
@@ -130,10 +124,6 @@ class AgentSession:
         """
 
         return self._tool_executor.tools
-
-    @property
-    def max_steps(self) -> int:
-        return self._max_steps
 
     def start_turn(
         self,

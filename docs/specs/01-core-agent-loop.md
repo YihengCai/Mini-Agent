@@ -15,7 +15,7 @@ git show fdcd945^:mini_agent/cli.py
 
 ## 已实现边界
 
-- `AgentSession` 表示一段逻辑对话，持有一份完整模型可见历史、只读配置和至多一个活动 Turn（`mini_agent/core/agent.py:88-233`）。当前没有自动上下文预算或压缩；CLI `/clear` 通过同一工厂创建新 Session（`mini_agent/cli.py:697-707,804-808`）。
+- `AgentSession` 表示一段逻辑对话，持有一份完整模型可见历史、Turn 接纳所需的私有执行配置和至多一个活动 Turn。模型与 Step 预算没有无消费者的公开别名；当前也没有自动上下文预算或压缩。CLI `/clear` 通过同一工厂创建新 Session。
 - `start_turn(user_input, event_sink=...)` 原子接纳输入并返回 `TurnHandle`。同一 Session 有活动 Turn 时拒绝新输入；等待调用者被取消不会取消私有 runner（`mini_agent/core/agent.py:168-223`；`mini_agent/core/turn.py:51-90`）。
 - Turn 从客户端交出控制权开始，到 `end_turn`、`interrupted`、`max_steps` 或 `failed` 后交还控制权。`TurnOutcome` 可以带最后回复与结构化错误，但没有任务成功字段（`mini_agent/core/turn.py:10-48`）。
 - Step 是一次模型请求、该响应中的全部工具调用及结果写入。工具调用会继续同一个 Turn；所有模型事件都属于当前 Step（`mini_agent/core/agent.py:303-521`）。
@@ -50,6 +50,7 @@ git show fdcd945^:mini_agent/cli.py
 - `tests/test_agent_session_offline.py:191-304`：跨 Turn 完整历史、唯一身份、单活动 Turn、可重入接纳和创建失败回滚；
 - `tests/test_agent_session_offline.py:306-416`：等待者取消、CLI 收敛、配置快照和工具驱动的多 Step；
 - `tests/test_agent_session_offline.py` 与 `tests/test_tool_execution.py`：观察数据隔离、接收器失败后停用、完整批次与结构化停止原因；
+- `tests/test_agent_session_offline.py`：Session 不公开模型/预算配置别名，活动 Turn 在私有字段被替换后仍使用接纳时快照，runner 收敛后释放活动句柄；
 - `tests/test_agent_session_offline.py:667-720`：完整 Step 中断与终止优先级；
 - `tests/test_agent_loop_offline.py:381-519`：一个多 Step Turn 的 CLI 层级、中性结束标记、失败去重和帮助文案；
-- README 的离线命令在 2026-08-26 最近一次实测为 `271 passed, 8 deselected in 13.81s`，没有 warning。
+- README 的离线命令在 2026-08-26 最近一次实测为 `271 passed, 8 deselected in 14.02s`，没有 warning。

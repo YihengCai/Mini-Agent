@@ -6,9 +6,9 @@
 
 选择一个主题时，先为它找到当前代码中的失败证据和一分钟内可运行的离线验证，再写改动前简报。具体接口、类名和文件布局到实现时再决定，不为候选主题提前创建规格或 ADR。
 
-## 当前工作：精简 AgentSession 剩余冗余公开面
+## 当前工作：待选择
 
-工作区路径与提示词组装已经移出 core 并移入“最近完成”。下一步只审查 `AgentSession` 剩余公开别名和私有重复状态是否有真实消费者；CLI 的完整宿主能力与文件/bash/skill/MCP 工具不在精简范围。确认删除边界后仍按改动前简报、定向离线回归和独立提交推进。
+Session 无消费者的配置别名与重复完成清理已经删除并移入“最近完成”。下一项继续从静态消费者、可复现行为和一分钟内离线回归中选择；CLI 的完整宿主能力与文件/bash/skill/MCP 工具仍不在精简范围。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **删除无消费者的 Session 配置别名**：删除只返回私有字段的 `llm`、`max_steps` 属性，并让 runner 的 `finally` 单一负责释放活动句柄；`tools`、`session_id`、`active_turn`、历史和构造参数保留。活动 Turn 回归直接替换私有模型、预算和执行器，仍证明使用接纳时快照。生产代码净减 10 行，测试净增 2 行；定向集合实测 `49 passed in 0.80s`，临时恢复 `llm` 属性时公开面回归转红；完整离线集合实测 `271 passed, 8 deselected in 14.02s`。取舍见 [`decisions/0035-remove-unused-session-config-aliases.md`](decisions/0035-remove-unused-session-config-aliases.md)。
 - **工作区事实由 CLI 组装**：删除 `AgentSession.workspace_dir` 参数与状态、目录副作用、提示词改写和无消费者的 `system_prompt` 别名；CLI 在配置与 Skill 处理后追加同一准确事实块，core 原样保存完整提示词。生产代码净减 3 行，测试净减 61 行；定向集合实测 `73 passed in 0.79s`，临时移除 runtime 组装挂钩时三个来源场景转红；完整离线集合实测 `271 passed, 8 deselected in 13.81s`。工作区选择、CLI 能力和全部工具未改，取舍见 [`decisions/0034-cli-composes-workspace-fact.md`](decisions/0034-cli-composes-workspace-fact.md)。
 - **usage 只保留在响应事件**：删除只保存“最近一次非空 `total_tokens`”却命名为 Session 总计的 `_api_total_tokens`、公开属性和 CLI `API Tokens Used` 显示；adapter 映射与每个 `ModelResponse.response.usage` 不变。定向集合实测 `36 passed in 0.62s`，临时恢复公开镜像时关键回归实测转红；完整离线集合实测 `270 passed, 8 deselected in 12.93s`。取舍见 [`decisions/0033-keep-usage-on-model-response-events.md`](decisions/0033-keep-usage-on-model-response-events.md)。
 - **observer 不控制 Turn**：同步接收器首个普通异常后只停用自身，工具批次、历史和 Turn 结果继续由真实执行原因决定；删除 `observer_error` 主因/次因矩阵和 CLI 二次 fallback。生产代码净减 87 行，测试净减 77 行；定向集合实测 `66 passed in 0.74s`，恢复异常传播时关键回归实测转红；完整离线集合实测 `270 passed, 8 deselected in 13.36s`。取舍见 [`decisions/0032-observers-do-not-control-turns.md`](decisions/0032-observers-do-not-control-turns.md)。
