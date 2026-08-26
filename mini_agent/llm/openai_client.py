@@ -92,15 +92,14 @@ class OpenAIAdapter(LLMAdapter):
             for tool in tools
         ]
 
-    def _convert_messages(self, messages: list[Message]) -> tuple[str | None, list[dict[str, Any]]]:
+    def _convert_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
         """Convert internal messages to OpenAI format.
 
         Args:
             messages: List of internal Message objects
 
         Returns:
-            Tuple of (system_message, api_messages)
-            Note: OpenAI includes system message in the messages array
+            Messages in OpenAI format, including the system message
         """
         api_messages = []
 
@@ -150,28 +149,7 @@ class OpenAIAdapter(LLMAdapter):
                     }
                 )
 
-        return None, api_messages
-
-    def _prepare_request(
-        self,
-        messages: list[Message],
-        tools: list[ToolDefinition] | None = None,
-    ) -> dict[str, Any]:
-        """Prepare the request for OpenAI API.
-
-        Args:
-            messages: List of conversation messages
-            tools: Optional list of available tools
-
-        Returns:
-            Dictionary containing request parameters
-        """
-        _, api_messages = self._convert_messages(messages)
-
-        return {
-            "api_messages": api_messages,
-            "tools": tools,
-        }
+        return api_messages
 
     def _parse_response(self, response: Any) -> LLMResponse:
         """Parse OpenAI response into LLMResponse.
@@ -236,13 +214,9 @@ class OpenAIAdapter(LLMAdapter):
         Returns:
             LLMResponse containing the generated content
         """
-        # Prepare request
-        request_params = self._prepare_request(messages, tools)
-
+        api_messages = self._convert_messages(messages)
         response = await self._make_api_request(
-            request_params["api_messages"],
-            request_params["tools"],
+            api_messages,
+            tools,
         )
-
-        # Parse and return response
         return self._parse_response(response)

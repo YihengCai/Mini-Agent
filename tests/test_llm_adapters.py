@@ -501,7 +501,7 @@ def test_adapters_encode_assistant_and_tool_history():
         None,
         [message, tool_result],
     )
-    _, openai_messages = OpenAIAdapter._convert_messages(
+    openai_messages = OpenAIAdapter._convert_messages(
         None,
         [message, tool_result],
     )

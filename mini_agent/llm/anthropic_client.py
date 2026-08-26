@@ -159,28 +159,6 @@ class AnthropicAdapter(LLMAdapter):
 
         return system_message, api_messages
 
-    def _prepare_request(
-        self,
-        messages: list[Message],
-        tools: list[ToolDefinition] | None = None,
-    ) -> dict[str, Any]:
-        """Prepare the request for Anthropic API.
-
-        Args:
-            messages: List of conversation messages
-            tools: Optional list of available tools
-
-        Returns:
-            Dictionary containing request parameters
-        """
-        system_message, api_messages = self._convert_messages(messages)
-
-        return {
-            "system_message": system_message,
-            "api_messages": api_messages,
-            "tools": tools,
-        }
-
     def _parse_response(self, response: anthropic.types.Message) -> LLMResponse:
         """Parse Anthropic response into LLMResponse.
 
@@ -243,14 +221,10 @@ class AnthropicAdapter(LLMAdapter):
         Returns:
             LLMResponse containing the generated content
         """
-        # Prepare request
-        request_params = self._prepare_request(messages, tools)
-
+        system_message, api_messages = self._convert_messages(messages)
         response = await self._make_api_request(
-            request_params["system_message"],
-            request_params["api_messages"],
-            request_params["tools"],
+            system_message,
+            api_messages,
+            tools,
         )
-
-        # Parse and return response
         return self._parse_response(response)
