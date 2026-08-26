@@ -1,12 +1,12 @@
 """Tests for terminal_utils module."""
 
-import pytest
+import mini_agent.utils as utils
+from mini_agent.utils import calculate_display_width
 
-from mini_agent.utils import (
-    calculate_display_width,
-    pad_to_width,
-    truncate_with_ellipsis,
-)
+
+def test_utils_do_not_export_unused_terminal_helpers():
+    assert not hasattr(utils, "truncate_with_ellipsis")
+    assert not hasattr(utils, "pad_to_width")
 
 
 class TestCalculateDisplayWidth:
@@ -61,116 +61,6 @@ class TestCalculateDisplayWidth:
         """Test complex ANSI sequences."""
         text = "\033[1m\033[36mBold Cyan\033[0m"
         assert calculate_display_width(text) == 9  # "Bold Cyan"
-
-
-class TestTruncateWithEllipsis:
-    """Tests for truncate_with_ellipsis function."""
-
-    def test_no_truncation_needed(self):
-        """Test when text fits within width."""
-        assert truncate_with_ellipsis("Hello", 10) == "Hello"
-        assert truncate_with_ellipsis("Test", 5) == "Test"
-
-    def test_exact_fit(self):
-        """Test when text exactly fits."""
-        assert truncate_with_ellipsis("Hello", 5) == "Hello"
-
-    def test_ascii_truncation(self):
-        """Test truncation of ASCII text."""
-        assert truncate_with_ellipsis("Hello World", 8) == "Hello W…"
-        assert truncate_with_ellipsis("Testing", 4) == "Tes…"
-
-    def test_chinese_truncation(self):
-        """Test truncation with Chinese characters."""
-        result = truncate_with_ellipsis("你好世界", 5)
-        # Should be: 你好 (4 width) + … (1 width) = 5
-        assert calculate_display_width(result) <= 5
-        assert "…" in result
-
-    def test_emoji_truncation(self):
-        """Test truncation with emoji."""
-        result = truncate_with_ellipsis("🤖🤖🤖", 3)
-        # Should be: 🤖 (2 width) + … (1 width) = 3
-        assert calculate_display_width(result) <= 3
-
-    def test_zero_width(self):
-        """Test with zero width."""
-        assert truncate_with_ellipsis("Hello", 0) == ""
-
-    def test_width_one(self):
-        """Test with width of 1."""
-        result = truncate_with_ellipsis("Hello", 1)
-        assert len(result) <= 1
-
-    def test_ansi_codes_removed(self):
-        """Test that ANSI codes are removed during truncation."""
-        colored = "\033[31mHello World\033[0m"
-        result = truncate_with_ellipsis(colored, 8)
-        # ANSI codes should be removed
-        assert "\033[" not in result
-        assert "…" in result
-
-
-class TestPadToWidth:
-    """Tests for pad_to_width function."""
-
-    def test_left_align(self):
-        """Test left alignment (default)."""
-        result = pad_to_width("Hello", 10)
-        assert result == "Hello     "
-        assert len(result) == 10
-
-    def test_right_align(self):
-        """Test right alignment."""
-        result = pad_to_width("Hello", 10, align="right")
-        assert result == "     Hello"
-        assert len(result) == 10
-
-    def test_center_align(self):
-        """Test center alignment."""
-        result = pad_to_width("Test", 10, align="center")
-        assert result == "   Test   "
-        assert len(result) == 10
-
-    def test_center_align_odd(self):
-        """Test center alignment with odd padding."""
-        result = pad_to_width("Hi", 7, align="center")
-        # Should be: "  Hi   " or "   Hi  " (either is acceptable)
-        assert "Hi" in result
-        assert len(result) == 7
-
-    def test_chinese_padding(self):
-        """Test padding with Chinese characters."""
-        result = pad_to_width("你好", 10)
-        # "你好" is 4 display width, so needs 6 spaces
-        assert calculate_display_width(result) == 10
-
-    def test_emoji_padding(self):
-        """Test padding with emoji."""
-        result = pad_to_width("🤖", 10)
-        # "🤖" is 2 display width, so needs 8 spaces
-        assert calculate_display_width(result) == 10
-
-    def test_no_padding_needed(self):
-        """Test when text already reaches target width."""
-        result = pad_to_width("Hello", 5)
-        assert result == "Hello"
-
-    def test_text_exceeds_width(self):
-        """Test when text exceeds target width."""
-        result = pad_to_width("Hello World", 5)
-        assert result == "Hello World"  # No truncation, just return as-is
-
-    def test_invalid_align(self):
-        """Test invalid alignment value."""
-        with pytest.raises(ValueError, match="Invalid align value"):
-            pad_to_width("Test", 10, align="invalid")
-
-    def test_custom_fill_char(self):
-        """Test custom fill character."""
-        result = pad_to_width("Test", 10, fill_char="-")
-        assert result == "Test------"
-
 
 class TestRealWorldScenarios:
     """Tests for real-world usage scenarios."""

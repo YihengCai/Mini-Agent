@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-重复的 Session 集成测试已经合并并移入“最近完成”。下一项继续从静态消费者、可复现行为和一分钟内离线回归中选择；CLI 的完整宿主能力与文件/bash/skill/MCP 工具仍不在精简范围。
+无消费者的终端辅助 API 已删除并移入“最近完成”。下一项继续从静态消费者、可复现行为和一分钟内离线回归中选择；CLI 的完整宿主能力与文件/bash/skill/MCP 工具仍不在精简范围。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **删除无消费者的终端辅助 API**：CLI 只使用 `Colors` 与 `calculate_display_width()`；现删除只由专用测试消费的截断、填充函数，以及 10 个全仓零引用的颜色常量。生产代码净减 106 行，测试净减 110 行并删除 17 项死代码自测；CLI、宽度算法和全部工具未改。定向集合实测 `54 passed in 0.69s`，临时恢复公开名字时负向回归实测转红；完整离线集合实测 `252 passed, 5 deselected in 13.63s`。取舍见 [`decisions/0036-remove-unused-terminal-helpers.md`](decisions/0036-remove-unused-terminal-helpers.md)。
 - **合并 Session 重复测试**：删除用 MagicMock、文件工具和临时目录重复多轮历史的 `tests/test_session_integration.py`；两次默认构造身份不同和历史 Message 深层快照迁入脚本化 LLM 的 core 回归，其余行为已有更强生命周期断言。测试净减 111 行；定向集合实测 `42 passed in 0.79s`，把 `get_history()` 退化为浅列表复制时关键断言实测转红；完整离线集合实测 `269 passed, 5 deselected in 13.41s`。生产代码和工具测试未改。
 - **归档已完成规格**：`docs/specs/` 自身规定完成后由代码、测试和 ADR 接管事实，现将 16 份共 496 行的完成副本删除，只保留实现前规则页。模型 adapter 的历史探针迁入 ADR-0005，shell 登记失败回收不变量迁入 ADR-0009，Step 定义改引 ADR-0004；仓库没有残留文件级入链。文档净减 484 行；迁入探针实测输出保持 `https://api.minimax.io.evilproxy/anthropic`、`configured typo`、`routed openai`，Markdown 回归 `1 passed in 0.32s`，完整离线集合 `271 passed, 5 deselected in 13.44s`。
 - **删除真实模型伪测试**：删除两份共 352 行、默认排除且不能稳定判错的模型演示测试；真实端点继续由 CLI 手动体验，脚本化 LLM 继续验证 agent loop。外部收集回归只保留 5 项 MCP/网络探测，定向实测 `2 passed in 3.67s`，显式收集实测 `5/32 tests collected (27 deselected) in 0.44s`；测试代码合计净减 359 行，完整离线集合实测 `271 passed, 5 deselected in 13.50s`。P-008 已改用提交归档保持原 `33` 项/默认排除 `9` 项的复现证据。

@@ -54,6 +54,8 @@ MCP 运行时所有权也已经落地：CLI 用配置构造不可变超时快照
 
 配置伴随文件的来源也已经统一：CLI 选择 `config.yaml` 后把路径显式传给同一次 runtime，相对 `system_prompt_path` 与 `mcp_config_path` 只从该目录解析，显式绝对路径保持不变。相对文件缺失时不会跨目录借用同名文件，而是使用内置提示词或保持 MCP 未加载；`skills_dir` 没有随本项改变，工作区配置的后续删除见 ADR-0024。取舍见 [ADR-0015](docs/decisions/0015-bind-config-companions-to-selected-source.md)。
 
+终端辅助面只保留 CLI 的真实消费者：`Colors` 中现用的 13 个控制码和 `calculate_display_width()`。未被 CLI 或其他生产代码调用的截断、填充函数与 10 个颜色常量已经连同专用自测删除；CLI 渲染和工具没有改变。取舍见 [ADR-0036](docs/decisions/0036-remove-unused-terminal-helpers.md)。
+
 Skill 发现的状态边界也已经收紧：每次递归扫描先按路径排序并构建局部注册表，重名会明确报告两个来源，只有完整成功后才替换当前快照；删除文件后的重扫不会留下陈旧能力，失败扫描也不会发布部分结果。更严格的 YAML frontmatter（文件头元数据）结构校验、`allowed-tools` 强制、动态监视、来源优先级和信任/权限模型仍未实现；取舍见 [ADR-0020](docs/decisions/0020-transactional-skill-discovery.md)。
 
 模型调用当前不做项目级 retry：两个 SDK 都显式设置 `max_retries=0`，每个 adapter 只发起一次项目级调用；异常对象和文本原样进入 core。只有在跨协议错误分类、端点证据和离线评测能说明哪些失败可安全恢复后，retry 才会作为独立 topic 重新进入。删除取舍见 [ADR-0027](docs/decisions/0027-no-project-retry-before-error-classification.md)，core 错误边界见 [ADR-0022](docs/decisions/0022-core-preserves-model-error-semantics.md)。
@@ -159,7 +161,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `269 passed, 5 deselected in 13.41s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `252 passed, 5 deselected in 13.63s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 
