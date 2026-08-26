@@ -53,4 +53,4 @@ git show fdcd945^:mini_agent/cli.py
 - `tests/test_agent_session_offline.py`：Session 不公开模型/预算配置别名，活动 Turn 在私有字段被替换后仍使用接纳时快照，runner 收敛后释放活动句柄；
 - `tests/test_agent_session_offline.py:667-720`：完整 Step 中断与终止优先级；
 - `tests/test_agent_loop_offline.py:381-519`：一个多 Step Turn 的 CLI 层级、中性结束标记、失败去重和帮助文案；
-- README 的离线命令在 2026-08-26 最近一次实测为 `271 passed, 8 deselected in 14.02s`，没有 warning。
+- README 的离线命令在 2026-08-26 最近一次实测为 `271 passed, 5 deselected in 13.50s`，没有 warning。

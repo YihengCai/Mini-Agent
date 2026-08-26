@@ -163,11 +163,18 @@
 - 复现：第一条命令只收集测试，并显式绕过当前两层门控以重现旧边界；第二条使用当前默认入口。两条都不执行测试体。
 
   ```bash
-  .venv/bin/python -m pytest --collect-only -q --noconftest \
-    -o 'addopts=--strict-markers' \
-    tests/test_agent.py tests/test_integration.py tests/test_mcp.py
-  .venv/bin/python -m pytest --collect-only -q \
-    tests/test_agent.py tests/test_integration.py tests/test_mcp.py
+  project_dir="$PWD"
+  repro_dir="$(mktemp -d)"
+  git archive 8616739 pyproject.toml conftest.py tests mini_agent \
+    | tar -x -C "$repro_dir"
+  (
+    cd "$repro_dir"
+    "$project_dir/.venv/bin/python" -m pytest --collect-only -q \
+      --noconftest -o 'addopts=--strict-markers' \
+      tests/test_agent.py tests/test_integration.py tests/test_mcp.py
+    "$project_dir/.venv/bin/python" -m pytest --collect-only -q \
+      tests/test_agent.py tests/test_integration.py tests/test_mcp.py
+  )
   ```
 
   2026-08-25 实测第一条为 `33 tests collected in 0.69s`；第二条只留下 24 项离线 MCP 测试并报告 9 项被排除。

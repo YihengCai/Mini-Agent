@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-Session 无消费者的配置别名与重复完成清理已经删除并移入“最近完成”。下一项继续从静态消费者、可复现行为和一分钟内离线回归中选择；CLI 的完整宿主能力与文件/bash/skill/MCP 工具仍不在精简范围。
+三项没有可靠判定标准的真实模型伪测试已经删除并移入“最近完成”。下一项继续从静态消费者、可复现行为和一分钟内离线回归中选择；CLI 的完整宿主能力与文件/bash/skill/MCP 工具仍不在精简范围。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@ Session 无消费者的配置别名与重复完成清理已经删除并移入“
 
 ## 最近完成
 
+- **删除真实模型伪测试**：删除两份共 352 行、默认排除且不能稳定判错的模型演示测试；真实端点继续由 CLI 手动体验，脚本化 LLM 继续验证 agent loop。外部收集回归只保留 5 项 MCP/网络探测，定向实测 `2 passed in 3.67s`，显式收集实测 `5/32 tests collected (27 deselected) in 0.44s`；测试代码合计净减 359 行，完整离线集合实测 `271 passed, 5 deselected in 13.50s`。P-008 已改用提交归档保持原 `33` 项/默认排除 `9` 项的复现证据。
 - **删除无消费者的 Session 配置别名**：删除只返回私有字段的 `llm`、`max_steps` 属性，并让 runner 的 `finally` 单一负责释放活动句柄；`tools`、`session_id`、`active_turn`、历史和构造参数保留。活动 Turn 回归直接替换私有模型、预算和执行器，仍证明使用接纳时快照。生产代码净减 10 行，测试净增 2 行；定向集合实测 `49 passed in 0.80s`，临时恢复 `llm` 属性时公开面回归转红；完整离线集合实测 `271 passed, 8 deselected in 14.02s`。取舍见 [`decisions/0035-remove-unused-session-config-aliases.md`](decisions/0035-remove-unused-session-config-aliases.md)。
 - **工作区事实由 CLI 组装**：删除 `AgentSession.workspace_dir` 参数与状态、目录副作用、提示词改写和无消费者的 `system_prompt` 别名；CLI 在配置与 Skill 处理后追加同一准确事实块，core 原样保存完整提示词。生产代码净减 3 行，测试净减 61 行；定向集合实测 `73 passed in 0.79s`，临时移除 runtime 组装挂钩时三个来源场景转红；完整离线集合实测 `271 passed, 8 deselected in 13.81s`。工作区选择、CLI 能力和全部工具未改，取舍见 [`decisions/0034-cli-composes-workspace-fact.md`](decisions/0034-cli-composes-workspace-fact.md)。
 - **usage 只保留在响应事件**：删除只保存“最近一次非空 `total_tokens`”却命名为 Session 总计的 `_api_total_tokens`、公开属性和 CLI `API Tokens Used` 显示；adapter 映射与每个 `ModelResponse.response.usage` 不变。定向集合实测 `36 passed in 0.62s`，临时恢复公开镜像时关键回归实测转红；完整离线集合实测 `270 passed, 8 deselected in 12.93s`。取舍见 [`decisions/0033-keep-usage-on-model-response-events.md`](decisions/0033-keep-usage-on-model-response-events.md)。
@@ -77,7 +78,7 @@ Session 无消费者的配置别名与重复完成清理已经删除并移入“
 - **模型可见工具输出预算**：原始 `ToolResult` 与 `ToolFinished` 保持完整，批次执行器只把模型消息投影限制为每条 64 KiB UTF-8 字节；精确边界不变，超限保留首尾并报告原始、保留、省略和上限字节数，失败前缀计入预算。3 项新增回归覆盖 UTF-8、事件所有权、观察者变异、历史、下一次请求与批次顺序；删除挂钩时集成回归实测转红。显式排除 `external` 的完整集合实测 `230 passed, 9 deselected in 13.57s`，取舍见 [`decisions/0010-model-facing-tool-output-budget.md`](decisions/0010-model-facing-tool-output-budget.md)。
 - **后台 shell 状态与资源所有权**：配置和模型客户端成功后，一次 CLI runtime 持有显式注入三个 shell 工具的 manager；`/clear` 保留它，退出才按 shell、MCP 顺序关闭。manager 隔离状态，拒绝重复与关闭后登记，串行化并发 `close()`，等待 monitor 和强杀后 subprocess，并保留失败项供重试。25 项定向回归与显式排除 `external` 的完整集合实测为 `227 passed, 9 deselected in 14.00s`，取舍见 [`decisions/0009-runtime-owned-background-shells.md`](decisions/0009-runtime-owned-background-shells.md)。
 - **模型工具批次强制点**：Session 持有冻结注册与批次执行器；agent loop 在接纳边界深拷贝整个模型响应，批次在首个副作用前完整预检，再串行执行。结构错误使用 `tool_protocol_error`，工具自身失败保留为同序结果，模型客户端、参数、事件和历史使用独立快照，assistant 调用与全部结果成组提交。原 Session 级调用标识符账本后来由 ADR-0031 删除，其余强制点不变；取舍见 [`decisions/0008-session-owned-tool-batch-executor.md`](decisions/0008-session-owned-tool-batch-executor.md)。
-- **默认测试入口安全、离线**：真实模型、用户 MCP 配置和网络测试统一使用 `external` marker；默认配置与根级收集门双层排除，只有显式 `--run-external` 才放行。MCP 混合模块的 24 项离线测试保留在默认集合，入口回归能检出漏标、普通 `-m` 绕过和 marker 拼错；完整默认入口实测 `183 passed, 9 deselected in 13.82s`。取舍见 [`decisions/0007-explicit-opt-in-for-external-tests.md`](decisions/0007-explicit-opt-in-for-external-tests.md)。
+- **默认测试入口安全、离线**：外部能力统一使用 `external` marker；默认配置与根级收集门双层排除，只有显式 `--run-external` 才放行。入口回归能检出普通 `-m` 绕过和 marker 拼错；当前保留 MCP 模块的 27 项离线测试与 5 项显式外部探测，真实模型伪测试已删除。原实现测量与取舍见 [`decisions/0007-explicit-opt-in-for-external-tests.md`](decisions/0007-explicit-opt-in-for-external-tests.md)。
 - **删除旧本地压缩**：Session 暂以完整模型历史直传；本地 token 估算、摘要替换、四类压缩事件、配置字段、摘要用途标签和 `tiktoken`/`regex` 依赖已经删除，旧配置键明确失败。64 项定向回归与锁文件校验通过，标准离线集合共 `157 passed`。取舍见 [`decisions/0006-remove-legacy-local-compaction.md`](decisions/0006-remove-legacy-local-compaction.md)。
 - **模型 API adapter 边界**：core 通过 `ModelClient` 调用模型并使用中性 `ToolDefinition`；显式注册表选择具体 wire adapter，端点、模型和输出上限不再由域名或 vendor 默认值推断。adapter 离线测试覆盖配置迁移、逐字端点传递、SDK 请求、工具历史、基础响应、SDK retry 关闭与单次项目调用；未探测 `usage` 只供观察。取舍见 [`decisions/0005-explicit-model-api-adapters.md`](decisions/0005-explicit-model-api-adapters.md)。
 - **显式执行生命周期**：`AgentSession` 表示一段逻辑对话，`TurnHandle` 表示一次控制权交接，Step 表示一次 agent 模型请求及其完整工具批次；结构化停止原因不判断任务成功。原 observer 错误仲裁后来由 ADR-0032 删除，身份、接纳、快照、中断和成组提交边界不变；取舍见 [`decisions/0004-session-turn-step-lifecycle.md`](decisions/0004-session-turn-step-lifecycle.md)。

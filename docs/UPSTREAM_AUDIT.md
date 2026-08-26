@@ -72,7 +72,7 @@ cli.run_agent()
 
 要研究的问题：可编排的 LLM 测试替身、模型请求中工具调用与结果的配对检查、可区分的结束原因和显式在线测试标记。
 
-后续状态：脚本化 LLM 替身、配对检查与结构化停止原因已经落地；真实模型、用户 MCP 配置和网络测试现由 [ADR-0007](decisions/0007-explicit-opt-in-for-external-tests.md) 统一标记并从默认 pytest 排除。两份上游真实模型演示的弱断言仍保留，只是不再属于默认回归集合。
+后续状态：脚本化 LLM 替身、配对检查与结构化停止原因已经落地；用户 MCP 配置和网络测试现由 [ADR-0007](decisions/0007-explicit-opt-in-for-external-tests.md) 统一标记并从默认 pytest 排除。两份上游真实模型演示后来因没有稳定判定标准而删除；真实端点只通过 CLI 手动体验，不作为回归证据。
 
 ### 7. 模型服务能力未经探测
 
@@ -101,7 +101,7 @@ CLI 分别构造启动、读取与终止工具，退出路径却只调用 MCP �
 | `write_file` / `edit_file` 直接覆写，编辑时 CRLF 会被文本读取归一化 | `mini_agent/tools/file_tools.py:195-209,271-281` | 当前改为同目录原子替换并保留已有换行约定与权限位；回归见 `tests/test_tools.py:187-430` |
 | 摘要失败可使上下文变大 | `mini_agent/agent.py:257-292` | 摘要输入和异常降级都没有大小上限 |
 | 取消操作会截断已完成记录 | `mini_agent/agent.py:73-94,397-398,477-478` | 清理逻辑不检查工具调用标识符是否已经配对 |
-| 测试返回值不会让 pytest 失败 | `tests/test_agent.py:72-94,146-161` | 测试返回布尔值并吞掉异常，而不是断言 |
+| 测试返回值不会让 pytest 失败 | `git show bb18fb9:tests/test_agent.py | nl -ba | sed -n '72,94p;146,161p'` | 两项真实模型伪测试已删除；脚本化 LLM 离线回归与 CLI 手动体验分别承担确定性验证和端点试跑 |
 | Note 读取工具未进入运行时注册表 | `mini_agent/cli.py:429-432`、`mini_agent/acp/__init__.py:100-102` | 当前 Note 半能力已整体删除；真正的记忆能力以后按会话事实、请求视图、持久化与恢复重新定义，取舍见 ADR-0030 |
 | 后台 shell 使用进程级共享表 | `mini_agent/tools/bash_tool.py:108-127` | 当前已改为 CLI runtime 持有的实例 manager；隔离回归见 `tests/test_background_shell_lifecycle.py` |
 | monitor 取消和强杀不等待收敛 | `mini_agent/tools/bash_tool.py:96-105,181-188` | 当前 terminate/close 会等待 monitor，强杀后再次等待 subprocess |

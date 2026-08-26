@@ -10,9 +10,6 @@ import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXTERNAL_TESTS = {
-    "tests/test_agent.py::test_agent_simple_task",
-    "tests/test_agent.py::test_agent_bash_task",
-    "tests/test_integration.py::test_basic_agent_usage",
     "tests/test_mcp.py::test_mcp_tools_loading",
     "tests/test_mcp.py::test_git_mcp_tool_availability",
     "tests/test_mcp.py::test_mcp_tool_execution",
@@ -23,11 +20,7 @@ OFFLINE_MCP_TEST = (
     "tests/test_mcp.py::TestDetermineConnectionType::test_stdio_with_command_only"
 )
 OFFLINE_ASYNC_MCP_TEST = "tests/test_mcp.py::test_url_config_validation"
-COLLECTION_TARGETS = (
-    "tests/test_agent.py",
-    "tests/test_integration.py",
-    "tests/test_mcp.py",
-)
+COLLECTION_TARGETS = ("tests/test_mcp.py",)
 
 
 def _run_collection(

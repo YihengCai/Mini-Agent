@@ -29,11 +29,11 @@
 5. 未知工具、工具异常、达到最大步数和正常结束已有独立回归覆盖；Turn 通过 `TurnOutcome` 返回结构化停止原因，不把它命名为任务成功；
 6. 即使 agent loop 捕获了测试替身异常，结束校验仍会使测试失败；
 7. 默认 pytest、普通 `-m asyncio` 和根 `conftest.py` 未加载三种收集路径都排除已知外部测试；
-8. 显式 `--run-external -m external` 只收集 8 项外部测试，默认仍执行 MCP 模块的离线测试；
+8. 显式 `--run-external -m external` 只收集 5 项 MCP/网络外部测试，默认仍执行 MCP 模块的 27 项离线测试；三项没有可靠判定标准的真实模型伪测试已删除；
 9. 拼错 `external` marker 会在测试体运行前令收集失败。
 
 实际接口为 `ScriptedCall(result)` 与 `ScriptedLLM(calls)`（`tests/llm_test_double.py:12-27,73-119`）。请求快照仍区分 `tools=None` 与空工具列表，但不再从它们推断调用用途。带用途标签的旧决定及其适用条件见已推翻的 [`ADR-0001`](../decisions/0001-strict-global-llm-call-script.md)；删除原因见 [`ADR-0006`](../decisions/0006-remove-legacy-local-compaction.md)。
 
 配对检查只验证内部 `Message.tool_calls` 与 `Message.tool_call_id` 的未完成调用集合，不检查 adapter wire 格式、角色邻接或消息编码；这些由 `tests/test_llm_adapters.py` 的协议边界测试覆盖。
 
-收集门不保护直接执行测试脚本，也不处理模块导入期副作用；当前被标记模块的导入不会访问外部资源。外部测试本身仍保留上游的弱断言，只用于显式手动验证，不属于稳定离线回归。
+收集门不处理模块导入期副作用；当前被标记模块的导入不会访问外部资源。剩余外部测试只探测 MCP/网络环境，用于显式诊断，不属于稳定离线回归；真实模型手动体验统一走 CLI。
