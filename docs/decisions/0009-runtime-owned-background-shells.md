@@ -21,7 +21,7 @@ baseline 的 `BackgroundShellManager` 用类变量保存 shell 与 monitor 任�
 
 采用选项 3。`BackgroundShellManager` 改为实例状态，三个 shell 工具的构造函数都要求显式 `manager`；CLI 在配置和模型客户端构造成功后创建唯一实例，工具组装、`/clear` 后的新 Session 和最终清理都使用它（`mini_agent/cli.py:351-380,451-476,629-666,799-808`）。
 
-manager 以单个 `track()` 原子登记 shell 和 monitor，拒绝重复标识符与关闭后的新登记。`close()` 先封闭登记入口，用锁串行化并发调用，尝试全部 shell，并保留失败项给后续关闭重试（`mini_agent/tools/bash_tool.py:109-238`）。monitor 取消和 subprocess 强杀都要等待收敛。
+manager 以单个 `track()` 原子登记 shell 和 monitor，拒绝重复标识符与关闭后的新登记。subprocess 已启动但登记被拒绝时，`BashTool` 仍须强杀并等待它；清理失败不能覆盖原登记错误或调用取消。`close()` 先封闭登记入口，用锁串行化并发调用，尝试全部 shell，并保留失败项给后续关闭重试（`mini_agent/tools/bash_tool.py:109-238`）。monitor 取消和 subprocess 强杀都要等待收敛。
 
 CLI 的清理顺序是 shell、MCP，失败优先级是 runtime、shell、MCP；次级清理错误只诊断，不覆盖原异常对象（`mini_agent/cli.py:512-548`）。本轮不改进程组、后代进程、输出预算、权限、操作系统沙箱、前台超时或 MCP 内部 owner。
 

@@ -6,7 +6,7 @@
 
 ## 背景
 
-`max_steps` 的用户可见含义是一个 Turn 允许的 agent 模型请求数，Step 本身也定义为一次模型请求及其工具批次（`docs/specs/01-core-agent-loop.md`）。原 `AgentConfig` 和 `AgentSession` 却都接受 `0` 与负数；循环的 `range(1, max_steps + 1)` 不执行任何 Step，仍返回 `stop_reason="max_steps"`（`git show 768dd64^:mini_agent/core/agent.py | nl -ba | sed -n '91,121p;161,216p;229,286p'`）。
+`max_steps` 的用户可见含义是一个 Turn 允许的 agent 模型请求数；[ADR-0004](0004-session-turn-step-lifecycle.md) 把 Step 定义为一次模型请求及其工具批次。原 `AgentConfig` 和 `AgentSession` 却都接受 `0` 与负数；循环的 `range(1, max_steps + 1)` 不执行任何 Step，仍返回 `stop_reason="max_steps"`（`git show 768dd64^:mini_agent/core/agent.py | nl -ba | sed -n '91,121p;161,216p;229,286p'`）。
 
 改动前用 `max_steps=0` 构造 Session 并提交输入，实测输出为 `workspace_created=True`、`stop_reason='max_steps'`、`model_requests=0`、`history_roles=['system', 'user']`。这让一个已经接纳用户事实、却没有任何 Step 的 Turn 看起来只是正常耗尽预算，也让无效配置先产生文件副作用。
 

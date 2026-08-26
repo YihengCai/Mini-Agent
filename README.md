@@ -102,7 +102,7 @@ mini_agent/                  工具、MCP/skills 与配置
 tests/                       上游测试、LLM 测试替身与离线回归
 docs/BUILD_LIST.md           当前工作与可选研究主题
 docs/UPSTREAM_AUDIT.md       上游代码审计
-docs/specs/                  仅当前实现的短规格
+docs/specs/                  仅实施期间存在的短规格与规则
 docs/decisions/              ADR
 docs/PITFALLS.md             实现过程中亲历的踩坑
 docs/reference/              外部 coding agent 源码调研
@@ -159,13 +159,13 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `271 passed, 5 deselected in 13.50s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `271 passed, 5 deselected in 13.44s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 
 - [BUILD_LIST](docs/BUILD_LIST.md)：当前工作、可选研究主题及其选择条件
 - [上游审计](docs/UPSTREAM_AUDIT.md)：上游代码的已知问题
-- [实现规格](docs/specs/README.md)：当前实现边界
+- [实现前规格规则](docs/specs/README.md)：仅实施期间使用，当前无进行中规格
 - [决策记录](docs/decisions/README.md)：ADR 索引
 - [PITFALLS](docs/PITFALLS.md)：实现过程中亲历且可复现的错误假设
 - [coding agent 测试框架调查](docs/reference/agent-testing-survey.md)：外部项目证据

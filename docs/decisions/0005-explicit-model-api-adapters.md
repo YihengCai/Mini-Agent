@@ -8,9 +8,22 @@
 
 ## 背景
 
-实现前的 `LLMClient` 同时负责协议选择、MiniMax 域名识别、URL 改写和客户端构造。2026-08-25 离线实测把用户输入的 `https://api.minimax.io.evil/v1proxy` 改成了 `https://api.minimax.io.evilproxy/anthropic`；`provider="typo"` 还会被 CLI 的二分分支当成 OpenAI-compatible。可重复运行的历史代码提取命令与输出见 [`docs/specs/02-model-adapters.md`](../specs/02-model-adapters.md#问题证据)；当前回归用同一历史 URL 验证两个注册表项都逐字传递端点（`tests/test_llm_adapters.py:153-206`）。
+实现前的 `LLMClient` 同时负责协议选择、MiniMax 域名识别、URL 改写和客户端构造。2026-08-25 离线实测把用户输入的 `https://api.minimax.io.evil/v1proxy` 改成了 `https://api.minimax.io.evilproxy/anthropic`；`provider="typo"` 还会被 CLI 的二分分支当成 OpenAI-compatible。下列命令从提交 `157928f` 提取同版本历史代码，不访问网络：
 
-core 实际只需要 `generate(messages, tools) -> LLMResponse`，却由工具对象生成不同协议的工具结构；具体客户端还默认加入额外 Bearer 认证、推理状态续传和未经验证的用量语义。能力记录至今没有真实端点探测（`mini_agent/core/agent.py:608-646`；`docs/PROVIDER_CAPABILITIES.md:20`）。
+```bash
+repro_python="$PWD/.venv/bin/python"
+repro_dir="$(mktemp -d)"
+git archive 157928f mini_agent | tar -x -C "$repro_dir"
+(
+  cd "$repro_dir"
+  "$repro_python" -c 'from mini_agent.llm import LLMClient; from mini_agent.schema import LLMProvider; c=LLMClient(api_key="test-key", provider=LLMProvider.ANTHROPIC, api_base="https://api.minimax.io.evil/v1proxy", model="test-model"); print(c.api_base)'
+  "$repro_python" -c 'from mini_agent.config import LLMConfig; from mini_agent.schema import LLMProvider; c=LLMConfig(api_key="test-key", provider="typo"); routed=LLMProvider.ANTHROPIC if c.provider.lower() == "anthropic" else LLMProvider.OPENAI; print("configured", c.provider); print("routed", routed.value)'
+)
+```
+
+实测输出为 `https://api.minimax.io.evilproxy/anthropic`、`configured typo` 和 `routed openai`；当前回归用同一历史 URL 验证两个注册表项都逐字传递端点（`tests/test_llm_adapters.py:153-206`）。
+
+core 实际只需要 `generate(messages, tools) -> LLMResponse`，却由工具对象生成不同协议的工具结构；具体客户端还默认加入额外 Bearer 认证、`reasoning_split`，并在签名丢失后把推理文本重新发回，相关能力均未探测。能力记录至今没有真实端点探测（`mini_agent/core/agent.py:608-646`；`docs/PROVIDER_CAPABILITIES.md:20`）。
 
 ## 选项
 
