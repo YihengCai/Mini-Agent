@@ -4,7 +4,7 @@
 
 ## 问题证据
 
-`BashOutputResult` 会把 stdout 与 stderr 原样拼入 `content`（`mini_agent/tools/bash_tool.py:32-49`），MCP、note、skill 与批次执行器生成的失败也都可能产生无界文本。此前 `ToolBatchExecutor` 把成功 `content` 或 `Error: {error}` 直接写入模型消息；离线探针构造 200,000 字节的 Bash 结果后，实测 `content_bytes 200000`。
+`BashOutputResult` 会把 stdout 与 stderr 原样拼入 `content`（`mini_agent/tools/bash_tool.py:32-49`），MCP、skill 与批次执行器生成的失败也都可能产生无界文本。此前 `ToolBatchExecutor` 把成功 `content` 或 `Error: {error}` 直接写入模型消息；离线探针构造 200,000 字节的 Bash 结果后，实测 `content_bytes 200000`。
 
 ## 本轮不变量
 

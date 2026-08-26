@@ -28,7 +28,6 @@ def make_runtime_config(*, prompt_path: str, mcp_path: str):
             enable_skills=False,
             enable_mcp=True,
             enable_file_tools=False,
-            enable_note=False,
             mcp_config_path=mcp_path,
             mcp=SimpleNamespace(
                 connect_timeout=10.0,

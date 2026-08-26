@@ -60,7 +60,6 @@ class ToolsConfig(_StrictConfigModel):
     # Basic tools (file operations, bash)
     enable_file_tools: bool = True
     enable_bash: bool = True
-    enable_note: bool = True
 
     # Skills
     enable_skills: bool = True

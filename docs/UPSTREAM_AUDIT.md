@@ -102,7 +102,7 @@ CLI 分别构造启动、读取与终止工具，退出路径却只调用 MCP �
 | 摘要失败可使上下文变大 | `mini_agent/agent.py:257-292` | 摘要输入和异常降级都没有大小上限 |
 | 取消操作会截断已完成记录 | `mini_agent/agent.py:73-94,397-398,477-478` | 清理逻辑不检查工具调用标识符是否已经配对 |
 | 测试返回值不会让 pytest 失败 | `tests/test_agent.py:72-94,146-161` | 测试返回布尔值并吞掉异常，而不是断言 |
-| Note 读取工具未进入运行时注册表 | `mini_agent/cli.py:429-432`、`mini_agent/acp/__init__.py:100-102` | CLI 与 ACP 都经共享组装得到写入工具，但都没有注册 `RecallNoteTool` |
+| Note 读取工具未进入运行时注册表 | `mini_agent/cli.py:429-432`、`mini_agent/acp/__init__.py:100-102` | 当前 Note 半能力已整体删除；真正的记忆能力以后按会话事实、请求视图、持久化与恢复重新定义，取舍见 ADR-0030 |
 | 后台 shell 使用进程级共享表 | `mini_agent/tools/bash_tool.py:108-127` | 当前已改为 CLI runtime 持有的实例 manager；隔离回归见 `tests/test_background_shell_lifecycle.py` |
 | monitor 取消和强杀不等待收敛 | `mini_agent/tools/bash_tool.py:96-105,181-188` | 当前 terminate/close 会等待 monitor，强杀后再次等待 subprocess |
 | CLI 没有后台 shell 关闭入口 | `mini_agent/cli.py:805-806` | 当前正常、异常和取消路径都按 shell、MCP 顺序清理；取舍见 ADR-0009 |
@@ -111,7 +111,7 @@ CLI 分别构造启动、读取与终止工具，退出路径却只调用 MCP �
 | 成功与失败工具输出可无界进入模型历史 | `mini_agent/tools/bash_tool.py:32-49`、`mini_agent/agent.py:436-469` | 当前由批次执行器统一生成每条最多 64 KiB 的模型投影；原始事件与日志保持完整，取舍见 ADR-0010 |
 | 配置解析重复默认值并静默忽略未知键 | `git show 7a013e9^:mini_agent/config.py` 的 `14-192` | 当前 YAML 直接匹配 `llm`、`agent`、`tools` 运行时模型，并由共享严格模型拒绝未知键；回归见 `tests/test_llm_adapters.py:32-185`，取舍见 ADR-0028 |
 | `workspace_dir` 被配置接纳但运行时从不读取 | `mini_agent/config.py:35-37,131-136`；`mini_agent/cli.py:822-834` | 当前删除该配置状态，由 CLI 单一选择并传递工作区；旧字段按普通未知字段拒绝，取舍见 ADR-0024 与 ADR-0028 |
-| Note 写入把损坏存储当成空列表并覆盖 | `git show 358f561^:mini_agent/tools/note_tool.py` 的 `69-114` | 当前读写工具共享对象数组校验，任何已有无效存储都失败并保留原字节；回归见 `tests/test_note_tool.py:60-90`，取舍见 ADR-0013 |
+| Note 写入把损坏存储当成空列表并覆盖 | `git show 358f561^:mini_agent/tools/note_tool.py` 的 `69-114` | ADR-0013 曾修复覆盖问题；当前 Note 半能力已由 ADR-0030 整体删除 |
 | MCP `isError` 正文没有进入内部错误字段 | `git show e6dded1^:mini_agent/tools/mcp_loader.py` 的 `72-84` | 当前在 MCP 转换边界把非空正文映射到 `ToolResult.error`；直接与批次回归见 `tests/test_mcp_tool_results.py` |
 | 非正 `max_steps` 会接纳零模型请求的伪 Turn | `git show 768dd64^:mini_agent/core/agent.py` 的 `91-121,161-216,229-286` | 当前配置与公开 Session 构造入口都要求正数，且在 runtime 或文件副作用前失败；取舍见 ADR-0014 |
 | 任意 `Current Workspace` 子串可抑制真实工作区事实 | `git show 95dfaa7^:mini_agent/core/agent.py` 的 `113-119` | 当前只有含本次绝对路径的完整事实块能抑制追加；模型请求回归见 `tests/test_agent_session_offline.py:153-188` |

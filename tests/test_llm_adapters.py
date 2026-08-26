@@ -127,7 +127,6 @@ def test_config_models_supply_yaml_defaults(tmp_path):
     assert config.tools.model_dump() == {
         "enable_file_tools": True,
         "enable_bash": True,
-        "enable_note": True,
         "enable_skills": True,
         "skills_dir": "./skills",
         "enable_mcp": True,

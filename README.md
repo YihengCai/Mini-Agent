@@ -12,7 +12,7 @@
 
 `read_file` 现在返回 1-based 行窗口，编号正文最多 2000 个完整行或 50 KiB，并给出下一次 `offset`；`edit_file` 仅把 LF/CRLF 视为等价，其他文本必须精确匹配且只能出现一次。写入和编辑通过同目录临时文件和 `os.replace()` 提交，已有文件保留 CRLF 约定与权限位。代码可以运行，但仍保留重要限制：
 
-- 两份上游真实模型演示仍会吞异常或用返回值代替断言；它们和 5 项外部 MCP/网络测试已从默认集合排除，显式运行也不构成稳定回归；
+- 3 项真实模型演示仍会吞异常或用返回值代替断言；它们和 5 项外部 MCP/网络测试已从默认集合排除，显式运行也不构成稳定回归；
 - `TurnOutcome` 只解释 core 为什么交还控制权，不判断用户任务是否完成；目前没有 TaskSupervisor、BenchmarkEvaluator 或 SWE-bench 接入；
 - core 事件目前只是带 Session、Turn、Step 身份的进程内同步通知，不是可持久化、可回放的轨迹格式，也还没有独立统计或基准评测消费者；
 - Esc 没有真正取消正在运行的模型或工具任务；中断只在完整 Step 边界生效，延迟可能覆盖一次模型调用和整批工具执行；
@@ -22,7 +22,6 @@
 - 当前只实现 Anthropic-compatible messages 与 OpenAI-compatible chat completions 的非流式基础 adapter；名称只表示 wire 格式，没有运行真实端点验证，也没有统一错误分类，`finish_reason` 是可空的 adapter 原生元数据；
 - `usage` 只作为观察数据，不参与上下文控制；当前没有自动上下文预算或压缩，完整历史会持续增长并可能触及配置端点的上限；
 - 文件工具仍接受绝对路径和解析到工作区外的路径，也没有读取版本回执或并发覆盖检测；
-- Note 读写现在共享最小 JSON 结构校验，但保存仍是无锁的整文件直接写入，没有原子提交、并发更新或容量预算；`recall_notes` 也尚未进入 CLI 工具表；
 - 没有权限引擎、工作区边界限制、操作系统沙箱、跨文件回滚或检查点。
 
 不要把当前版本用于重要仓库或无人监督执行。当前已实现范围以本节、代码和离线测试为准。
@@ -59,7 +58,7 @@ Skill 发现的状态边界也已经收紧：每次递归扫描先按路径排�
 
 模型调用当前不做项目级 retry：两个 SDK 都显式设置 `max_retries=0`，每个 adapter 只发起一次项目级调用；异常对象和文本原样进入 core。只有在跨协议错误分类、端点证据和离线评测能说明哪些失败可安全恢复后，retry 才会作为独立 topic 重新进入。删除取舍见 [ADR-0027](docs/decisions/0027-no-project-retry-before-error-classification.md)，core 错误边界见 [ADR-0022](docs/decisions/0022-core-preserves-model-error-semantics.md)。
 
-Note 存储失败关闭也已经落地：`record_note` 与 `recall_notes` 共用同一个读取入口，只有文件不存在才表示空状态；已有文件必须是 JSON 对象数组。读取、解码、解析或最小结构校验失败时，两个工具都返回失败，写入不会开始，原始字节保持不变。它还没有解决直接整文件写入、并发更新、容量预算或读取工具注册；取舍见 [ADR-0013](docs/decisions/0013-fail-closed-note-storage.md)。
+旧 Note 工具已经删除：运行时此前只注册 `record_note`，`recall_notes` 只存在于导出和测试中，却以“跨 Session 记忆”名义引入文件持久化、配置和专用演示。真正的记忆能力需要先区分会话事实、模型请求视图、持久化与恢复，再以独立 topic 进入；本次不以补注册继续扩张半能力。取舍见 [ADR-0030](docs/decisions/0030-remove-incomplete-note-memory.md)。
 
 模型 API 边界改造已经落地：core 只通过 `ModelClient` 调用模型，并把中性 `ToolDefinition` 与现有内部消息结构交给 adapter；静态注册表依据 `llm.adapter` 选择具体 wire 编解码。配置必须提供 API key、原样端点、模型和输出上限，未知 adapter 或旧 `provider` 字段都会失败；项目不会根据域名拼接路径，也不默认启用未经探测的推理状态续传、缓存计量或服务端扩展。共享 schema 已删除永远为空且无法往返的 `thinking` 字段。SDK 自带 retry 已关闭，项目在统一错误分类前也不自动重试。取舍见 [ADR-0005](docs/decisions/0005-explicit-model-api-adapters.md)、[ADR-0027](docs/decisions/0027-no-project-retry-before-error-classification.md) 与 [ADR-0029](docs/decisions/0029-remove-unprobed-thinking-field.md)。
 
@@ -120,7 +119,7 @@ uv sync
 cp mini_agent/config/config-example.yaml mini_agent/config/config.yaml
 ```
 
-配置文件根级直接使用 `llm`、`agent`、`tools`。旧扁平配置需要把 `adapter`、`api_key`、`api_base`、`model`、`max_output_tokens` 移入 `llm`，把 `max_steps`、`system_prompt_path` 移入 `agent`，并删除 `provider`、`local_compaction_token_limit`、`workspace_dir` 与 `retry`；其他未知字段也会拒绝加载。工作区请使用 CLI 的 `--workspace`。`llm.adapter` 当前可选 `anthropic` 或 `openai`，只选择 wire 格式；`api_base` 会逐字交给对应 adapter。模板中的占位值故意不能直接运行。`config.yaml` 与 `mcp.json` 含密钥，已被 `.gitignore` 排除，不要提交。
+配置文件根级直接使用 `llm`、`agent`、`tools`。旧扁平配置需要把 `adapter`、`api_key`、`api_base`、`model`、`max_output_tokens` 移入 `llm`，把 `max_steps`、`system_prompt_path` 移入 `agent`，并删除 `provider`、`local_compaction_token_limit`、`workspace_dir`、`retry` 与 `tools.enable_note`；其他未知字段也会拒绝加载。工作区请使用 CLI 的 `--workspace`。`llm.adapter` 当前可选 `anthropic` 或 `openai`，只选择 wire 格式；`api_base` 会逐字交给对应 adapter。模板中的占位值故意不能直接运行。`config.yaml` 与 `mcp.json` 含密钥，已被 `.gitignore` 排除，不要提交。
 
 ### 交互式手动体验
 
@@ -160,7 +159,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `285 passed, 9 deselected in 13.46s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `277 passed, 8 deselected in 14.11s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 

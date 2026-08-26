@@ -632,7 +632,6 @@ async def test_cli_assembles_all_bash_tools_with_one_runtime_manager(
             enable_skills=False,
             enable_mcp=False,
             enable_file_tools=False,
-            enable_note=False,
         )
     )
     manager = BackgroundShellManager()
@@ -683,7 +682,6 @@ async def test_cli_loads_mcp_tools_through_passed_runtime_manager(
             enable_skills=False,
             enable_mcp=True,
             enable_file_tools=False,
-            enable_note=False,
             mcp_config_path="mcp.json",
             mcp=SimpleNamespace(
                 connect_timeout=10.0,

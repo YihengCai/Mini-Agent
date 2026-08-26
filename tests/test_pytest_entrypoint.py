@@ -13,7 +13,6 @@ EXTERNAL_TESTS = {
     "tests/test_agent.py::test_agent_simple_task",
     "tests/test_agent.py::test_agent_bash_task",
     "tests/test_integration.py::test_basic_agent_usage",
-    "tests/test_integration.py::test_session_memory_demo",
     "tests/test_mcp.py::test_mcp_tools_loading",
     "tests/test_mcp.py::test_git_mcp_tool_availability",
     "tests/test_mcp.py::test_mcp_tool_execution",
