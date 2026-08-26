@@ -61,39 +61,3 @@ class TestCalculateDisplayWidth:
         """Test complex ANSI sequences."""
         text = "\033[1m\033[36mBold Cyan\033[0m"
         assert calculate_display_width(text) == 9  # "Bold Cyan"
-
-class TestRealWorldScenarios:
-    """Tests for real-world usage scenarios."""
-
-    def test_step_header(self):
-        """Test Step header formatting (from agent.py)."""
-        step = 1
-        max_steps = 50
-        step_text = f"💭 Step {step}/{max_steps}"
-
-        width = calculate_display_width(step_text)
-        # "💭" (2) + " Step 1/50" (10) = 12
-        assert width == 12
-
-    def test_session_info_model(self):
-        """Test Session Info model line."""
-        model = "example-model"
-        line = f"Model: {model}"
-        width = calculate_display_width(line)
-        # Should calculate correctly regardless of model name
-        assert width > 0
-
-    def test_chinese_model_name(self):
-        """Test with Chinese model name."""
-        model = "模型-01"
-        line = f"Model: {model}"
-        width = calculate_display_width(line)
-        # "Model: " (7) + "模型-01" (2+2+3) = 14
-        assert width == 14
-
-    def test_banner_text(self):
-        """Test banner text from cli.py."""
-        banner = "🤖 Mini Agent - Multi-turn Interactive Session"
-        width = calculate_display_width(banner)
-        # "🤖" (2) + " Mini Agent - Multi-turn Interactive Session" (44) = 46
-        assert width == 46

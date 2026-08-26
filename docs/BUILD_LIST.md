@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **删除重复终端场景测试**：删除 4 项只把已覆盖的 ASCII、emoji、中文宽字符重新拼成 CLI 文案的测试，其中一项原来只断言结果大于零；保留 9 项宽度分支回归和 1 项公开面回归。测试净减 36 行，定向集合实测 `10 passed in 0.29s`，完整离线集合实测 `253 passed, 5 deselected in 12.85s`。CLI 实现、宽度算法和工具未改；ADR-0036 回头看已更新。
 - **分开直接运行依赖与开发依赖**：生产区只保留代码直接导入的 6 个库，`dev` 开发组单一持有 pytest 与 pytest-asyncio；删除零消费者的直接 httpx/requests/pip/pipx、重复 `dev` extra、pytest-cov/xdist 和 pylint 配置。锁图从 59 个包降到 47 个，12 个独占包被删除，所有保留版本、原镜像与 `revision` 不变；`pyproject.toml` 净减 19 行，`uv.lock` 净减 330 行。`uv lock --check`、生产/开发依赖树和完整离线集合 `257 passed, 5 deselected in 13.62s` 均通过。Python 实现、CLI 与全部 agent 工具未改，取舍见 [`decisions/0038-separate-runtime-and-dev-dependencies.md`](decisions/0038-separate-runtime-and-dev-dependencies.md)。
 - **只保留一个 core-facing 模型 contract**：删除与 `ModelClient` Protocol 重复的 53 行 `LLMAdapter` ABC、公开导出及无消费者的 `api_key/api_base` 镜像；两个具体 adapter 各自保留正数输出上限守卫、模型、预算和 SDK 客户端，factory 返回 `ModelClient`。生产代码净减 49 行，测试净增 20 行；定向集合实测 `82 passed in 0.88s`，临时删除守卫并恢复旧导出时 5 项关键回归转红；完整离线集合实测 `257 passed, 5 deselected in 13.34s`。CLI 与全部工具未改，取舍见 [`decisions/0037-one-core-facing-model-contract.md`](decisions/0037-one-core-facing-model-contract.md)。
 - **内联 adapter 单次请求 seam**：两个 `generate()` 直接组装现有 SDK 参数、各调用一次 `create()` 并解析响应，删除只被这里消费的 `_make_api_request()`；一次调用与原异常对象回归改在 SDK 边界注入失败。生产代码净减 55 行，测试净增 6 行，公开 contract 与 wire 请求不变。定向集合实测 `77 passed in 0.75s`；临时重建 SDK 异常时两种 adapter 回归均转红；完整离线集合实测 `252 passed, 5 deselected in 13.54s`。CLI 与全部工具未改，ADR-0027 的回头看已更新。
