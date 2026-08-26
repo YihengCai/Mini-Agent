@@ -129,9 +129,26 @@ def test_session_preserves_prompt_without_public_config_aliases():
         tools=[],
     )
 
-    assert session.get_history()[0].content == system_prompt
+    history = session.get_history()
+    assert history[0].content == system_prompt
     assert not hasattr(session, "llm")
     assert not hasattr(session, "max_steps")
+    history[0].content = "mutated copy"
+    assert session.get_history()[0].content == system_prompt
+
+
+def test_default_sessions_receive_distinct_identities():
+    sessions = [
+        AgentSession(
+            llm_client=ScriptedLLM([]),
+            system_prompt="System prompt",
+            tools=[],
+        )
+        for _ in range(2)
+    ]
+
+    assert sessions[0].session_id != sessions[1].session_id
+    assert [message.role for message in sessions[1].get_history()] == ["system"]
 
 
 @pytest.mark.asyncio
