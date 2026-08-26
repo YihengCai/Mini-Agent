@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-配置结构精简已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
+未探测 `thinking` 通路已经删除并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **删除未探测的 `thinking` 半能力**：从共享消息/响应 schema、core、CLI 与日志删除始终为空且无法往返的字段；Anthropic-compatible 未知 thinking block 继续忽略，两种 adapter 的可见 assistant/tool 历史映射不变。定向集合实测 `111 passed in 0.82s`，完整离线集合实测 `285 passed, 9 deselected in 13.46s`。取舍见 [`decisions/0029-remove-unprobed-thinking-field.md`](decisions/0029-remove-unprobed-thinking-field.md)。
 - **配置文件与运行时模型同构**：YAML 根级直接使用 `llm`、`agent`、`tools`；删除无调用的 `Config.load()`、扁平字段分片、必填项扫描和四类定向迁移分支，加载后只做一次严格模型校验。配置、来源与 CLI 接线集合实测 `43 passed in 0.70s`，完整离线集合实测 `285 passed, 9 deselected in 13.90s`。取舍见 [`decisions/0028-config-file-matches-runtime-model.md`](decisions/0028-config-file-matches-runtime-model.md)。
 - **模型错误分类前不做项目级 retry**：删除文件与运行时 retry 配置、退避模块、CLI 专用回调及两个 adapter 的包装层；SDK 继续显式 `max_retries=0`，每个 adapter 只直接调用一次并透传原异常。2 个协议参数场景锁定一次调用和对象身份；定向集合实测 `113 passed in 0.61s`，完整离线集合实测 `286 passed, 9 deselected in 13.68s`。取舍见 [`decisions/0027-no-project-retry-before-error-classification.md`](decisions/0027-no-project-retry-before-error-classification.md)。
 - **前台 shell 中断时回收直接子进程**：正常 `communicate()` 语义不变；超时与取消在返回或传播前共用直接子进程的 `kill()` 后 `wait()` 清理，前台进程不进入 `BackgroundShellManager`。2 项故障注入在删除各自清理挂钩时转红；shell 定向集合实测 `42 passed in 9.72s`，完整离线集合实测 `317 passed, 9 deselected in 13.23s`。取舍见 [`decisions/0026-foreground-shell-reaps-on-interruption.md`](decisions/0026-foreground-shell-reaps-on-interruption.md)。

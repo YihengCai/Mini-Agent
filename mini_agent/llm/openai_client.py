@@ -217,7 +217,6 @@ class OpenAIAdapter(LLMAdapter):
 
         return LLMResponse(
             content=text_content,
-            thinking=None,
             tool_calls=tool_calls if tool_calls else None,
             finish_reason=choice.finish_reason,
             usage=usage,

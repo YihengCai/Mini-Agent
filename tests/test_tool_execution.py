@@ -18,7 +18,6 @@ from tests.llm_test_double import ScriptedCall, ScriptedLLM
 def response(*tool_calls: ToolCall) -> LLMResponse:
     return LLMResponse(
         content="",
-        thinking=None,
         tool_calls=list(tool_calls),
         finish_reason="tool_use",
         usage=None,

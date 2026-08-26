@@ -29,7 +29,6 @@ TRUNCATION_MARKER = re.compile(
 def tool_response(*calls: ToolCall) -> LLMResponse:
     return LLMResponse(
         content="",
-        thinking=None,
         tool_calls=list(calls),
         finish_reason="tool_use",
         usage=None,
@@ -39,7 +38,6 @@ def tool_response(*calls: ToolCall) -> LLMResponse:
 def final_response(content: str = "done") -> LLMResponse:
     return LLMResponse(
         content=content,
-        thinking=None,
         tool_calls=[],
         finish_reason="stop",
         usage=None,

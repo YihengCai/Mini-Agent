@@ -35,7 +35,6 @@ def response(
 ) -> LLMResponse:
     return LLMResponse(
         content=content,
-        thinking=None,
         tool_calls=tool_calls,
         finish_reason=finish_reason,
         usage=usage,

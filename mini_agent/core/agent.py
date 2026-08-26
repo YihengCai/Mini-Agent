@@ -388,7 +388,6 @@ class _AgentLoop:
             assistant_message = Message(
                 role="assistant",
                 content=response.content,
-                thinking=response.thinking,
                 tool_calls=response.tool_calls,
             )
             if not response.tool_calls:

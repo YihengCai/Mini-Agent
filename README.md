@@ -61,7 +61,7 @@ Skill 发现的状态边界也已经收紧：每次递归扫描先按路径排�
 
 Note 存储失败关闭也已经落地：`record_note` 与 `recall_notes` 共用同一个读取入口，只有文件不存在才表示空状态；已有文件必须是 JSON 对象数组。读取、解码、解析或最小结构校验失败时，两个工具都返回失败，写入不会开始，原始字节保持不变。它还没有解决直接整文件写入、并发更新、容量预算或读取工具注册；取舍见 [ADR-0013](docs/decisions/0013-fail-closed-note-storage.md)。
 
-模型 API 边界改造已经落地：core 只通过 `ModelClient` 调用模型，并把中性 `ToolDefinition` 与现有内部消息结构交给 adapter；静态注册表依据 `llm.adapter` 选择具体 wire 编解码。配置必须提供 API key、原样端点、模型和输出上限，未知 adapter 或旧 `provider` 字段都会失败；项目不会根据域名拼接路径，也不默认启用未经探测的推理状态续传、缓存计量或服务端扩展。Anthropic 与 OpenAI SDK 只作为协议传输实现，具体 adapter 持有认证头与 wire 编解码；SDK 自带 retry 已关闭，项目在统一错误分类前也不自动重试。取舍见 [ADR-0005](docs/decisions/0005-explicit-model-api-adapters.md) 与 [ADR-0027](docs/decisions/0027-no-project-retry-before-error-classification.md)。
+模型 API 边界改造已经落地：core 只通过 `ModelClient` 调用模型，并把中性 `ToolDefinition` 与现有内部消息结构交给 adapter；静态注册表依据 `llm.adapter` 选择具体 wire 编解码。配置必须提供 API key、原样端点、模型和输出上限，未知 adapter 或旧 `provider` 字段都会失败；项目不会根据域名拼接路径，也不默认启用未经探测的推理状态续传、缓存计量或服务端扩展。共享 schema 已删除永远为空且无法往返的 `thinking` 字段。SDK 自带 retry 已关闭，项目在统一错误分类前也不自动重试。取舍见 [ADR-0005](docs/decisions/0005-explicit-model-api-adapters.md)、[ADR-0027](docs/decisions/0027-no-project-retry-before-error-classification.md) 与 [ADR-0029](docs/decisions/0029-remove-unprobed-thinking-field.md)。
 
 ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生命周期的端到端测试；继续维护它只会让协议层提前塑造执行框架。因此当前版本主动删除 ACP，而不是把 CLI 改成 ACP 客户端。重新引入协议层的条件见 [ADR-0003](docs/decisions/0003-remove-acp-and-extract-core-loop.md)。下一项工作尚未选择；必须先按 [BUILD_LIST](docs/BUILD_LIST.md) 的条件找到当前失败证据和一分钟内的离线验证。
 
@@ -160,7 +160,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `285 passed, 9 deselected in 13.90s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `285 passed, 9 deselected in 13.46s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 

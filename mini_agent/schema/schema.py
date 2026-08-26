@@ -23,7 +23,6 @@ class Message(BaseModel):
 
     role: str  # "system", "user", "assistant", "tool"
     content: str | list[dict[str, Any]]  # Can be string or list of content blocks
-    thinking: str | None = None  # Extended thinking content for assistant messages
     tool_calls: list[ToolCall] | None = None
     tool_call_id: str | None = None
     name: str | None = None  # For tool role
@@ -41,7 +40,6 @@ class LLMResponse(BaseModel):
     """LLM response."""
 
     content: str
-    thinking: str | None = None  # Extended thinking blocks
     tool_calls: list[ToolCall] | None = None
     finish_reason: str | None = None  # Adapter metadata; core does not branch on it
     usage: TokenUsage | None = None  # Token usage from API response

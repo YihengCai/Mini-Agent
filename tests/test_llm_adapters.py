@@ -198,7 +198,6 @@ async def test_factory_passes_endpoint_to_registered_adapter_verbatim(
             self.requests.append((messages, tools))
             return LLMResponse(
                 content="recorded",
-                thinking=None,
                 tool_calls=None,
                 finish_reason="stop",
                 usage=None,
@@ -358,7 +357,7 @@ async def test_anthropic_adapter_uses_only_explicit_base_protocol_fields(monkeyp
         }
     ]
     assert result.content == "done"
-    assert result.thinking is None
+    assert "thinking" not in result.model_dump()
     assert result.finish_reason == "tool_use"
     assert result.usage == TokenUsage(
         prompt_tokens=7,
@@ -466,7 +465,7 @@ async def test_openai_adapter_uses_only_explicit_base_protocol_fields(monkeypatc
         }
     ]
     assert result.content == "done"
-    assert result.thinking is None
+    assert "thinking" not in result.model_dump()
     assert result.finish_reason == "tool_calls"
     assert result.usage == TokenUsage(
         prompt_tokens=11,
@@ -482,7 +481,7 @@ async def test_openai_adapter_uses_only_explicit_base_protocol_fields(monkeypatc
     ]
 
 
-def test_default_adapters_do_not_rebuild_unprobed_thinking_state():
+def test_adapters_encode_assistant_and_tool_history():
     call = ToolCall(
         id="call-history",
         type="function",
@@ -491,7 +490,6 @@ def test_default_adapters_do_not_rebuild_unprobed_thinking_state():
     message = Message(
         role="assistant",
         content="visible answer",
-        thinking="opaque continuation that cannot be reconstructed",
         tool_calls=[call],
     )
     tool_result = Message(

@@ -77,8 +77,6 @@ class AgentLogger:
                 "role": msg.role,
                 "content": msg.content,
             }
-            if msg.thinking:
-                msg_dict["thinking"] = msg.thinking
             if msg.tool_calls:
                 msg_dict["tool_calls"] = [tc.model_dump() for tc in msg.tool_calls]
             if msg.tool_call_id:
@@ -101,7 +99,6 @@ class AgentLogger:
     def log_response(
         self,
         content: str,
-        thinking: str | None = None,
         tool_calls: list[ToolCall] | None = None,
         finish_reason: str | None = None,
     ):
@@ -109,7 +106,6 @@ class AgentLogger:
 
         Args:
             content: Response content
-            thinking: Thinking content (optional)
             tool_calls: Tool call list (optional)
             finish_reason: Finish reason (optional)
         """
@@ -119,9 +115,6 @@ class AgentLogger:
         response_data = {
             "content": content,
         }
-
-        if thinking:
-            response_data["thinking"] = thinking
 
         if tool_calls:
             response_data["tool_calls"] = [tc.model_dump() for tc in tool_calls]

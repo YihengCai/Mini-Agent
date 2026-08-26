@@ -147,14 +147,9 @@ class CliEventSink:
         response = event.response
         self.logger.log_response(
             content=response.content,
-            thinking=response.thinking,
             tool_calls=response.tool_calls,
             finish_reason=response.finish_reason,
         )
-
-        if response.thinking:
-            print(f"\n{Colors.BOLD}{Colors.MAGENTA}🧠 Thinking:{Colors.RESET}")
-            print(f"{Colors.DIM}{response.thinking}{Colors.RESET}")
 
         if response.content:
             print(

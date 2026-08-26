@@ -48,6 +48,6 @@ class LLMAdapter(ABC):
             tools: Optional list of Tool objects or dicts
 
         Returns:
-            LLMResponse containing the generated content, thinking, and tool calls
+            LLMResponse containing generated content and tool calls
         """
         pass

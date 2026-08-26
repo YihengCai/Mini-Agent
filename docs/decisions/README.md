@@ -63,5 +63,6 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0026](0026-foreground-shell-reaps-on-interruption.md) | 前台 shell 中断前回收直接子进程 | 已采纳 |
 | [0027](0027-no-project-retry-before-error-classification.md) | 在模型错误分类前不做项目级重试 | 已采纳 |
 | [0028](0028-config-file-matches-runtime-model.md) | 配置文件直接匹配运行时模型 | 已采纳 |
+| [0029](0029-remove-unprobed-thinking-field.md) | 未探测推理状态不进入共享 schema | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。

@@ -54,3 +54,5 @@ ADR-0006 删除压缩后，adapter contract、静态注册表、端点逐字传�
 2026-08-26：[ADR-0027](0027-no-project-retry-before-error-classification.md) 删除项目级 retry，推翻了本决策中“由项目重试层持有策略”的局部选择；SDK 仍显式 `max_retries=0`，adapter contract、静态注册表、逐字端点与 wire 编解码边界不变。
 
 同日，[ADR-0028](0028-config-file-matches-runtime-model.md) 把模型字段移入 YAML 的 `llm` 分组，并删除 `provider` 的专用迁移文案；旧字段仍由严格模型拒绝。显式 adapter、必填端点与逐字传递 contract 不变。
+
+同日，[ADR-0029](0029-remove-unprobed-thinking-field.md) 删除两个 adapter 永远返回 `None`、又无法往返的共享 `thinking` 字段。未经探测的推理状态仍不进入默认请求，本决策的基础 wire 边界因此收窄但未被推翻。

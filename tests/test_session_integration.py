@@ -19,7 +19,6 @@ from mini_agent.tools.note_tool import RecallNoteTool, SessionNoteTool
 def response(content: str, *, tool_calls=None, finish_reason: str = "stop"):
     return LLMResponse(
         content=content,
-        thinking=None,
         tool_calls=tool_calls,
         finish_reason=finish_reason,
         usage=None,
