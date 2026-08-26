@@ -52,3 +52,5 @@ core 实际只需要 `generate(messages, tools) -> LLMResponse`，却由工具�
 ADR-0006 删除压缩后，adapter contract、静态注册表、端点逐字传递和单一重试所有权均未变化；只移除了 core 对本地估算的可选控制路径。基础 `usage` 映射仍由 adapter 离线测试覆盖，Session 只把它保存为观察数据。
 
 2026-08-26：[ADR-0027](0027-no-project-retry-before-error-classification.md) 删除项目级 retry，推翻了本决策中“由项目重试层持有策略”的局部选择；SDK 仍显式 `max_retries=0`，adapter contract、静态注册表、逐字端点与 wire 编解码边界不变。
+
+同日，[ADR-0028](0028-config-file-matches-runtime-model.md) 把模型字段移入 YAML 的 `llm` 分组，并删除 `provider` 的专用迁移文案；旧字段仍由严格模型拒绝。显式 adapter、必填端点与逐字传递 contract 不变。

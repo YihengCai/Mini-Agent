@@ -109,20 +109,20 @@ CLI 分别构造启动、读取与终止工具，退出路径却只调用 MCP �
 | 前台 shell 超时只调用 `kill()` 而不 `wait()`，取消不清理 | `mini_agent/tools/bash_tool.py:381-409,431-438` | 当前前台调用在超时与逃逸异常返回前统一终止并等待直接子进程；回归见 `tests/test_background_shell_lifecycle.py:157-215`，取舍见 ADR-0026 |
 | MCP 超时与连接使用进程级全局状态 | `mini_agent/tools/mcp_loader.py:21-57,159-169,284-285,397-433` | 当前由 CLI runtime 的 `MCPManager` 隔离并关闭；取消与重试回归见 `tests/test_mcp_runtime_ownership.py` |
 | 成功与失败工具输出可无界进入模型历史 | `mini_agent/tools/bash_tool.py:32-49`、`mini_agent/agent.py:436-469` | 当前由批次执行器统一生成每条最多 64 KiB 的模型投影；原始事件与日志保持完整，取舍见 ADR-0010 |
-| 配置解析重复默认值并静默忽略未知键 | `git show 7a013e9^:mini_agent/config.py` 的 `14-192` | 当前从模型字段派生根级分片，并由共享严格模型拒绝未知键；回归见 `tests/test_llm_adapters.py:48-255`，取舍见 ADR-0012 |
-| `workspace_dir` 被配置接纳但运行时从不读取 | `mini_agent/config.py:35-37,131-136`；`mini_agent/cli.py:822-834` | 当前删除该配置状态，由 CLI 单一选择并传递工作区；旧 YAML 明确迁移到 `--workspace`，回归见 `tests/test_llm_adapters.py:231-243`，取舍见 ADR-0024 |
+| 配置解析重复默认值并静默忽略未知键 | `git show 7a013e9^:mini_agent/config.py` 的 `14-192` | 当前 YAML 直接匹配 `llm`、`agent`、`tools` 运行时模型，并由共享严格模型拒绝未知键；回归见 `tests/test_llm_adapters.py:32-185`，取舍见 ADR-0028 |
+| `workspace_dir` 被配置接纳但运行时从不读取 | `mini_agent/config.py:35-37,131-136`；`mini_agent/cli.py:822-834` | 当前删除该配置状态，由 CLI 单一选择并传递工作区；旧字段按普通未知字段拒绝，取舍见 ADR-0024 与 ADR-0028 |
 | Note 写入把损坏存储当成空列表并覆盖 | `git show 358f561^:mini_agent/tools/note_tool.py` 的 `69-114` | 当前读写工具共享对象数组校验，任何已有无效存储都失败并保留原字节；回归见 `tests/test_note_tool.py:60-90`，取舍见 ADR-0013 |
 | MCP `isError` 正文没有进入内部错误字段 | `git show e6dded1^:mini_agent/tools/mcp_loader.py` 的 `72-84` | 当前在 MCP 转换边界把非空正文映射到 `ToolResult.error`；直接与批次回归见 `tests/test_mcp_tool_results.py` |
 | 非正 `max_steps` 会接纳零模型请求的伪 Turn | `git show 768dd64^:mini_agent/core/agent.py` 的 `91-121,161-216,229-286` | 当前配置与公开 Session 构造入口都要求正数，且在 runtime 或文件副作用前失败；取舍见 ADR-0014 |
 | 任意 `Current Workspace` 子串可抑制真实工作区事实 | `git show 95dfaa7^:mini_agent/core/agent.py` 的 `113-119` | 当前只有含本次绝对路径的完整事实块能抑制追加；模型请求回归见 `tests/test_agent_session_offline.py:153-188` |
 | 主配置与系统提示词、MCP 配置会混用不同搜索来源 | `git show 167a839^:mini_agent/cli.py` 的 `544-680` | 当前相对伴随路径绑定已选主配置父目录，绝对路径保持；来源隔离回归见 `tests/test_config_provenance.py`，取舍见 ADR-0015 |
 | 未知显式 MCP `type` 会被推断成其他 transport | `git show 3fe5709^:mini_agent/tools/mcp_loader.py` 的 `163-177,267-275,345-388` | 当前只对缺失字段自动推断，非法显式值隔离当前 server；回归见 `tests/test_mcp.py:67-76,297-348`，取舍见 ADR-0016 |
-| 负 `max_retries` 会跳过首次调用并抛通用错误 | `git show 08c9f20^:mini_agent/retry.py` 的 `23-61,97-138` | 当前配置与运行时入口都要求非负，零值仍调用一次；回归见 `tests/test_retry.py`，取舍见 ADR-0017 |
-| 非法退避数值会绕过、挂起或溢出有限上限 | `git show 1ce3dd6^:mini_agent/retry.py` 的 `23-75` | 当前两层入口要求有限定义域，零初值和有限幂溢出返回有界结果；回归见 `tests/test_retry.py:13-94`，取舍见 ADR-0018 |
+| 负 `max_retries` 会跳过首次调用并抛通用错误 | `git show 08c9f20^:mini_agent/retry.py` 的 `23-61,97-138` | 项目级 retry 已整体删除；adapter 只调用一次且 SDK retry 显式关闭，取舍见 ADR-0027 |
+| 非法退避数值会绕过、挂起或溢出有限上限 | `git show 1ce3dd6^:mini_agent/retry.py` 的 `23-75` | 退避算法随项目级 retry 删除，不再作为当前能力维护；取舍见 ADR-0027 |
 | 同秒 Turn 日志使用同一路径并覆写已有事实 | `git show 1581771^:mini_agent/logger.py` 的 `19-41` | 当前以排他创建和确定性后缀独占新文件；回归见 `tests/test_logger.py`，取舍见 ADR-0019 |
 | Skill 重扫保留已删除条目，重名来源静默覆盖 | `git show 9c15477^:mini_agent/tools/skill_loader.py` 的 `194-214` | 当前完整扫描后一次替换注册表并拒绝重名；回归见 `tests/test_skill_loader.py:115-157`，取舍见 ADR-0020 |
-| `async_retry()` 忽略 `enabled`，两个 adapter 重复解释开关 | `git show 262761f^:mini_agent/retry.py` 的 `24-58,87-143`；`git show 262761f^:mini_agent/llm/anthropic_client.py` 的 `240-277`；`git show 262761f^:mini_agent/llm/openai_client.py` 的 `233-268` | 当前由重试 wrapper 单一持有开关，adapter 只保留协议调用；回归见 `tests/test_retry.py:98-131`，取舍见 ADR-0021 |
-| core 把模型总调用次数误写为重试次数 | `git show 11a0bcf^:mini_agent/core/agent.py` 的 `346-380` | 当前统一保留模型异常自身文本与原对象，不再导入具体 retry 类型；回归见 `tests/test_agent_session_offline.py:517-544`，取舍见 ADR-0022 |
+| `async_retry()` 忽略 `enabled`，两个 adapter 重复解释开关 | `git show 262761f^:mini_agent/retry.py` 的 `24-58,87-143`；`git show 262761f^:mini_agent/llm/anthropic_client.py` 的 `240-277`；`git show 262761f^:mini_agent/llm/openai_client.py` 的 `233-268` | 项目级 retry 与开关已删除，adapter 只保留一次协议调用；取舍见 ADR-0027 |
+| core 把模型总调用次数误写为重试次数 | `git show 11a0bcf^:mini_agent/core/agent.py` 的 `346-380` | 当前统一保留普通模型异常的文本与原对象；回归见 `tests/test_agent_session_offline.py:516-540`，取舍见 ADR-0022 |
 | 后台 shell 在退出码出现后停止读取缓冲输出 | `git show a6d4881^:mini_agent/tools/bash_tool.py` 的 `151-181` | 当前自然完成以 stdout EOF 为读取边界，再等待并发布退出状态；回归见 `tests/test_background_shell_lifecycle.py:165-188`，取舍见 ADR-0023 |
 
 ## 审计不直接决定实现

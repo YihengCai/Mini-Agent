@@ -6,7 +6,7 @@
 
 ## 背景
 
-CLI 先选择并解析一个 `config.yaml`，却没有把它的路径交给后续运行时；系统提示词与 MCP 配置随后分别重新执行开发目录、用户目录、包目录的全局搜索（`git show 167a839^:mini_agent/cli.py | nl -ba | sed -n '544,680p'`）。因此主配置可以来自用户目录，而模型可见指令或可执行工具定义来自优先级更高的开发目录。配置模板却明确声明 `config.yaml`、`mcp.json` 与 `system_prompt.md` 位于同一目录（`mini_agent/config/config-example.yaml:8-11,36,51`）。
+CLI 先选择并解析一个 `config.yaml`，却没有把它的路径交给后续运行时；系统提示词与 MCP 配置随后分别重新执行开发目录、用户目录、包目录的全局搜索（`git show 167a839^:mini_agent/cli.py | nl -ba | sed -n '544,680p'`）。因此主配置可以来自用户目录，而模型可见指令或可执行工具定义来自优先级更高的开发目录。配置模板却明确声明 `config.yaml`、`mcp.json` 与 `system_prompt.md` 位于同一目录（`mini_agent/config/config-example.yaml:8-11,30-31,43`）。
 
 新回归在临时目录同时放置已选主配置的伴随文件与全局搜索诱饵；把旧的两次全局搜索恢复到该回归中，3 个来源隔离用例全部转红（`tests/test_config_provenance.py:64-158`）。
 

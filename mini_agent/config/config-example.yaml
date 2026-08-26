@@ -11,20 +11,20 @@
 # - All config files (config.yaml, mcp.json, system_prompt.md) are in the same directory
 
 # ===== Model API Configuration =====
-# Supported wire adapters: "anthropic" and "openai".
-# These names select a local message-format adapter; they do not select or
-# certify a model vendor. api_base is passed through exactly as configured,
-# including any path required by your endpoint.
-adapter: "anthropic"
-api_key: "YOUR_API_KEY_HERE"
-api_base: "https://replace-with-your-endpoint.example"
-model: "REPLACE_WITH_MODEL_NAME"
-# Replace this string with an integer supported by the configured model.
-max_output_tokens: "REPLACE_WITH_INTEGER_OUTPUT_LIMIT"
+llm:
+  # Supported wire adapters: "anthropic" and "openai". These names select a
+  # local message format, not a model vendor. api_base is passed through exactly.
+  adapter: "anthropic"
+  api_key: "YOUR_API_KEY_HERE"
+  api_base: "https://replace-with-your-endpoint.example"
+  model: "REPLACE_WITH_MODEL_NAME"
+  # Replace this string with an integer supported by the configured model.
+  max_output_tokens: "REPLACE_WITH_INTEGER_OUTPUT_LIMIT"
 
 # ===== Agent Configuration =====
-max_steps: 100  # Maximum agent model requests (Steps) per Turn
-system_prompt_path: "system_prompt.md"  # System prompt file (same config directory)
+agent:
+  max_steps: 100  # Maximum agent model requests (Steps) per Turn
+  system_prompt_path: "system_prompt.md"  # System prompt file (same config directory)
 
 # ===== Tools Configuration =====
 tools:

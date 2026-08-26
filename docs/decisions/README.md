@@ -46,7 +46,7 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0009](0009-runtime-owned-background-shells.md) | 后台 shell 由一次 CLI runtime 显式持有并统一关闭 | 已采纳 |
 | [0010](0010-model-facing-tool-output-budget.md) | 工具原始事实保持完整，模型消息投影按 UTF-8 字节约束 | 已采纳 |
 | [0011](0011-runtime-owned-mcp-connections.md) | MCP 超时与连接由一次 CLI runtime 显式持有并统一关闭 | 已采纳 |
-| [0012](0012-strict-single-source-config-loading.md) | 配置模型同时持有默认值与未知字段边界 | 已采纳 |
+| [0012](0012-strict-single-source-config-loading.md) | 配置模型同时持有默认值与未知字段边界 | 已推翻（见 ADR-0028） |
 | [0013](0013-fail-closed-note-storage.md) | 损坏的 Note 存储失败关闭并保留原字节 | 已采纳 |
 | [0014](0014-positive-step-budget-at-config-and-core.md) | 配置与 core 共同拒绝非正 Step 预算 | 已采纳 |
 | [0015](0015-bind-config-companions-to-selected-source.md) | 配置伴随文件绑定到已选主配置来源 | 已采纳 |
@@ -62,5 +62,6 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0025](0025-executor-owns-admitted-tool-results.md) | 执行器取得工具返回值所有权 | 已采纳 |
 | [0026](0026-foreground-shell-reaps-on-interruption.md) | 前台 shell 中断前回收直接子进程 | 已采纳 |
 | [0027](0027-no-project-retry-before-error-classification.md) | 在模型错误分类前不做项目级重试 | 已采纳 |
+| [0028](0028-config-file-matches-runtime-model.md) | 配置文件直接匹配运行时模型 | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。

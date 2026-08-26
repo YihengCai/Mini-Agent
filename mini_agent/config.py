@@ -76,161 +76,47 @@ class Config(_StrictConfigModel):
     """Main configuration class"""
 
     llm: LLMConfig
-    agent: AgentConfig
-    tools: ToolsConfig
-
-    @classmethod
-    def load(cls) -> "Config":
-        """Load configuration from the default search path."""
-        config_path = cls.get_default_config_path()
-        if not config_path.exists():
-            raise FileNotFoundError("Configuration file not found. Run scripts/setup-config.sh or place config.yaml in mini_agent/config/.")
-        return cls.from_yaml(config_path)
+    agent: AgentConfig = Field(default_factory=AgentConfig)
+    tools: ToolsConfig = Field(default_factory=ToolsConfig)
 
     @classmethod
     def from_yaml(cls, config_path: str | Path) -> "Config":
-        """Load configuration from YAML file
-
-        Args:
-            config_path: Configuration file path
-
-        Returns:
-            Config instance
-
-        Raises:
-            FileNotFoundError: Configuration file does not exist
-            ValueError: Invalid configuration format or missing required fields
-        """
+        """Load one YAML document through the runtime configuration model."""
         config_path = Path(config_path)
 
         if not config_path.exists():
             raise FileNotFoundError(f"Configuration file does not exist: {config_path}")
 
-        with open(config_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
-        if not data:
+        if data is None:
             raise ValueError("Configuration file is empty")
         if not isinstance(data, dict):
             raise ValueError("Configuration root must be a mapping")
-
-        if "provider" in data:
-            raise ValueError(
-                "Configuration field 'provider' was replaced by 'adapter'; "
-                "remove 'provider' and configure 'adapter' explicitly"
-            )
-        if "local_compaction_token_limit" in data:
-            raise ValueError(
-                "Configuration field 'local_compaction_token_limit' was removed; "
-                "automatic local compaction is no longer available"
-            )
-        if "workspace_dir" in data:
-            raise ValueError(
-                "Configuration field 'workspace_dir' was removed; "
-                "use the '--workspace' CLI option to select the runtime workspace"
-            )
-
-        known_root_fields = {
-            *LLMConfig.model_fields,
-            *AgentConfig.model_fields,
-            "tools",
-        }
-        unknown_fields = sorted(
-            str(field) for field in set(data) - known_root_fields
-        )
-        if unknown_fields:
-            raise ValueError(
-                "Configuration file has unknown field(s): "
-                + ", ".join(unknown_fields)
-            )
-
-        # Model endpoint selection is explicit; no vendor defaults are inferred.
-        required_llm_fields = tuple(
-            field_name
-            for field_name, field in LLMConfig.model_fields.items()
-            if field.is_required()
-        )
-        missing_fields = [field for field in required_llm_fields if field not in data]
-        if missing_fields:
-            raise ValueError(
-                "Configuration file missing required field(s): "
-                + ", ".join(missing_fields)
-            )
-
-        if not data["api_key"] or data["api_key"] == "YOUR_API_KEY_HERE":
-            raise ValueError("Please configure a valid API Key")
-
-        llm_data = {
-            field: data[field]
-            for field in LLMConfig.model_fields
-            if field in data
-        }
-        agent_data = {
-            field: data[field]
-            for field in AgentConfig.model_fields
-            if field in data
-        }
-
-        return cls.model_validate(
-            {
-                "llm": llm_data,
-                "agent": agent_data,
-                "tools": data.get("tools", {}),
-            }
-        )
+        return cls.model_validate(data)
 
     @staticmethod
     def get_package_dir() -> Path:
-        """Get the package installation directory
-
-        Returns:
-            Path to the mini_agent package directory
-        """
-        # Get the directory where this config.py file is located
+        """Return the installed mini_agent package directory."""
         return Path(__file__).parent
 
     @classmethod
     def find_config_file(cls, filename: str) -> Path | None:
-        """Find configuration file with priority order
-
-        Search for config file in the following order of priority:
-        1) mini_agent/config/{filename} in current directory (development mode)
-        2) ~/.mini-agent/config/{filename} in user home directory
-        3) {package}/mini_agent/config/{filename} in package installation directory
-
-        Args:
-            filename: Configuration file name (e.g., "config.yaml", "mcp.json", "system_prompt.md")
-
-        Returns:
-            Path to found config file, or None if not found
-        """
-        # Priority 1: Development mode - current directory's config/ subdirectory
-        dev_config = Path.cwd() / "mini_agent" / "config" / filename
-        if dev_config.exists():
-            return dev_config
-
-        # Priority 2: User config directory
-        user_config = Path.home() / ".mini-agent" / "config" / filename
-        if user_config.exists():
-            return user_config
-
-        # Priority 3: Package installation directory's config/ subdirectory
-        package_config = cls.get_package_dir() / "config" / filename
-        if package_config.exists():
-            return package_config
-
+        """Find a config file in development, user, then package order."""
+        candidates = (
+            Path.cwd() / "mini_agent" / "config" / filename,
+            Path.home() / ".mini-agent" / "config" / filename,
+            cls.get_package_dir() / "config" / filename,
+        )
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
         return None
 
     @classmethod
     def get_default_config_path(cls) -> Path:
-        """Get the default config file path with priority search
-
-        Returns:
-            Path to config.yaml (prioritizes: dev config/ > user config/ > package config/)
-        """
+        """Return the selected config path or the package fallback path."""
         config_path = cls.find_config_file("config.yaml")
         if config_path:
             return config_path
-
-        # Fallback to package config directory for error message purposes
         return cls.get_package_dir() / "config" / "config.yaml"

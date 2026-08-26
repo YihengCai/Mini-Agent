@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-项目级 retry 清理已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
+配置结构精简已经完成并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -52,10 +52,11 @@
 
 ## 最近完成
 
+- **配置文件与运行时模型同构**：YAML 根级直接使用 `llm`、`agent`、`tools`；删除无调用的 `Config.load()`、扁平字段分片、必填项扫描和四类定向迁移分支，加载后只做一次严格模型校验。配置、来源与 CLI 接线集合实测 `43 passed in 0.70s`，完整离线集合实测 `285 passed, 9 deselected in 13.90s`。取舍见 [`decisions/0028-config-file-matches-runtime-model.md`](decisions/0028-config-file-matches-runtime-model.md)。
 - **模型错误分类前不做项目级 retry**：删除文件与运行时 retry 配置、退避模块、CLI 专用回调及两个 adapter 的包装层；SDK 继续显式 `max_retries=0`，每个 adapter 只直接调用一次并透传原异常。2 个协议参数场景锁定一次调用和对象身份；定向集合实测 `113 passed in 0.61s`，完整离线集合实测 `286 passed, 9 deselected in 13.68s`。取舍见 [`decisions/0027-no-project-retry-before-error-classification.md`](decisions/0027-no-project-retry-before-error-classification.md)。
 - **前台 shell 中断时回收直接子进程**：正常 `communicate()` 语义不变；超时与取消在返回或传播前共用直接子进程的 `kill()` 后 `wait()` 清理，前台进程不进入 `BackgroundShellManager`。2 项故障注入在删除各自清理挂钩时转红；shell 定向集合实测 `42 passed in 9.72s`，完整离线集合实测 `317 passed, 9 deselected in 13.23s`。取舍见 [`decisions/0026-foreground-shell-reaps-on-interruption.md`](decisions/0026-foreground-shell-reaps-on-interruption.md)。
 - **工具返回值的接纳所有权**：合法 `ToolResult` 在执行器接纳处立即深拷贝；工具保留的返回别名即使在同步 `ToolFinished` 观察期间被修改，也不能让事件事实与模型历史分叉。1 项新回归在删除接纳复制时转红；定向集合实测 `47 passed in 0.62s`，完整离线集合实测 `315 passed, 9 deselected in 13.33s`。取舍见 [`decisions/0025-executor-owns-admitted-tool-results.md`](decisions/0025-executor-owns-admitted-tool-results.md)。
-- **运行时工作区的单一所有权**：删除从未被运行时消费的 `AgentConfig.workspace_dir` 与示例字段；CLI 的 `--workspace` / 当前目录继续作为唯一来源，程序化模型拒绝旧字段，旧 YAML 会明确指向 `--workspace`。2 项新回归覆盖模型与迁移边界；删除定向错误时 YAML 回归转红。定向集合实测 `77 passed in 0.69s`，完整离线集合实测 `314 passed, 9 deselected in 13.18s`。取舍见 [`decisions/0024-cli-owns-runtime-workspace.md`](decisions/0024-cli-owns-runtime-workspace.md)。
+- **运行时工作区的单一所有权**：配置模型不再持有从未被消费的 `workspace_dir`；CLI 的 `--workspace` / 当前目录继续作为唯一来源，旧字段由共享严格模型拒绝。工作区选择、目录创建和工具路径行为没有改变；取舍见 [`decisions/0024-cli-owns-runtime-workspace.md`](decisions/0024-cli-owns-runtime-workspace.md)。
 - **后台 shell 输出完成边界**：自然完成的 monitor 持续读取到 stdout EOF，再等待进程并发布 `completed` 或 `failed`；进程已退出但仍缓冲的行不再丢失。确定性 fake 回归在恢复旧退出码条件时转红；既有真实 bash 定向集合保持通过。定向集合实测 `40 passed in 9.77s`，完整离线集合实测 `312 passed, 9 deselected in 13.07s`。主动终止尾部输出仍不在保证内，取舍见 [`decisions/0023-background-shell-completes-after-stdout-eof.md`](decisions/0023-background-shell-completes-after-stdout-eof.md)。
 - **core 模型失败语义**：模型异常统一形成 `LLM call failed: {error}`，原对象继续进入事件，事件结果与 Turn 错误使用同一文本；core 不解释具体 adapter 的错误类型。普通 `OSError` 回归覆盖对象身份和两处文本；恢复旧特判时该项转红。取舍见 [`decisions/0022-core-preserves-model-error-semantics.md`](decisions/0022-core-preserves-model-error-semantics.md)。
 - **Skill 发现注册表快照**：递归路径先稳定排序，成功解析的 Skill 在局部名称索引中完成；重名会报告两个来源并让本次扫描失败，上一完整快照不变，成功重扫则一次替换并清除已删除条目。2 项新回归覆盖删除后重扫、重名诊断与失败状态；退化为累加更新或移除重名守卫时各有 1 项转红。完整离线集合实测 `309 passed, 9 deselected in 13.21s`，取舍见 [`decisions/0020-transactional-skill-discovery.md`](decisions/0020-transactional-skill-discovery.md)。
@@ -66,7 +67,6 @@
 - **正数 Step 预算双边界**：`AgentConfig` 在 CLI runtime 组装前要求 `max_steps > 0`，公开 `AgentSession` 在工具检查与工作区创建前独立执行同一守卫；`0/-1` 不能再接纳用户消息后以零模型请求返回 `max_steps`。配置与 core 各 2 项回归分别验证字段错误、无目录副作用和无模型请求；移除任一层时对应测试转红。完整离线集合实测 `261 passed, 9 deselected in 13.85s`，取舍见 [`decisions/0014-positive-step-budget-at-config-and-core.md`](decisions/0014-positive-step-budget-at-config-and-core.md)。
 - **MCP 错误正文归一化**：MCP `isError` 的非空正文现在写入内部 `ToolResult.error`，成功正文仍写入 `content`，空错误保留通用兜底；现有批次执行器因此把同一诊断交给原始 `ToolFinished`、模型消息、CLI 和日志。4 项纯离线回归使用真实 MCP SDK 结果类型覆盖成功、多段正文、错误、空错误和 executor 集成；恢复通用错误时集成回归转红。完整离线集合实测 `257 passed, 9 deselected in 13.18s`。
 - **Note 存储损坏时失败关闭**：`record_note` 与 `recall_notes` 共享 UTF-8 JSON 对象数组校验，只有文件不存在才表示空状态；损坏 JSON、对象根或含非对象元素的数组都会让两个工具失败，写入不会开始且原字节逐字不变。测试先去掉依赖空临时文件吞错的夹具，再增加 3 项结构回归；恢复宽泛异常降级时回归转红。完整离线集合实测 `253 passed, 9 deselected in 13.89s`，取舍见 [`decisions/0013-fail-closed-note-storage.md`](decisions/0013-fail-closed-note-storage.md)。
-- **严格配置解析与默认值单一真源**：根级允许集合、必填字段与分片从现有模型字段派生，嵌套默认值只由模型持有；所有配置模型拒绝未知字段，旧配置键仍保留定向迁移错误。13 项新增或扩展回归覆盖非映射根、根级与三层嵌套错键、程序化构造、全部默认值和全部显式非默认值；移除根级检查与恢复嵌套忽略时分别有 1 项和 3 项转红。完整离线集合实测 `250 passed, 9 deselected in 13.82s`，取舍见 [`decisions/0012-strict-single-source-config-loading.md`](decisions/0012-strict-single-source-config-loading.md)。
 - **MCP 状态与连接运行时所有权**：不可变超时快照、连接接纳与关闭现在由一次 CLI runtime 的 `MCPManager` 持有；server 覆盖仍优先，连接在 `await connect()` 前登记，关闭串行化并只移除成功项，取消后的 transport 句柄可重试。6 项新增所有权回归与 MCP/CLI 定向集合实测 `55 passed, 5 deselected in 0.71s`；显式排除 `external` 的完整集合实测 `237 passed, 9 deselected in 13.10s`。取舍见 [`decisions/0011-runtime-owned-mcp-connections.md`](decisions/0011-runtime-owned-mcp-connections.md)。
 - **模型可见工具输出预算**：原始 `ToolResult` 与 `ToolFinished` 保持完整，批次执行器只把模型消息投影限制为每条 64 KiB UTF-8 字节；精确边界不变，超限保留首尾并报告原始、保留、省略和上限字节数，失败前缀计入预算。3 项新增回归覆盖 UTF-8、事件所有权、观察者变异、历史、下一次请求与批次顺序；删除挂钩时集成回归实测转红。显式排除 `external` 的完整集合实测 `230 passed, 9 deselected in 13.57s`，取舍见 [`decisions/0010-model-facing-tool-output-budget.md`](decisions/0010-model-facing-tool-output-budget.md)。
 - **后台 shell 状态与资源所有权**：配置和模型客户端成功后，一次 CLI runtime 持有显式注入三个 shell 工具的 manager；`/clear` 保留它，退出才按 shell、MCP 顺序关闭。manager 隔离状态，拒绝重复与关闭后登记，串行化并发 `close()`，等待 monitor 和强杀后 subprocess，并保留失败项供重试。25 项定向回归与显式排除 `external` 的完整集合实测为 `227 passed, 9 deselected in 14.00s`，取舍见 [`decisions/0009-runtime-owned-background-shells.md`](decisions/0009-runtime-owned-background-shells.md)。

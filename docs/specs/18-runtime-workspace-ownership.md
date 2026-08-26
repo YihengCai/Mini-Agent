@@ -1,6 +1,6 @@
 # 运行时工作区的单一所有权
 
-> 状态：已实现。配置字段与迁移边界位于 `mini_agent/config.py:53-57,128-156`，CLI 选择与传递位于 `mini_agent/cli.py:651-714,968-980`，离线回归位于 `tests/test_llm_adapters.py:157-160,231-243`；取舍见 [ADR-0024](../decisions/0024-cli-owns-runtime-workspace.md)。
+> 状态：已实现。配置模型位于 `mini_agent/config.py:49-87`，CLI 选择与传递位于 `mini_agent/cli.py:631-690,943-955`；取舍见 [ADR-0024](../decisions/0024-cli-owns-runtime-workspace.md)。
 
 ## 问题证据
 
@@ -11,7 +11,7 @@
 1. CLI 的显式 `--workspace` 是最高优先级；未提供时使用当前目录。
 2. CLI 选出的同一路径传给工作区工具和 `AgentSession`，配置对象不持有第二份候选值。
 3. `AgentConfig` 程序化构造拒绝 `workspace_dir`。
-4. YAML 中的旧字段在通用未知字段检查前失败，并明确指向 `--workspace`。
+4. YAML 中的旧字段由严格模型作为未知字段拒绝；工作区用法由 CLI 与 README 说明。
 5. 示例配置只列出真实生效的 agent 字段。
 
 ## 不在范围
@@ -21,6 +21,6 @@
 ## 离线验证
 
 - 缺省与全显式配置的 `AgentConfig.model_dump()` 都不含工作区字段；
-- 程序化构造旧字段失败，旧 YAML 失败文本同时包含字段名和 `--workspace`；
-- 删除定向迁移错误时，对应 YAML 回归转红；
+- 程序化构造和 YAML 旧字段都由共享未知字段边界拒绝；
+- 删除共享 `extra="forbid"` 时，对应回归转红；
 - 配置来源、agent loop 与完整离线集合保持通过。

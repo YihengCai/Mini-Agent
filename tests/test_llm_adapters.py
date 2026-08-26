@@ -31,11 +31,13 @@ from mini_agent.schema import (
 
 def config_data() -> dict:
     return {
-        "api_key": "test-key",
-        "adapter": "anthropic",
-        "api_base": "https://model.example.test/messages",
-        "model": "test-model",
-        "max_output_tokens": 37,
+        "llm": {
+            "api_key": "test-key",
+            "adapter": "anthropic",
+            "api_base": "https://model.example.test/messages",
+            "model": "test-model",
+            "max_output_tokens": 37,
+        },
     }
 
 
@@ -49,7 +51,7 @@ def write_config(path, data: dict) -> None:
 )
 def test_config_requires_explicit_model_adapter_fields(tmp_path, missing_field):
     data = config_data()
-    del data[missing_field]
+    del data["llm"][missing_field]
     path = tmp_path / "config.yaml"
     write_config(path, data)
 
@@ -59,21 +61,11 @@ def test_config_requires_explicit_model_adapter_fields(tmp_path, missing_field):
 
 def test_config_rejects_unknown_adapter(tmp_path):
     data = config_data()
-    data["adapter"] = "typo"
+    data["llm"]["adapter"] = "typo"
     path = tmp_path / "config.yaml"
     write_config(path, data)
 
     with pytest.raises(ValueError, match="adapter"):
-        Config.from_yaml(path)
-
-
-def test_config_rejects_placeholder_api_key(tmp_path):
-    data = config_data()
-    data["api_key"] = "YOUR_API_KEY_HERE"
-    path = tmp_path / "config.yaml"
-    write_config(path, data)
-
-    with pytest.raises(ValueError, match="valid API Key"):
         Config.from_yaml(path)
 
 
@@ -85,31 +77,9 @@ def test_config_requires_mapping_root(tmp_path):
         Config.from_yaml(path)
 
 
-def test_config_rejects_legacy_provider_field(tmp_path):
-    data = config_data()
-    data["provider"] = "openai"
-    path = tmp_path / "config.yaml"
-    write_config(path, data)
-
-    with pytest.raises(ValueError, match="'provider'.*'adapter'"):
-        Config.from_yaml(path)
-
-
-def test_llm_config_rejects_unknown_programmatic_fields():
-    with pytest.raises(ValueError, match="provider"):
-        LLMConfig(
-            api_key="test-key",
-            adapter="anthropic",
-            api_base="https://model.example.test/messages",
-            model="test-model",
-            max_output_tokens=37,
-            provider="openai",
-        )
-
-
 @pytest.mark.parametrize(
     "model",
-    [Config, AgentConfig, MCPConfig, ToolsConfig],
+    [Config, LLMConfig, AgentConfig, MCPConfig, ToolsConfig],
 )
 def test_config_models_reject_unknown_programmatic_fields(model):
     with pytest.raises(ValueError, match="unknown_field"):
@@ -120,7 +90,12 @@ def test_config_models_reject_unknown_programmatic_fields(model):
     ("unknown_data", "unknown_field"),
     [
         ({"max_step": 1}, "max_step"),
+        ({"provider": "openai"}, "provider"),
+        ({"local_compaction_token_limit": 1}, "local_compaction_token_limit"),
+        ({"workspace_dir": "."}, "workspace_dir"),
         ({"retry": {"max_retries": 0}}, "retry"),
+        ({"llm": {"api_bsae": "https://typo.invalid"}}, "api_bsae"),
+        ({"agent": {"max_step": 1}}, "max_step"),
         ({"tools": {"enable_mpc": False}}, "enable_mpc"),
         ({"tools": {"mcp": {"connect_timout": 1.0}}}, "connect_timout"),
     ],
@@ -165,70 +140,9 @@ def test_config_models_supply_yaml_defaults(tmp_path):
     }
 
 
-def test_config_preserves_all_explicit_fields(tmp_path):
-    data = config_data()
-    data.update(
-        max_steps=12,
-        system_prompt_path="different-prompt.md",
-        tools={
-            "enable_file_tools": False,
-            "enable_bash": False,
-            "enable_note": False,
-            "enable_skills": False,
-            "skills_dir": "./different-skills",
-            "enable_mcp": False,
-            "mcp_config_path": "different-mcp.json",
-            "mcp": {
-                "connect_timeout": 1.5,
-                "execute_timeout": 2.5,
-                "sse_read_timeout": 3.5,
-            },
-        },
-    )
-    path = tmp_path / "config.yaml"
-    write_config(path, data)
-
-    config = Config.from_yaml(path)
-
-    assert config.llm.model_dump() == {
-        **config_data(),
-        "adapter": AdapterName.ANTHROPIC,
-    }
-    assert config.agent.model_dump() == {
-        "max_steps": data["max_steps"],
-        "system_prompt_path": data["system_prompt_path"],
-    }
-    assert config.tools.model_dump() == data["tools"]
-
-
-def test_config_rejects_removed_local_compaction_field(tmp_path):
-    data = config_data()
-    data["local_compaction_token_limit"] = 123
-    path = tmp_path / "config.yaml"
-    write_config(path, data)
-
-    with pytest.raises(ValueError, match="removed.*compaction"):
-        Config.from_yaml(path)
-
-
-def test_agent_config_rejects_removed_workspace_dir():
-    with pytest.raises(ValueError, match="workspace_dir"):
-        AgentConfig(workspace_dir="./ignored")
-
-
-def test_config_rejects_removed_workspace_dir_with_cli_migration(tmp_path):
-    data = config_data()
-    data["workspace_dir"] = "./ignored"
-    path = tmp_path / "config.yaml"
-    write_config(path, data)
-
-    with pytest.raises(ValueError, match=r"workspace_dir.*--workspace"):
-        Config.from_yaml(path)
-
-
 def test_config_rejects_nonpositive_output_limit(tmp_path):
     data = config_data()
-    data["max_output_tokens"] = 0
+    data["llm"]["max_output_tokens"] = 0
     path = tmp_path / "config.yaml"
     write_config(path, data)
 
@@ -239,7 +153,7 @@ def test_config_rejects_nonpositive_output_limit(tmp_path):
 @pytest.mark.parametrize("max_steps", [0, -1])
 def test_config_rejects_nonpositive_max_steps(tmp_path, max_steps):
     data = config_data()
-    data["max_steps"] = max_steps
+    data["agent"] = {"max_steps": max_steps}
     path = tmp_path / "config.yaml"
     write_config(path, data)
 
@@ -250,10 +164,11 @@ def test_config_rejects_nonpositive_max_steps(tmp_path, max_steps):
 def test_config_example_tracks_explicit_adapter_schema(tmp_path):
     template_path = Path("mini_agent/config/config-example.yaml")
     data = yaml.safe_load(template_path.read_text(encoding="utf-8"))
-    assert "provider" not in data
+    assert set(data) == {"llm", "agent", "tools"}
+    assert "provider" not in data["llm"]
     assert "retry" not in data
 
-    data.update(
+    data["llm"].update(
         api_key="test-key",
         api_base="https://model.example.test/messages",
         model="test-model",

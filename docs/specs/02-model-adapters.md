@@ -26,7 +26,7 @@ git archive 157928f mini_agent | tar -x -C "$repro_dir"
 - `AgentSession` 只依赖 `ModelClient` Protocol；Session 继续持有模型引用，adapter 不取得消息、Turn 或 Step 的所有权。
 - core 传递 vendor 中性的工具定义；每个 adapter 独占 SDK 客户端、认证头行为、工具与消息的 wire 编码，以及基础响应映射。
 - 组装点通过静态注册表选择 adapter。新增 vendor 偏差时新增具体 adapter，不在已有 adapter 中加入域名条件。
-- `api_key`、`adapter`、`api_base`、`model` 与 `max_output_tokens` 显式配置；未知名称和旧 `provider` 字段立即失败，`api_base` 原样交给 adapter。
+- `llm` 分组显式配置 `api_key`、`adapter`、`api_base`、`model` 与 `max_output_tokens`；未知名称和旧 `provider` 字段失败，`api_base` 原样交给 adapter。
 - Anthropic-compatible 与 OpenAI-compatible 表示本地 wire adapter，不表示已采用或验证对应 vendor 服务；未经探测的推理状态续传、缓存用量和服务端上下文扩展不进入默认请求。
 
 不在本轮范围：流式输出、错误分类、动态插件发现、真实端点能力探测、设计新的上下文策略、重写 agent loop，或切换本地 `config.yaml` 中的服务。本轮只让 `usage` 保持观察数据，并在当时默认关闭旧压缩；该实现后续由 [ADR-0006](../decisions/0006-remove-legacy-local-compaction.md) 完全删除。
@@ -37,7 +37,7 @@ git archive 157928f mini_agent | tar -x -C "$repro_dir"
 - core 为模型与事件接收器分别创建独立工具定义，观察隔离不变量不变（`mini_agent/core/agent.py:608-646`）。
 - `AdapterName` 与静态注册表只列出已实现的两种基础 wire adapter；工厂不检查域名，也不拼接路径（`mini_agent/llm/factory.py:11-50`）。
 - 共享 adapter 基类只保留当前两种实现共用的设置与 `generate()` contract，不规定 system message、请求结构或调用策略（`mini_agent/llm/base.py`）。
-- 配置不再提供 vendor 端点、模型或输出上限默认值；旧 `provider` 字段在 YAML 与直接构造 `LLMConfig` 时都会失败，示例配置也已移除它并由离线测试同步验证（`mini_agent/config.py:24-42,112-163`；`tests/test_llm_adapters.py:41-150`）。
+- 配置不再提供 vendor 端点、模型或输出上限默认值；YAML 直接使用 `llm` 运行时结构，旧 `provider` 字段与其他未知字段由严格模型拒绝（`mini_agent/config.py:26-108`；`tests/test_llm_adapters.py:32-185`）。
 - 两个 adapter 显式关闭 SDK 内建 retry，并各自只发起一次项目级调用；项目级 retry 后续由 [ADR-0027](../decisions/0027-no-project-retry-before-error-classification.md) 删除，产生 SDK 边界修正的实测见 [P-006](../PITFALLS.md#p-006--关闭项目重试不等于-sdk-不会重试)。
 - adapter 保留可空的原生 `finish_reason`，不在字段缺失时伪造 `stop`；基础 `usage` 只供观察，不在未经探测时控制任何上下文策略（`mini_agent/schema/schema.py:40-47`；`mini_agent/core/agent.py:125-127,380-383`）。core 当前没有自动上下文预算或压缩。
 

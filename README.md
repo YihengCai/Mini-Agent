@@ -49,9 +49,9 @@ shell 所有权已经落地：配置与模型客户端构造成功后，CLI 创�
 
 MCP 运行时所有权也已经落地：CLI 用配置构造不可变超时快照，并把同一个 `MCPManager` 交给 loader 与最终清理；不同 runtime 不共享超时或连接。manager 在连接建立前登记所有权，串行化加载与关闭，尝试全部连接并保留失败项；叶子连接只有在 transport 关闭成功后才丢弃句柄，所以取消后的关闭可以真实重试。`isError` 的非空 server 正文现在映射到内部 `error`，因此 `ToolFinished`、模型消息、CLI 和日志使用同一诊断；空正文仍使用通用兜底。MCP `type` 只有在字段完全缺失时才自动推断；显式非法值在构造任何连接前隔离当前 server，合法后续项继续加载。运行时所有权取舍见 [ADR-0011](docs/decisions/0011-runtime-owned-mcp-connections.md)，transport 校验取舍见 [ADR-0016](docs/decisions/0016-reject-explicit-invalid-mcp-transports.md)。
 
-配置解析也已经收紧：根级扁平 YAML 仍映射到 `llm`、`agent` 和 `tools`，但所有配置模型现在共享未知字段拒绝策略；根级允许集合、必填字段与分片从模型字段派生，解析器不再重复默认值。拼错的根级、工具或 MCP 键会在启动时指出原字段，合法缺省值只由模型补全；数值语义和配置文件来源当时没有改变。取舍见 [ADR-0012](docs/decisions/0012-strict-single-source-config-loading.md)。
+配置文件现在直接使用 `llm`、`agent`、`tools` 三个运行时分组；加载器只检查 YAML 根是映射，随后交给同一套严格模型。未知字段在任意层级都会失败，`agent` 与 `tools` 的缺省值也只存在于模型中，不再维护根级字段分片或逐字段迁移分支。取舍见 [ADR-0028](docs/decisions/0028-config-file-matches-runtime-model.md)。
 
-运行时工作区现在由 CLI 单一持有：显式 `--workspace` 优先，否则使用当前目录，再把同一路径交给工具和 `AgentSession`。从未被读取的 `workspace_dir` 配置与示例字段已经删除；程序化构造会按严格模型拒绝它，旧 YAML 则明确提示改用 `--workspace`。这没有新增工作区越界限制或沙箱；取舍见 [ADR-0024](docs/decisions/0024-cli-owns-runtime-workspace.md)。
+运行时工作区现在由 CLI 单一持有：显式 `--workspace` 优先，否则使用当前目录，再把同一路径交给工具和 `AgentSession`。配置不再声明 `workspace_dir`，旧字段由严格模型拒绝；工作区仍通过 `--workspace` 选择。这没有新增工作区越界限制或沙箱；取舍见 [ADR-0024](docs/decisions/0024-cli-owns-runtime-workspace.md)。
 
 配置伴随文件的来源也已经统一：CLI 选择 `config.yaml` 后把路径显式传给同一次 runtime，相对 `system_prompt_path` 与 `mcp_config_path` 只从该目录解析，显式绝对路径保持不变。相对文件缺失时不会跨目录借用同名文件，而是使用内置提示词或保持 MCP 未加载；`skills_dir` 没有随本项改变，工作区配置的后续删除见 ADR-0024。取舍见 [ADR-0015](docs/decisions/0015-bind-config-companions-to-selected-source.md)。
 
@@ -61,7 +61,7 @@ Skill 发现的状态边界也已经收紧：每次递归扫描先按路径排�
 
 Note 存储失败关闭也已经落地：`record_note` 与 `recall_notes` 共用同一个读取入口，只有文件不存在才表示空状态；已有文件必须是 JSON 对象数组。读取、解码、解析或最小结构校验失败时，两个工具都返回失败，写入不会开始，原始字节保持不变。它还没有解决直接整文件写入、并发更新、容量预算或读取工具注册；取舍见 [ADR-0013](docs/decisions/0013-fail-closed-note-storage.md)。
 
-模型 API 边界改造已经落地：core 只通过 `ModelClient` 调用模型，并把中性 `ToolDefinition` 与现有内部消息结构交给 adapter；静态注册表依据显式 `adapter` 选择具体 wire 编解码。配置必须提供 API key、原样端点、模型和输出上限，未知 adapter 或旧 `provider` 字段会立即失败；项目不会根据域名拼接路径，也不默认启用未经探测的推理状态续传、缓存计量或服务端扩展。Anthropic 与 OpenAI SDK 只作为协议传输实现，具体 adapter 持有认证头与 wire 编解码；SDK 自带 retry 已关闭，项目在统一错误分类前也不自动重试。取舍见 [ADR-0005](docs/decisions/0005-explicit-model-api-adapters.md) 与 [ADR-0027](docs/decisions/0027-no-project-retry-before-error-classification.md)。
+模型 API 边界改造已经落地：core 只通过 `ModelClient` 调用模型，并把中性 `ToolDefinition` 与现有内部消息结构交给 adapter；静态注册表依据 `llm.adapter` 选择具体 wire 编解码。配置必须提供 API key、原样端点、模型和输出上限，未知 adapter 或旧 `provider` 字段都会失败；项目不会根据域名拼接路径，也不默认启用未经探测的推理状态续传、缓存计量或服务端扩展。Anthropic 与 OpenAI SDK 只作为协议传输实现，具体 adapter 持有认证头与 wire 编解码；SDK 自带 retry 已关闭，项目在统一错误分类前也不自动重试。取舍见 [ADR-0005](docs/decisions/0005-explicit-model-api-adapters.md) 与 [ADR-0027](docs/decisions/0027-no-project-retry-before-error-classification.md)。
 
 ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生命周期的端到端测试；继续维护它只会让协议层提前塑造执行框架。因此当前版本主动删除 ACP，而不是把 CLI 改成 ACP 客户端。重新引入协议层的条件见 [ADR-0003](docs/decisions/0003-remove-acp-and-extract-core-loop.md)。下一项工作尚未选择；必须先按 [BUILD_LIST](docs/BUILD_LIST.md) 的条件找到当前失败证据和一分钟内的离线验证。
 
@@ -120,7 +120,7 @@ uv sync
 cp mini_agent/config/config-example.yaml mini_agent/config/config.yaml
 ```
 
-编辑 `mini_agent/config/config.yaml`，删除旧 `provider`、`local_compaction_token_limit`、`workspace_dir` 与 `retry` 字段，并显式填写 `adapter`、`api_key`、`api_base`、`model` 和正整数 `max_output_tokens`。旧字段和其他未知根级或嵌套字段都会拒绝加载，不会静默采用默认值；工作区请使用 CLI 的 `--workspace`。`adapter` 当前可选 `anthropic` 或 `openai`，只选择 wire 格式；`api_base` 会逐字交给对应 adapter，因此需要包含目标端点要求的完整基础路径。模板中的占位值故意不能直接运行，避免把任一 vendor 的端点、模型或输出上限伪装成通用默认值。`config.yaml` 与 `mcp.json` 包含密钥，已被 `.gitignore` 排除，不要提交。
+配置文件根级直接使用 `llm`、`agent`、`tools`。旧扁平配置需要把 `adapter`、`api_key`、`api_base`、`model`、`max_output_tokens` 移入 `llm`，把 `max_steps`、`system_prompt_path` 移入 `agent`，并删除 `provider`、`local_compaction_token_limit`、`workspace_dir` 与 `retry`；其他未知字段也会拒绝加载。工作区请使用 CLI 的 `--workspace`。`llm.adapter` 当前可选 `anthropic` 或 `openai`，只选择 wire 格式；`api_base` 会逐字交给对应 adapter。模板中的占位值故意不能直接运行。`config.yaml` 与 `mcp.json` 含密钥，已被 `.gitignore` 排除，不要提交。
 
 ### 交互式手动体验
 
@@ -160,7 +160,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `286 passed, 9 deselected in 13.68s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `285 passed, 9 deselected in 13.90s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 
