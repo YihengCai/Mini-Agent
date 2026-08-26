@@ -16,6 +16,14 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 
+def workspace_fact(workspace: Path) -> str:
+    return (
+        "## Current Workspace\n"
+        f"You are currently working in: `{workspace.absolute()}`\n"
+        "All relative paths will be resolved relative to this directory."
+    )
+
+
 def make_runtime_config(*, prompt_path: str, mcp_path: str):
     return SimpleNamespace(
         llm=SimpleNamespace(model="offline"),
@@ -58,6 +66,33 @@ def test_absolute_companion_path_is_preserved(tmp_path) -> None:
     )
 
     assert companion == absolute_path
+
+
+@pytest.mark.parametrize(
+    "base_prompt",
+    [
+        "Explain the phrase Current Workspace before answering.",
+        (
+            "Base prompt\n\n## Current Workspace\n"
+            "You are currently working in: `/stale`\n"
+            "All relative paths will be resolved relative to this directory."
+        ),
+    ],
+)
+def test_cli_appends_exact_workspace_fact(base_prompt, tmp_path) -> None:
+    workspace = tmp_path / "actual-workspace"
+
+    result = cli._with_workspace_context(base_prompt, workspace)
+
+    assert result.startswith(base_prompt)
+    assert result.endswith(workspace_fact(workspace))
+
+
+def test_cli_does_not_duplicate_exact_workspace_fact(tmp_path) -> None:
+    workspace = tmp_path / "actual-workspace"
+    system_prompt = f"Base prompt\n\n{workspace_fact(workspace)}"
+
+    assert cli._with_workspace_context(system_prompt, workspace) == system_prompt
 
 
 @pytest.mark.asyncio
@@ -137,8 +172,9 @@ async def test_runtime_uses_only_companions_from_selected_config_source(
         classmethod(shadow_search),
     )
 
+    workspace = tmp_path / "workspace"
     await cli._run_configured_runtime(
-        tmp_path / "workspace",
+        workspace,
         task="offline",
         config=make_runtime_config(
             prompt_path=prompt_path,
@@ -151,7 +187,9 @@ async def test_runtime_uses_only_companions_from_selected_config_source(
         mcp_manager=RecordingMCPManager(),
     )
 
-    assert captured_prompts == [expected_prompt]
+    assert captured_prompts == [
+        cli._with_workspace_context(expected_prompt, workspace)
+    ]
     assert loaded_mcp_paths == (
         [] if expected_mcp_source is None else [expected_mcp_path]
     )

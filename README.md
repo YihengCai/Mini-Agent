@@ -38,7 +38,7 @@ Turn 日志也不再以秒级名称覆写已有证据：普通文件名保持不
 
 核心边界改造已经落地：消息、模型调用和终止判断位于 `mini_agent/core/agent.py`，模型响应触发的工具调用位于 `mini_agent/core/tool_execution.py`；`mini_agent/cli_events.py` 消费同一条事件序列完成终端渲染与原有文本日志。不给 `event_sink` 时，真实 agent loop 可以无终端输出、无日志副作用地运行。事件顺序、CLI 输出与日志调用都有离线回归；core 没有自动压缩状态，也不导入 UI、日志或传输模块。
 
-执行生命周期改造也已经落地：`AgentSession.start_turn()` 原子接纳输入并返回 `TurnHandle`，同一 Session 只允许一个活动 Turn；`TurnOutcome` 区分模型交回控制权、用户中断、Step 上限和失败，但没有 `success` 或 `completed`。工具调用继续同一 Turn；事件载荷使用独立快照，Turn 配置在接纳时固化。同步 observer 是最佳努力通知：首个普通异常后停用，但不改变工具执行、历史或 Turn 结果。配置与公开 Session 构造入口都要求 `max_steps > 0`，并在 runtime 资源或工作区副作用之前失败，因此不存在零模型请求的合法 Turn。Session 还会在调用者提示词后附加本次绝对工作区的完整事实块；普通标题或旧路径不能抑制它，已含准确块时不重复。CLI 分别显示 Turn 的控制权边界和内部 Step，把 `end_turn` 写成中性的“交还控制权”，不显示任务成功标记。生命周期取舍见 [ADR-0004](docs/decisions/0004-session-turn-step-lifecycle.md)，observer 语义见 [ADR-0032](docs/decisions/0032-observers-do-not-control-turns.md)，预算边界见 [ADR-0014](docs/decisions/0014-positive-step-budget-at-config-and-core.md)。
+执行生命周期改造也已经落地：`AgentSession.start_turn()` 原子接纳输入并返回 `TurnHandle`，同一 Session 只允许一个活动 Turn；`TurnOutcome` 区分模型交回控制权、用户中断、Step 上限和失败，但没有 `success` 或 `completed`。工具调用继续同一 Turn；事件载荷使用独立快照，Turn 配置在接纳时固化。同步 observer 是最佳努力通知：首个普通异常后停用，但不改变工具执行、历史或 Turn 结果。配置与公开 Session 构造入口都要求 `max_steps > 0`；配置在 runtime 组装前拒绝，core 在身份、工具注册和 Turn 接纳前拒绝，因此不存在零模型请求的合法 Turn。CLI 在配置与 Skill 处理后附加本次绝对工作区的完整事实块，普通标题或旧路径不能抑制它，已含准确块时不重复；core 原样保存宿主给出的完整系统提示词。CLI 分别显示 Turn 的控制权边界和内部 Step，把 `end_turn` 写成中性的“交还控制权”，不显示任务成功标记。生命周期取舍见 [ADR-0004](docs/decisions/0004-session-turn-step-lifecycle.md)，observer 语义见 [ADR-0032](docs/decisions/0032-observers-do-not-control-turns.md)，预算边界见 [ADR-0014](docs/decisions/0014-positive-step-budget-at-config-and-core.md)，工作区提示词所有权见 [ADR-0034](docs/decisions/0034-cli-composes-workspace-fact.md)。
 
 工具批次强制点已经落地：Session 创建时拒绝空名、重名和不合 contract 的工具元数据，并冻结模型定义与调度键；agent loop 在 `ModelClient` 返回处先深拷贝整个响应，再让事件、预检、执行器和历史消费。每个模型批次在首个副作用前校验调用类型、非空标识符和批内重复，再按模型顺序串行执行；已完成批次可以复用相同标识符，它只是调用与结果的相关键，不是幂等键。未知工具、普通异常和非法返回各自产生同序失败结果；合法 `ToolResult` 在接纳处立即深拷贝，工具保留的返回别名不能改写事件或历史。assistant 工具调用与全部结果仍一次性提交。模型客户端、工具参数、工具结果、事件和历史互不共享可变批次对象。这个入口只约束模型响应触发的调用；可信宿主仍持有原始 Tool 引用，因此它不是权限或沙箱。批次取舍见 [ADR-0008](docs/decisions/0008-session-owned-tool-batch-executor.md) 与 [ADR-0031](docs/decisions/0031-scope-tool-call-ids-to-pending-batches.md)，返回值所有权见 [ADR-0025](docs/decisions/0025-executor-owns-admitted-tool-results.md)。
 
@@ -50,7 +50,7 @@ MCP 运行时所有权也已经落地：CLI 用配置构造不可变超时快照
 
 配置文件现在直接使用 `llm`、`agent`、`tools` 三个运行时分组；加载器只检查 YAML 根是映射，随后交给同一套严格模型。未知字段在任意层级都会失败，`agent` 与 `tools` 的缺省值也只存在于模型中，不再维护根级字段分片或逐字段迁移分支。取舍见 [ADR-0028](docs/decisions/0028-config-file-matches-runtime-model.md)。
 
-运行时工作区现在由 CLI 单一持有：显式 `--workspace` 优先，否则使用当前目录，再把同一路径交给工具和 `AgentSession`。配置不再声明 `workspace_dir`，旧字段由严格模型拒绝；工作区仍通过 `--workspace` 选择。这没有新增工作区越界限制或沙箱；取舍见 [ADR-0024](docs/decisions/0024-cli-owns-runtime-workspace.md)。
+运行时工作区现在由 CLI 单一持有：显式 `--workspace` 优先，否则使用当前目录；同一路径交给工作区工具，并写入 CLI 组装的系统提示词。`AgentSession` 不持有路径，也不创建目录。配置不再声明 `workspace_dir`，旧字段由严格模型拒绝；工作区仍通过 `--workspace` 选择。这没有新增工作区越界限制或沙箱；取舍见 [ADR-0024](docs/decisions/0024-cli-owns-runtime-workspace.md) 与 [ADR-0034](docs/decisions/0034-cli-composes-workspace-fact.md)。
 
 配置伴随文件的来源也已经统一：CLI 选择 `config.yaml` 后把路径显式传给同一次 runtime，相对 `system_prompt_path` 与 `mcp_config_path` 只从该目录解析，显式绝对路径保持不变。相对文件缺失时不会跨目录借用同名文件，而是使用内置提示词或保持 MCP 未加载；`skills_dir` 没有随本项改变，工作区配置的后续删除见 ADR-0024。取舍见 [ADR-0015](docs/decisions/0015-bind-config-companions-to-selected-source.md)。
 
@@ -159,7 +159,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `270 passed, 8 deselected in 12.93s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `271 passed, 8 deselected in 13.81s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 

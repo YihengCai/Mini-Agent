@@ -120,9 +120,7 @@ def test_tool_message_budget_counts_utf8_without_splitting_characters() -> None:
 
 
 @pytest.mark.asyncio
-async def test_batch_keeps_raw_events_but_bounds_history_and_next_request(
-    tmp_path,
-) -> None:
+async def test_batch_keeps_raw_events_but_bounds_history_and_next_request() -> None:
     success = "success-head|" + ("s" * MAX_TOOL_MESSAGE_BYTES) + "|success-tail"
     exact = "e" * MAX_TOOL_MESSAGE_BYTES
     failure = "failure-head|" + ("f" * MAX_TOOL_MESSAGE_BYTES) + "|failure-tail"
@@ -145,7 +143,6 @@ async def test_batch_keeps_raw_events_but_bounds_history_and_next_request(
         system_prompt="You are a test agent.",
         tools=[tool],
         max_steps=2,
-        workspace_dir=str(tmp_path),
         session_id="tool-output-budget-session",
     )
     raw_events: list[ToolResult] = []

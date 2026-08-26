@@ -44,6 +44,20 @@ from mini_agent.tools.skill_tool import create_skill_tools
 from mini_agent.utils import Colors, calculate_display_width
 
 
+def _with_workspace_context(system_prompt: str, workspace_dir: Path) -> str:
+    """Append this CLI runtime's exact workspace fact once."""
+
+    workspace_info = (
+        "## Current Workspace\n"
+        f"You are currently working in: `{workspace_dir.absolute()}`\n"
+        "All relative paths will be resolved relative to this directory."
+    )
+    if workspace_info in system_prompt:
+        return system_prompt
+    separator = "\n\n" if system_prompt else ""
+    return system_prompt + separator + workspace_info
+
+
 def get_log_directory() -> Path:
     """Get the log directory path."""
     return Path.home() / ".mini-agent" / "log"
@@ -647,6 +661,7 @@ async def _run_configured_runtime(
     else:
         # Remove placeholder if skills not enabled
         system_prompt = system_prompt.replace("{SKILLS_METADATA}", "")
+    system_prompt = _with_workspace_context(system_prompt, workspace_dir)
 
     # 7. Create one logical conversation Session.
     def create_agent_session() -> AgentSession:
@@ -655,7 +670,6 @@ async def _run_configured_runtime(
             system_prompt=system_prompt,
             tools=tools,
             max_steps=config.agent.max_steps,
-            workspace_dir=str(workspace_dir),
         )
 
     agent_session = create_agent_session()

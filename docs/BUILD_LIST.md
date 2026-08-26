@@ -6,9 +6,9 @@
 
 选择一个主题时，先为它找到当前代码中的失败证据和一分钟内可运行的离线验证，再写改动前简报。具体接口、类名和文件布局到实现时再决定，不为候选主题提前创建规格或 ADR。
 
-## 当前工作：待选择
+## 当前工作：精简 AgentSession 剩余冗余公开面
 
-误导性的 Session usage 镜像已经删除并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
+工作区路径与提示词组装已经移出 core 并移入“最近完成”。下一步只审查 `AgentSession` 剩余公开别名和私有重复状态是否有真实消费者；CLI 的完整宿主能力与文件/bash/skill/MCP 工具不在精简范围。确认删除边界后仍按改动前简报、定向离线回归和独立提交推进。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **工作区事实由 CLI 组装**：删除 `AgentSession.workspace_dir` 参数与状态、目录副作用、提示词改写和无消费者的 `system_prompt` 别名；CLI 在配置与 Skill 处理后追加同一准确事实块，core 原样保存完整提示词。生产代码净减 3 行，测试净减 61 行；定向集合实测 `73 passed in 0.79s`，临时移除 runtime 组装挂钩时三个来源场景转红；完整离线集合实测 `271 passed, 8 deselected in 13.81s`。工作区选择、CLI 能力和全部工具未改，取舍见 [`decisions/0034-cli-composes-workspace-fact.md`](decisions/0034-cli-composes-workspace-fact.md)。
 - **usage 只保留在响应事件**：删除只保存“最近一次非空 `total_tokens`”却命名为 Session 总计的 `_api_total_tokens`、公开属性和 CLI `API Tokens Used` 显示；adapter 映射与每个 `ModelResponse.response.usage` 不变。定向集合实测 `36 passed in 0.62s`，临时恢复公开镜像时关键回归实测转红；完整离线集合实测 `270 passed, 8 deselected in 12.93s`。取舍见 [`decisions/0033-keep-usage-on-model-response-events.md`](decisions/0033-keep-usage-on-model-response-events.md)。
 - **observer 不控制 Turn**：同步接收器首个普通异常后只停用自身，工具批次、历史和 Turn 结果继续由真实执行原因决定；删除 `observer_error` 主因/次因矩阵和 CLI 二次 fallback。生产代码净减 87 行，测试净减 77 行；定向集合实测 `66 passed in 0.74s`，恢复异常传播时关键回归实测转红；完整离线集合实测 `270 passed, 8 deselected in 13.36s`。取舍见 [`decisions/0032-observers-do-not-control-turns.md`](decisions/0032-observers-do-not-control-turns.md)。
 - **调用标识符只约束未完成批次**：删除执行器中永不清空、不可恢复的 Session 隐藏集合；同批空 ID、非法类型和重复 ID 继续在零副作用前失败，已完成批次则可跨 Step/Turn 复用 ID。生产代码净减 11 行，测试净减 108 行；一个正向回归同时检出生产账本和测试替身的全历史唯一规则。相关集合实测 `67 passed in 0.73s`，完整离线集合实测 `273 passed, 8 deselected in 13.76s`。取舍见 [`decisions/0031-scope-tool-call-ids-to-pending-batches.md`](decisions/0031-scope-tool-call-ids-to-pending-batches.md)。
@@ -61,15 +62,15 @@
 - **模型错误分类前不做项目级 retry**：删除文件与运行时 retry 配置、退避模块、CLI 专用回调及两个 adapter 的包装层；SDK 继续显式 `max_retries=0`，每个 adapter 只直接调用一次并透传原异常。2 个协议参数场景锁定一次调用和对象身份；定向集合实测 `113 passed in 0.61s`，完整离线集合实测 `286 passed, 9 deselected in 13.68s`。取舍见 [`decisions/0027-no-project-retry-before-error-classification.md`](decisions/0027-no-project-retry-before-error-classification.md)。
 - **前台 shell 中断时回收直接子进程**：正常 `communicate()` 语义不变；超时与取消在返回或传播前共用直接子进程的 `kill()` 后 `wait()` 清理，前台进程不进入 `BackgroundShellManager`。2 项故障注入在删除各自清理挂钩时转红；shell 定向集合实测 `42 passed in 9.72s`，完整离线集合实测 `317 passed, 9 deselected in 13.23s`。取舍见 [`decisions/0026-foreground-shell-reaps-on-interruption.md`](decisions/0026-foreground-shell-reaps-on-interruption.md)。
 - **工具返回值的接纳所有权**：合法 `ToolResult` 在执行器接纳处立即深拷贝；工具保留的返回别名即使在同步 `ToolFinished` 观察期间被修改，也不能让事件事实与模型历史分叉。1 项新回归在删除接纳复制时转红；定向集合实测 `47 passed in 0.62s`，完整离线集合实测 `315 passed, 9 deselected in 13.33s`。取舍见 [`decisions/0025-executor-owns-admitted-tool-results.md`](decisions/0025-executor-owns-admitted-tool-results.md)。
-- **运行时工作区的单一所有权**：配置模型不再持有从未被消费的 `workspace_dir`；CLI 的 `--workspace` / 当前目录继续作为唯一来源，旧字段由共享严格模型拒绝。工作区选择、目录创建和工具路径行为没有改变；取舍见 [`decisions/0024-cli-owns-runtime-workspace.md`](decisions/0024-cli-owns-runtime-workspace.md)。
+- **运行时工作区的单一所有权**：配置模型不再持有从未被消费的 `workspace_dir`；CLI 的 `--workspace` / 当前目录继续作为唯一来源，旧字段由共享严格模型拒绝。ADR-0034 后续把提示词组装也收回 CLI，工作区选择、目录创建和工具路径行为没有改变；取舍见 [`decisions/0024-cli-owns-runtime-workspace.md`](decisions/0024-cli-owns-runtime-workspace.md)。
 - **后台 shell 输出完成边界**：自然完成的 monitor 持续读取到 stdout EOF，再等待进程并发布 `completed` 或 `failed`；进程已退出但仍缓冲的行不再丢失。确定性 fake 回归在恢复旧退出码条件时转红；既有真实 bash 定向集合保持通过。定向集合实测 `40 passed in 9.77s`，完整离线集合实测 `312 passed, 9 deselected in 13.07s`。主动终止尾部输出仍不在保证内，取舍见 [`decisions/0023-background-shell-completes-after-stdout-eof.md`](decisions/0023-background-shell-completes-after-stdout-eof.md)。
 - **core 模型失败语义**：模型异常统一形成 `LLM call failed: {error}`，原对象继续进入事件，事件结果与 Turn 错误使用同一文本；core 不解释具体 adapter 的错误类型。普通 `OSError` 回归覆盖对象身份和两处文本；恢复旧特判时该项转红。取舍见 [`decisions/0022-core-preserves-model-error-semantics.md`](decisions/0022-core-preserves-model-error-semantics.md)。
 - **Skill 发现注册表快照**：递归路径先稳定排序，成功解析的 Skill 在局部名称索引中完成；重名会报告两个来源并让本次扫描失败，上一完整快照不变，成功重扫则一次替换并清除已删除条目。2 项新回归覆盖删除后重扫、重名诊断与失败状态；退化为累加更新或移除重名守卫时各有 1 项转红。完整离线集合实测 `309 passed, 9 deselected in 13.21s`，取舍见 [`decisions/0020-transactional-skill-discovery.md`](decisions/0020-transactional-skill-discovery.md)。
 - **Turn 日志排他分配**：同一秒的独立 logger 通过文件系统排他创建获得基础名与确定性后缀，不再截断已有事实；文件名与表头共用一次时钟采样，默认目录不变且支持显式注入。2 项离线回归覆盖同名保留与跨秒一致性；恢复覆写模式或第二次采样时各有 1 项转红。完整离线集合实测 `307 passed, 9 deselected in 13.20s`，取舍见 [`decisions/0019-exclusive-turn-log-allocation.md`](decisions/0019-exclusive-turn-log-allocation.md)。
 - **MCP transport 显式校验**：只有完全缺少 `type` 时才按 URL 推断；四个已知名称保持大小写不敏感，未知、空、`null` 与非字符串会在连接构造前隔离当前 server，并让合法后续项继续加载。6 项新增或扩展回归覆盖显式值、连接入口和 loader 隔离；恢复宽松推断与移除连接守卫时分别有 5 项和 1 项转红。完整离线集合实测 `274 passed, 9 deselected in 13.12s`，取舍见 [`decisions/0016-reject-explicit-invalid-mcp-transports.md`](decisions/0016-reject-explicit-invalid-mcp-transports.md)。
 - **配置伴随文件来源绑定**：CLI 把已选 `config.yaml` 路径显式传入同一次 runtime；相对系统提示词与 MCP 配置只从其词法父目录解析，绝对路径原样保留，缺失时使用内置提示词或保持 MCP 未加载，不再借用其他来源的同名文件。5 项新回归覆盖纯路径函数、相对存在、相对缺失与绝对路径；恢复旧全局搜索时 3 项转红。完整离线集合实测 `269 passed, 9 deselected in 13.12s`，取舍见 [`decisions/0015-bind-config-companions-to-selected-source.md`](decisions/0015-bind-config-companions-to-selected-source.md)。
-- **Session 工作区事实精确注入**：Session 先生成含本次绝对路径的完整事实块，只有同一块已存在时才跳过；调用者提示词中的偶然 `Current Workspace` 文字和旧路径继续作为前缀保留，但不能阻止真实路径进入模型请求。2 类干扰输入与 1 项准确块幂等回归通过；恢复旧子串门时两项转红。完整离线集合实测 `264 passed, 9 deselected in 13.65s`。
-- **正数 Step 预算双边界**：`AgentConfig` 在 CLI runtime 组装前要求 `max_steps > 0`，公开 `AgentSession` 在工具检查与工作区创建前独立执行同一守卫；`0/-1` 不能再接纳用户消息后以零模型请求返回 `max_steps`。配置与 core 各 2 项回归分别验证字段错误、无目录副作用和无模型请求；移除任一层时对应测试转红。完整离线集合实测 `261 passed, 9 deselected in 13.85s`，取舍见 [`decisions/0014-positive-step-budget-at-config-and-core.md`](decisions/0014-positive-step-budget-at-config-and-core.md)。
+- **工作区事实精确注入**：准确块匹配最初在 Session 落地；ADR-0034 后续把同一行为移到 CLI。调用者提示词中的偶然 `Current Workspace` 文字和旧路径继续作为前缀保留，但不能阻止真实路径进入模型请求；准确块不重复。
+- **正数 Step 预算双边界**：`AgentConfig` 在 CLI runtime 组装前要求 `max_steps > 0`，公开 `AgentSession` 在身份生成、工具注册和 Turn 接纳前独立执行同一守卫；`0/-1` 不能产生零模型请求的伪 Turn。配置与 core 各 2 项回归固定字段错误和无模型请求；移除任一层时对应测试转红。完整离线集合实测 `261 passed, 9 deselected in 13.85s`，取舍见 [`decisions/0014-positive-step-budget-at-config-and-core.md`](decisions/0014-positive-step-budget-at-config-and-core.md)。
 - **MCP 错误正文归一化**：MCP `isError` 的非空正文现在写入内部 `ToolResult.error`，成功正文仍写入 `content`，空错误保留通用兜底；现有批次执行器因此把同一诊断交给原始 `ToolFinished`、模型消息、CLI 和日志。4 项纯离线回归使用真实 MCP SDK 结果类型覆盖成功、多段正文、错误、空错误和 executor 集成；恢复通用错误时集成回归转红。完整离线集合实测 `257 passed, 9 deselected in 13.18s`。
 - **MCP 状态与连接运行时所有权**：不可变超时快照、连接接纳与关闭现在由一次 CLI runtime 的 `MCPManager` 持有；server 覆盖仍优先，连接在 `await connect()` 前登记，关闭串行化并只移除成功项，取消后的 transport 句柄可重试。6 项新增所有权回归与 MCP/CLI 定向集合实测 `55 passed, 5 deselected in 0.71s`；显式排除 `external` 的完整集合实测 `237 passed, 9 deselected in 13.10s`。取舍见 [`decisions/0011-runtime-owned-mcp-connections.md`](decisions/0011-runtime-owned-mcp-connections.md)。
 - **模型可见工具输出预算**：原始 `ToolResult` 与 `ToolFinished` 保持完整，批次执行器只把模型消息投影限制为每条 64 KiB UTF-8 字节；精确边界不变，超限保留首尾并报告原始、保留、省略和上限字节数，失败前缀计入预算。3 项新增回归覆盖 UTF-8、事件所有权、观察者变异、历史、下一次请求与批次顺序；删除挂钩时集成回归实测转红。显式排除 `external` 的完整集合实测 `230 passed, 9 deselected in 13.57s`，取舍见 [`decisions/0010-model-facing-tool-output-budget.md`](decisions/0010-model-facing-tool-output-budget.md)。

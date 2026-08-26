@@ -65,7 +65,6 @@ async def test_agent_simple_task():
             system_prompt=system_prompt,
             tools=tools,
             max_steps=10,  # Limit steps for testing
-            workspace_dir=workspace_dir,
         )
 
         # Task: Create a simple text file
@@ -149,7 +148,6 @@ async def test_agent_bash_task():
             system_prompt=system_prompt,
             tools=tools,
             max_steps=10,
-            workspace_dir=workspace_dir,
         )
 
         # Task: List files using bash

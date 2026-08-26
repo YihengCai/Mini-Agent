@@ -1,6 +1,6 @@
 # 运行时工作区的单一所有权
 
-> 状态：已实现。配置模型位于 `mini_agent/config.py:49-87`，CLI 选择与传递位于 `mini_agent/cli.py:631-690,943-955`；取舍见 [ADR-0024](../decisions/0024-cli-owns-runtime-workspace.md)。
+> 状态：已实现。配置模型位于 `mini_agent/config.py`，CLI 负责选择、工具传递与提示词组装；取舍见 [ADR-0024](../decisions/0024-cli-owns-runtime-workspace.md) 与 [ADR-0034](../decisions/0034-cli-composes-workspace-fact.md)。
 
 ## 问题证据
 
@@ -9,14 +9,14 @@
 ## 本轮不变量
 
 1. CLI 的显式 `--workspace` 是最高优先级；未提供时使用当前目录。
-2. CLI 选出的同一路径传给工作区工具和 `AgentSession`，配置对象不持有第二份候选值。
+2. CLI 选出的同一路径传给工作区工具，并写入构造 `AgentSession` 前的完整系统提示词；core 不持有路径，配置对象也不持有第二份候选值。
 3. `AgentConfig` 程序化构造拒绝 `workspace_dir`。
 4. YAML 中的旧字段由严格模型作为未知字段拒绝；工作区用法由 CLI 与 README 说明。
 5. 示例配置只列出真实生效的 agent 字段。
 
 ## 不在范围
 
-不改变 `~` 展开、绝对路径转换、目录创建、默认当前目录、Session 工作区事实块、文件工具越界能力、权限或沙箱；不让 `skills_dir` 或配置伴随文件参与运行时工作区选择。
+不改变 `~` 展开、绝对路径转换、成功运行时的目录创建、默认当前目录、模型可见工作区事实、文件工具越界能力、权限或沙箱；不让 `skills_dir` 或配置伴随文件参与运行时工作区选择。
 
 ## 离线验证
 

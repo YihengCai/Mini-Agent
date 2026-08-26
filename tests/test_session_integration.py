@@ -55,15 +55,12 @@ async def test_multi_turn_conversation(mock_llm_client, temp_workspace):
         llm_client=mock_llm_client,
         system_prompt=system_prompt,
         tools=tools,
-        workspace_dir=temp_workspace,
     )
 
     # Verify initial state
     assert len(agent.get_history()) == 1  # Only system prompt
     assert agent.get_history()[0].role == "system"
-    # Agent automatically adds workspace info to system prompt
-    assert system_prompt in agent.get_history()[0].content
-    assert "Current Workspace" in agent.get_history()[0].content
+    assert agent.get_history()[0].content == system_prompt
 
     # Run two distinct Turns in one conversation Session.
     first = await agent.start_turn("Hello").wait()
@@ -78,7 +75,7 @@ async def test_multi_turn_conversation(mock_llm_client, temp_workspace):
 
 
 @pytest.mark.asyncio
-async def test_new_conversation_uses_a_new_session(mock_llm_client, temp_workspace):
+async def test_new_conversation_uses_a_new_session(mock_llm_client):
     """A Session is one conversation; starting over creates another Session."""
     mock_llm_client.generate = AsyncMock(
         side_effect=[response(f"Reply {i}") for i in range(5)]
@@ -87,7 +84,6 @@ async def test_new_conversation_uses_a_new_session(mock_llm_client, temp_workspa
         llm_client=mock_llm_client,
         system_prompt="System prompt",
         tools=[],
-        workspace_dir=temp_workspace,
     )
 
     # Complete multiple Turns in one conversation.
@@ -101,7 +97,6 @@ async def test_new_conversation_uses_a_new_session(mock_llm_client, temp_workspa
         llm_client=mock_llm_client,
         system_prompt="System prompt",
         tools=[],
-        workspace_dir=temp_workspace,
     )
     assert next_conversation.session_id != agent.session_id
     assert [message.role for message in next_conversation.get_history()] == ["system"]
@@ -109,14 +104,13 @@ async def test_new_conversation_uses_a_new_session(mock_llm_client, temp_workspa
 
 
 @pytest.mark.asyncio
-async def test_get_history(mock_llm_client, temp_workspace):
+async def test_get_history(mock_llm_client):
     """Test getting session history"""
     mock_llm_client.generate = AsyncMock(return_value=response("Assistant reply"))
     agent = AgentSession(
         llm_client=mock_llm_client,
         system_prompt="System",
         tools=[],
-        workspace_dir=temp_workspace,
     )
 
     await agent.start_turn("Test message").wait()

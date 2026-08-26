@@ -92,7 +92,6 @@ class BlockingLLM:
 
 
 def build_session(
-    tmp_path,
     llm,
     tools,
     *,
@@ -103,25 +102,12 @@ def build_session(
         system_prompt="You are a test agent.",
         tools=tools,
         max_steps=max_steps,
-        workspace_dir=str(tmp_path),
         session_id="test-session",
     )
 
 
-def workspace_fact(workspace) -> str:
-    return (
-        "## Current Workspace\n"
-        f"You are currently working in: `{workspace.absolute()}`\n"
-        "All relative paths will be resolved relative to this directory."
-    )
-
-
 @pytest.mark.parametrize("max_steps", [0, -1])
-def test_session_rejects_nonpositive_max_steps_before_workspace_creation(
-    tmp_path,
-    max_steps,
-):
-    workspace = tmp_path / "must-not-exist"
+def test_session_rejects_nonpositive_max_steps_before_model_request(max_steps):
     llm = ScriptedLLM([])
 
     with pytest.raises(ValueError, match="max_steps.*greater than zero"):
@@ -130,71 +116,31 @@ def test_session_rejects_nonpositive_max_steps_before_workspace_creation(
             system_prompt="You are a test agent.",
             tools=[],
             max_steps=max_steps,
-            workspace_dir=str(workspace),
         )
 
-    assert not workspace.exists()
     assert llm.requests == []
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "base_prompt",
-    [
-        "Explain the phrase Current Workspace before answering.",
-        (
-            "Base prompt\n\n## Current Workspace\n"
-            "You are currently working in: `/stale`\n"
-            "All relative paths will be resolved relative to this directory."
-        ),
-    ],
-)
-async def test_session_appends_current_workspace_fact_to_model_request(
-    tmp_path,
-    base_prompt,
-):
-    workspace = tmp_path / "actual-workspace"
-    llm = ScriptedLLM([ScriptedCall(response("done"))])
-    session = AgentSession(
-        llm_client=llm,
-        system_prompt=base_prompt,
-        tools=[],
-        workspace_dir=str(workspace),
-    )
-
-    with llm:
-        await session.start_turn("question").wait()
-
-    system_content = llm.requests[0].messages[0].content
-    assert isinstance(system_content, str)
-    assert system_content.startswith(base_prompt)
-    assert system_content.endswith(workspace_fact(workspace))
-
-
-def test_session_does_not_duplicate_exact_workspace_fact(tmp_path):
-    workspace = tmp_path / "actual-workspace"
-    fact = workspace_fact(workspace)
-    system_prompt = f"Base prompt\n\n{fact}"
-
+def test_session_preserves_system_prompt_verbatim():
+    system_prompt = "Base prompt\n\nHost-owned runtime facts."
     session = AgentSession(
         llm_client=ScriptedLLM([]),
         system_prompt=system_prompt,
         tools=[],
-        workspace_dir=str(workspace),
     )
 
     assert session.get_history()[0].content == system_prompt
 
 
 @pytest.mark.asyncio
-async def test_session_keeps_history_across_distinct_turns(tmp_path):
+async def test_session_keeps_history_across_distinct_turns():
     llm = ScriptedLLM(
         [
             ScriptedCall(response("first answer")),
             ScriptedCall(response("second answer")),
         ]
     )
-    session = build_session(tmp_path, llm, [])
+    session = build_session(llm, [])
     first_events = []
     second_events = []
 
@@ -221,9 +167,9 @@ async def test_session_keeps_history_across_distinct_turns(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_session_rejects_a_second_active_turn_atomically(tmp_path):
+async def test_session_rejects_a_second_active_turn_atomically():
     llm = BlockingLLM(response("released"))
-    session = build_session(tmp_path, llm, [])
+    session = build_session(llm, [])
     events = []
 
     first = session.start_turn("first", event_sink=events.append)
@@ -248,10 +194,9 @@ async def test_session_rejects_a_second_active_turn_atomically(tmp_path):
 @pytest.mark.asyncio
 async def test_turn_admission_reserves_before_reentrant_task_creation(
     monkeypatch,
-    tmp_path,
 ):
     llm = ScriptedLLM([ScriptedCall(response("outer reply"))])
-    session = build_session(tmp_path, llm, [])
+    session = build_session(llm, [])
     running_loop = asyncio.get_running_loop()
     create_task = running_loop.create_task
     reentry_checked = False
@@ -276,9 +221,9 @@ async def test_turn_admission_reserves_before_reentrant_task_creation(
 
 
 @pytest.mark.asyncio
-async def test_failed_task_creation_rolls_back_turn_admission(monkeypatch, tmp_path):
+async def test_failed_task_creation_rolls_back_turn_admission(monkeypatch):
     llm = ScriptedLLM([ScriptedCall(response("admitted later"))])
-    session = build_session(tmp_path, llm, [])
+    session = build_session(llm, [])
     running_loop = asyncio.get_running_loop()
     create_task = running_loop.create_task
     history_before = session.get_history()
@@ -302,11 +247,9 @@ async def test_failed_task_creation_rolls_back_turn_admission(monkeypatch, tmp_p
 
 
 @pytest.mark.asyncio
-async def test_caller_cancellation_does_not_cancel_the_active_turn(
-    tmp_path,
-):
+async def test_caller_cancellation_does_not_cancel_the_active_turn():
     llm = BlockingLLM(response("finished after waiter cancellation"))
-    session = build_session(tmp_path, llm, [])
+    session = build_session(llm, [])
     handle = session.start_turn("keep running")
     waiter = asyncio.create_task(handle.wait())
     await llm.entered.wait()
@@ -324,11 +267,9 @@ async def test_caller_cancellation_does_not_cancel_the_active_turn(
 
 
 @pytest.mark.asyncio
-async def test_cli_wait_settles_the_turn_before_propagating_cancellation(
-    tmp_path,
-):
+async def test_cli_wait_settles_the_turn_before_propagating_cancellation():
     llm = BlockingLLM(response("finished at the safe boundary"))
-    session = build_session(tmp_path, llm, [])
+    session = build_session(llm, [])
     handle = session.start_turn("keep session owned until settled")
     cli_waiter = asyncio.create_task(wait_for_turn(handle, poll_interval=0))
     await llm.entered.wait()
@@ -347,11 +288,11 @@ async def test_cli_wait_settles_the_turn_before_propagating_cancellation(
 
 
 @pytest.mark.asyncio
-async def test_active_turn_uses_an_admission_time_tool_snapshot(tmp_path):
+async def test_active_turn_uses_an_admission_time_tool_snapshot():
     call = tool_call("snapshotted-call")
     llm = BlockingLLM(response("", tool_calls=[call], finish_reason="tool_use"))
     tool = EchoTool()
-    session = build_session(tmp_path, llm, [tool], max_steps=1)
+    session = build_session(llm, [tool], max_steps=1)
 
     handle = session.start_turn("use the admitted tools")
     await llm.entered.wait()
@@ -373,7 +314,7 @@ async def test_active_turn_uses_an_admission_time_tool_snapshot(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_tool_calls_continue_the_same_turn_across_steps(tmp_path):
+async def test_tool_calls_continue_the_same_turn_across_steps():
     call = tool_call("call-1")
     llm = ScriptedLLM(
         [
@@ -384,7 +325,7 @@ async def test_tool_calls_continue_the_same_turn_across_steps(tmp_path):
         ]
     )
     tool = EchoTool()
-    session = build_session(tmp_path, llm, [tool])
+    session = build_session(llm, [tool])
     events = []
 
     with llm:
@@ -414,12 +355,10 @@ async def test_tool_calls_continue_the_same_turn_across_steps(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_event_observer_cannot_mutate_model_input_or_session_state(
-    tmp_path,
-):
+async def test_event_observer_cannot_mutate_model_input_or_session_state():
     llm = ScriptedLLM([ScriptedCall(response("original answer"))])
     tool = EchoTool()
-    session = build_session(tmp_path, llm, [tool])
+    session = build_session(llm, [tool])
 
     def mutating_observer(envelope):
         if isinstance(envelope.event, ModelRequest):
@@ -442,11 +381,9 @@ async def test_event_observer_cannot_mutate_model_input_or_session_state(
 
 
 @pytest.mark.asyncio
-async def test_terminal_delivery_failure_cannot_rewrite_the_published_outcome(
-    tmp_path,
-):
+async def test_terminal_delivery_failure_cannot_rewrite_the_published_outcome():
     llm = ScriptedLLM([ScriptedCall(response("finished"))])
-    session = build_session(tmp_path, llm, [])
+    session = build_session(llm, [])
     observed = []
 
     def record_then_fail(envelope):
@@ -471,10 +408,10 @@ async def test_terminal_delivery_failure_cannot_rewrite_the_published_outcome(
 
 
 @pytest.mark.asyncio
-async def test_model_failure_preserves_original_exception(tmp_path):
+async def test_model_failure_preserves_original_exception():
     model_error = OSError("endpoint unavailable")
     llm = ScriptedLLM([ScriptedCall(model_error)])
-    session = build_session(tmp_path, llm, [])
+    session = build_session(llm, [])
     observed = []
 
     with llm:
@@ -498,9 +435,7 @@ async def test_model_failure_preserves_original_exception(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_invalid_tool_return_becomes_a_paired_failed_observation(
-    tmp_path,
-):
+async def test_invalid_tool_return_becomes_a_paired_failed_observation():
     call = tool_call("invalid-result")
     llm = ScriptedLLM(
         [
@@ -511,7 +446,7 @@ async def test_invalid_tool_return_becomes_a_paired_failed_observation(
         ]
     )
     tool = InvalidResultTool()
-    session = build_session(tmp_path, llm, [tool])
+    session = build_session(llm, [tool])
 
     with llm:
         outcome = await session.start_turn("run invalid tool").wait()
@@ -524,10 +459,9 @@ async def test_invalid_tool_return_becomes_a_paired_failed_observation(
 @pytest.mark.asyncio
 async def test_internal_failure_returns_an_outcome_and_releases_the_session(
     monkeypatch,
-    tmp_path,
 ):
     llm = ScriptedLLM([ScriptedCall(response("recovered"))])
-    session = build_session(tmp_path, llm, [])
+    session = build_session(llm, [])
     run_step = session._loop._run_step
     fail_once = True
 
@@ -562,7 +496,7 @@ async def test_internal_failure_returns_an_outcome_and_releases_the_session(
 
 
 @pytest.mark.asyncio
-async def test_turn_outcomes_report_control_flow_not_task_success(tmp_path):
+async def test_turn_outcomes_report_control_flow_not_task_success():
     call = tool_call("only-step")
     cases = [
         (
@@ -596,7 +530,6 @@ async def test_turn_outcomes_report_control_flow_not_task_success(tmp_path):
 
     for llm, tools, max_steps, reason, error_kind in cases:
         session = build_session(
-            tmp_path,
             llm,
             tools,
             max_steps=max_steps,
@@ -623,13 +556,11 @@ async def test_turn_outcomes_report_control_flow_not_task_success(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_interrupt_finishes_the_current_step_without_starting_another(
-    tmp_path,
-):
+async def test_interrupt_finishes_the_current_step_without_starting_another():
     call = tool_call("cancelled-call")
     llm = BlockingLLM(response("", tool_calls=[call], finish_reason="tool_use"))
     tool = EchoTool()
-    session = build_session(tmp_path, llm, [tool])
+    session = build_session(llm, [tool])
     events = []
 
     handle = session.start_turn("interrupt me", event_sink=events.append)
@@ -652,11 +583,9 @@ async def test_interrupt_finishes_the_current_step_without_starting_another(
 
 
 @pytest.mark.asyncio
-async def test_terminal_response_and_model_failure_win_over_pending_interrupt(
-    tmp_path,
-):
+async def test_terminal_response_and_model_failure_win_over_pending_interrupt():
     terminal_llm = BlockingLLM(response("terminal reply"))
-    terminal_session = build_session(tmp_path, terminal_llm, [])
+    terminal_session = build_session(terminal_llm, [])
     terminal_handle = terminal_session.start_turn("finish while interrupted")
     await terminal_llm.entered.wait()
     assert terminal_handle.interrupt() is True
@@ -667,7 +596,7 @@ async def test_terminal_response_and_model_failure_win_over_pending_interrupt(
     assert terminal_outcome.last_assistant_message == "terminal reply"
 
     error_llm = BlockingLLM(RuntimeError("provider failed"))
-    error_session = build_session(tmp_path, error_llm, [])
+    error_session = build_session(error_llm, [])
     error_handle = error_session.start_turn("fail while interrupted")
     await error_llm.entered.wait()
     assert error_handle.interrupt() is True

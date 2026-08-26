@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from copy import deepcopy
 from dataclasses import dataclass
-from pathlib import Path
 from time import perf_counter
 from typing import Mapping
 from uuid import uuid4
@@ -89,7 +88,6 @@ class AgentSession:
         system_prompt: str,
         tools: list[Tool],
         max_steps: int = 50,
-        workspace_dir: str = "./workspace",
         session_id: str | None = None,
     ):
         if max_steps <= 0:
@@ -99,25 +97,10 @@ class AgentSession:
         self._llm = llm_client
         self._tool_executor = ToolBatchExecutor(tools)
         self._max_steps = max_steps
-        self.workspace_dir = Path(workspace_dir)
         self._turn_counter = 0
         self._active_turn_id: str | None = None
         self._active_turn: TurnHandle | None = None
         self._loop = _AgentLoop()
-
-        # Ensure workspace exists
-        self.workspace_dir.mkdir(parents=True, exist_ok=True)
-
-        workspace_info = (
-            "## Current Workspace\n"
-            f"You are currently working in: `{self.workspace_dir.absolute()}`\n"
-            "All relative paths will be resolved relative to this directory."
-        )
-        if workspace_info not in system_prompt:
-            separator = "\n\n" if system_prompt else ""
-            system_prompt = system_prompt + separator + workspace_info
-
-        self.system_prompt = system_prompt
 
         # Initialize message history
         self._messages: list[Message] = [Message(role="system", content=system_prompt)]

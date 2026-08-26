@@ -148,29 +148,27 @@ class RetainingResponseLLM:
         return self.retained_response
 
 
-def build_session(tmp_path, llm, tools, *, max_steps: int = 1) -> AgentSession:
+def build_session(llm, tools, *, max_steps: int = 1) -> AgentSession:
     return AgentSession(
         llm_client=llm,
         system_prompt="You are a test agent.",
         tools=tools,
         max_steps=max_steps,
-        workspace_dir=str(tmp_path),
         session_id="tool-test-session",
     )
 
 
-def test_duplicate_tool_names_are_rejected_at_registration(tmp_path) -> None:
+def test_duplicate_tool_names_are_rejected_at_registration() -> None:
     with pytest.raises(ValueError, match="Duplicate tool name: 'echo'"):
         build_session(
-            tmp_path,
             DefinitionDrivenLLM(),
             [MutableEchoTool(), MutableEchoTool()],
         )
 
 
-def test_empty_tool_name_is_rejected_at_registration(tmp_path) -> None:
+def test_empty_tool_name_is_rejected_at_registration() -> None:
     with pytest.raises(ValueError, match="Tool name must be a non-empty string"):
-        build_session(tmp_path, DefinitionDrivenLLM(), [MutableEchoTool("")])
+        build_session(DefinitionDrivenLLM(), [MutableEchoTool("")])
 
 
 @pytest.mark.parametrize(
@@ -190,7 +188,6 @@ def test_empty_tool_name_is_rejected_at_registration(tmp_path) -> None:
     ids=["description", "parameters"],
 )
 def test_invalid_tool_metadata_is_rejected_at_registration(
-    tmp_path,
     attribute,
     invalid_value,
     expected_message,
@@ -199,14 +196,14 @@ def test_invalid_tool_metadata_is_rejected_at_registration(
     setattr(tool, attribute, invalid_value)
 
     with pytest.raises(TypeError, match=expected_message):
-        build_session(tmp_path, DefinitionDrivenLLM(), [tool])
+        build_session(DefinitionDrivenLLM(), [tool])
 
 
 @pytest.mark.asyncio
-async def test_registered_metadata_and_dispatch_name_are_frozen(tmp_path) -> None:
+async def test_registered_metadata_and_dispatch_name_are_frozen() -> None:
     llm = DefinitionDrivenLLM()
     tool = MutableEchoTool()
-    session = build_session(tmp_path, llm, [tool])
+    session = build_session(llm, [tool])
 
     tool.current_name = "renamed"
     tool.current_description = "mutated description"
@@ -232,7 +229,7 @@ async def test_registered_metadata_and_dispatch_name_are_frozen(tmp_path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_duplicate_ids_reject_the_batch_before_any_side_effect(tmp_path) -> None:
+async def test_duplicate_ids_reject_the_batch_before_any_side_effect() -> None:
     llm = ScriptedLLM(
         [
             ScriptedCall(
@@ -244,7 +241,7 @@ async def test_duplicate_ids_reject_the_batch_before_any_side_effect(tmp_path) -
         ]
     )
     tool = MutableEchoTool()
-    session = build_session(tmp_path, llm, [tool])
+    session = build_session(llm, [tool])
     events = []
 
     with llm:
@@ -279,12 +276,11 @@ async def test_duplicate_ids_reject_the_batch_before_any_side_effect(tmp_path) -
     ids=["empty-id", "wrong-type"],
 )
 async def test_invalid_call_structure_rejects_before_execution(
-    tmp_path,
     invalid_call,
 ) -> None:
     llm = ScriptedLLM([ScriptedCall(response(invalid_call))])
     tool = MutableEchoTool()
-    session = build_session(tmp_path, llm, [tool])
+    session = build_session(llm, [tool])
 
     with llm:
         outcome = await session.start_turn("reject invalid call").wait()
@@ -297,9 +293,7 @@ async def test_invalid_call_structure_rejects_before_execution(
 
 
 @pytest.mark.asyncio
-async def test_completed_call_id_can_be_reused_across_steps_and_turns(
-    tmp_path,
-) -> None:
+async def test_completed_call_id_can_be_reused_across_steps_and_turns() -> None:
     llm = ScriptedLLM(
         [
             ScriptedCall(response(tool_call("reused", "first"))),
@@ -316,7 +310,7 @@ async def test_completed_call_id_can_be_reused_across_steps_and_turns(
         ]
     )
     tool = MutableEchoTool()
-    session = build_session(tmp_path, llm, [tool], max_steps=2)
+    session = build_session(llm, [tool], max_steps=2)
 
     with llm:
         first_turn = await session.start_turn("reuse within this turn").wait()
@@ -333,7 +327,7 @@ async def test_completed_call_id_can_be_reused_across_steps_and_turns(
 
 
 @pytest.mark.asyncio
-async def test_mixed_batch_normalizes_every_result_in_model_order(tmp_path) -> None:
+async def test_mixed_batch_normalizes_every_result_in_model_order() -> None:
     llm = ScriptedLLM(
         [
             ScriptedCall(
@@ -349,7 +343,7 @@ async def test_mixed_batch_normalizes_every_result_in_model_order(tmp_path) -> N
     echo = MutableEchoTool()
     exploding = ExplodingTool("explode")
     invalid = InvalidResultTool("invalid")
-    session = build_session(tmp_path, llm, [echo, exploding, invalid])
+    session = build_session(llm, [echo, exploding, invalid])
     events = []
 
     with llm:
@@ -392,9 +386,7 @@ async def test_mixed_batch_normalizes_every_result_in_model_order(tmp_path) -> N
 
 
 @pytest.mark.asyncio
-async def test_observer_failure_isolated_from_tool_batch_and_history(
-    tmp_path,
-) -> None:
+async def test_observer_failure_isolated_from_tool_batch_and_history() -> None:
     llm = ScriptedLLM(
         [
             ScriptedCall(
@@ -406,7 +398,7 @@ async def test_observer_failure_isolated_from_tool_batch_and_history(
         ]
     )
     tool = MutableEchoTool()
-    session = build_session(tmp_path, llm, [tool])
+    session = build_session(llm, [tool])
     observed = []
 
     def fail_after_first_result(envelope) -> None:
@@ -442,7 +434,7 @@ async def test_observer_failure_isolated_from_tool_batch_and_history(
 
 
 @pytest.mark.asyncio
-async def test_history_is_unmodified_while_a_batch_is_in_progress(tmp_path) -> None:
+async def test_history_is_unmodified_while_a_batch_is_in_progress() -> None:
     llm = ScriptedLLM(
         [
             ScriptedCall(
@@ -455,7 +447,7 @@ async def test_history_is_unmodified_while_a_batch_is_in_progress(tmp_path) -> N
     )
     first = MutableEchoTool()
     blocked = BlockingEchoTool("block", block_text="blocked")
-    session = build_session(tmp_path, llm, [first, blocked])
+    session = build_session(llm, [first, blocked])
 
     handle = session.start_turn("commit only a complete batch")
     await blocked.entered.wait()
@@ -477,9 +469,7 @@ async def test_history_is_unmodified_while_a_batch_is_in_progress(tmp_path) -> N
 
 
 @pytest.mark.asyncio
-async def test_batch_is_serial_and_interrupts_only_after_all_calls_finish(
-    tmp_path,
-) -> None:
+async def test_batch_is_serial_and_interrupts_only_after_all_calls_finish() -> None:
     llm = ScriptedLLM(
         [
             ScriptedCall(
@@ -492,7 +482,7 @@ async def test_batch_is_serial_and_interrupts_only_after_all_calls_finish(
         ]
     )
     tool = BlockingEchoTool(block_text="first")
-    session = build_session(tmp_path, llm, [tool], max_steps=2)
+    session = build_session(llm, [tool], max_steps=2)
     events = []
 
     handle = session.start_turn("interrupt inside the batch", event_sink=events.append)
@@ -535,7 +525,7 @@ async def test_batch_is_serial_and_interrupts_only_after_all_calls_finish(
 
 
 @pytest.mark.asyncio
-async def test_tool_argument_mutation_cannot_change_events_or_history(tmp_path) -> None:
+async def test_tool_argument_mutation_cannot_change_events_or_history() -> None:
     call = ToolCall(
         id="mutation",
         type="function",
@@ -546,7 +536,7 @@ async def test_tool_argument_mutation_cannot_change_events_or_history(tmp_path) 
     )
     llm = ScriptedLLM([ScriptedCall(response(call))])
     tool = MutatingArgumentsTool()
-    session = build_session(tmp_path, llm, [tool])
+    session = build_session(llm, [tool])
     events = []
 
     with llm:
@@ -573,10 +563,10 @@ async def test_tool_argument_mutation_cannot_change_events_or_history(tmp_path) 
 
 
 @pytest.mark.asyncio
-async def test_tool_result_alias_cannot_change_events_or_history(tmp_path) -> None:
+async def test_tool_result_alias_cannot_change_events_or_history() -> None:
     llm = ScriptedLLM([ScriptedCall(response(tool_call("result", "value")))])
     tool = RetainingResultTool()
-    session = build_session(tmp_path, llm, [tool])
+    session = build_session(llm, [tool])
     finished_results: list[ToolResult] = []
 
     def mutate_retained_result(envelope) -> None:
@@ -600,14 +590,14 @@ async def test_tool_result_alias_cannot_change_events_or_history(tmp_path) -> No
 
 
 @pytest.mark.asyncio
-async def test_model_client_cannot_mutate_an_admitted_tool_batch(tmp_path) -> None:
+async def test_model_client_cannot_mutate_an_admitted_tool_batch() -> None:
     retained_response = response(
         tool_call("first-call", "first", name="block"),
         tool_call("second-call", "second", name="block"),
     )
     llm = RetainingResponseLLM(retained_response)
     tool = BlockingEchoTool("block", block_text="first")
-    session = build_session(tmp_path, llm, [tool])
+    session = build_session(llm, [tool])
 
     handle = session.start_turn("own the model response")
     await tool.entered.wait()
@@ -640,7 +630,6 @@ async def test_model_client_cannot_mutate_an_admitted_tool_batch(tmp_path) -> No
 @pytest.mark.asyncio
 async def test_agent_step_delegates_the_complete_batch_once(
     monkeypatch,
-    tmp_path,
 ) -> None:
     calls = [
         tool_call("first", "first"),
@@ -649,7 +638,7 @@ async def test_agent_step_delegates_the_complete_batch_once(
     ]
     llm = ScriptedLLM([ScriptedCall(response(*calls))])
     tool = MutableEchoTool()
-    session = build_session(tmp_path, llm, [tool])
+    session = build_session(llm, [tool])
     delegated_batches: list[list[ToolCall]] = []
 
     async def execute_batch(tool_calls, *, emit):
@@ -682,7 +671,7 @@ async def test_agent_step_delegates_the_complete_batch_once(
 
 
 @pytest.mark.asyncio
-async def test_cli_renders_tool_protocol_failure_detail(tmp_path, capsys) -> None:
+async def test_cli_renders_tool_protocol_failure_detail(capsys) -> None:
     llm = ScriptedLLM(
         [
             ScriptedCall(
@@ -693,7 +682,7 @@ async def test_cli_renders_tool_protocol_failure_detail(tmp_path, capsys) -> Non
             )
         ]
     )
-    session = build_session(tmp_path, llm, [MutableEchoTool()])
+    session = build_session(llm, [MutableEchoTool()])
 
     with llm:
         outcome = await session.start_turn(

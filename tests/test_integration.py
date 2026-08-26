@@ -100,7 +100,6 @@ async def test_basic_agent_usage():
                 system_prompt=system_prompt,
                 tools=tools,
                 max_steps=config.agent.max_steps,
-                workspace_dir=workspace_dir,
             )
 
             # Task: Create a Python file with hello world

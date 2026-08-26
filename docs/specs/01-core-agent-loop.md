@@ -32,8 +32,8 @@ git show fdcd945^:mini_agent/cli.py
 6. 接收器首个普通异常会禁用该接收器；观察是最佳努力通知，不改变模型、工具、历史或 Turn 结果。已成功交给接收器的 `TurnFinished.outcome` 与 `wait()` 返回同一个对象；接收器失败后宿主不会收到轨迹不完整诊断。
 7. `TurnHandle.wait()` 屏蔽等待者取消，CLI 必须先请求中断并等待 runner 收敛，再传播应用取消或开始下一次输入（`mini_agent/cli.py:273-291,830-854`）。
 8. CLI 必须把一次 Turn 中的多个 Step 显示为层级关系；`end_turn` 只显示控制权交还，不使用成功或完成标记。`max_steps` 的用户可见定义是“一个 Turn 内允许的 agent 模型请求数”。
-9. `max_steps` 必须是正整数；配置入口在 runtime 组装前拒绝，`AgentSession` 在工具检查、工作区创建和 Turn 接纳前独立拒绝。
-10. 单条 system message 保留调用者提示词为前缀，并包含基于本次 Session 绝对路径生成的完整工作区事实块；只有同一完整块已经存在时才跳过追加。
+9. `max_steps` 必须是正整数；配置入口在 runtime 组装前拒绝，`AgentSession` 在身份生成、工具注册和 Turn 接纳前独立拒绝。
+10. `AgentSession` 原样保存宿主提供的单条 system message，不读取工作区或改写提示词；CLI 负责在构造 Session 前追加本次绝对工作区的完整事实块，只有同一完整块已经存在时才跳过。
 
 ## 未包含
 
@@ -45,11 +45,11 @@ git show fdcd945^:mini_agent/cli.py
 
 ## 已验证行为
 
-- `tests/test_agent_session_offline.py:121-139` 与 `tests/test_llm_adapters.py`：配置和公开 core 入口分别拒绝非正 Step 预算，且不创建工作区；
-- `tests/test_agent_session_offline.py:153-188`：偶然文字与旧路径不能抑制当前工作区事实，准确块不重复；
+- `tests/test_agent_session_offline.py` 与 `tests/test_llm_adapters.py`：配置和公开 core 入口分别拒绝非正 Step 预算，且不发起模型请求；
+- `tests/test_config_provenance.py`：CLI 的偶然文字与旧路径不能抑制当前工作区事实，准确块不重复，runtime 确实把组装结果交给 Session；`tests/test_agent_session_offline.py` 固定 core 原样保存提示词；
 - `tests/test_agent_session_offline.py:191-304`：跨 Turn 完整历史、唯一身份、单活动 Turn、可重入接纳和创建失败回滚；
 - `tests/test_agent_session_offline.py:306-416`：等待者取消、CLI 收敛、配置快照和工具驱动的多 Step；
 - `tests/test_agent_session_offline.py` 与 `tests/test_tool_execution.py`：观察数据隔离、接收器失败后停用、完整批次与结构化停止原因；
 - `tests/test_agent_session_offline.py:667-720`：完整 Step 中断与终止优先级；
 - `tests/test_agent_loop_offline.py:381-519`：一个多 Step Turn 的 CLI 层级、中性结束标记、失败去重和帮助文案；
-- README 的离线命令在 2026-08-26 最近一次实测为 `317 passed, 9 deselected in 13.49s`，没有 warning。
+- README 的离线命令在 2026-08-26 最近一次实测为 `271 passed, 8 deselected in 13.81s`，没有 warning。

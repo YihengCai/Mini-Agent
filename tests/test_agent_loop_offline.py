@@ -76,7 +76,6 @@ class ExplodingTool(EchoTool):
 
 
 def build_agent(
-    tmp_path,
     llm,
     tools,
     *,
@@ -87,7 +86,6 @@ def build_agent(
         system_prompt="You are a test agent.",
         tools=tools,
         max_steps=max_steps,
-        workspace_dir=str(tmp_path),
     )
 
 
@@ -275,7 +273,7 @@ async def test_scripted_llm_rejects_invalid_tool_call_pairs(
 
 
 @pytest.mark.asyncio
-async def test_real_agent_loop_executes_tool_and_sends_result_to_model(tmp_path):
+async def test_real_agent_loop_executes_tool_and_sends_result_to_model():
     call = ToolCall(
         id="call-1",
         type="function",
@@ -290,7 +288,7 @@ async def test_real_agent_loop_executes_tool_and_sends_result_to_model(tmp_path)
         ]
     )
     tool = EchoTool()
-    agent = build_agent(tmp_path, llm, [tool])
+    agent = build_agent(llm, [tool])
     events = []
 
     with llm:
@@ -352,9 +350,9 @@ async def test_real_agent_loop_executes_tool_and_sends_result_to_model(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_core_agent_run_is_silent_without_an_event_sink(monkeypatch, tmp_path):
+async def test_core_agent_run_is_silent_without_an_event_sink(monkeypatch):
     llm = ScriptedLLM([ScriptedCall(response("quietly finished"))])
-    agent = build_agent(tmp_path, llm, [])
+    agent = build_agent(llm, [])
 
     def reject_print(*_args, **_kwargs):
         raise AssertionError("core agent loop attempted terminal output")
@@ -369,7 +367,6 @@ async def test_core_agent_run_is_silent_without_an_event_sink(monkeypatch, tmp_p
 
 @pytest.mark.asyncio
 async def test_cli_event_sink_preserves_rendering_and_run_logging(
-    tmp_path,
     capsys,
 ):
     call = ToolCall(
@@ -385,7 +382,7 @@ async def test_cli_event_sink_preserves_rendering_and_run_logging(
             ScriptedCall(response("visible finish")),
         ]
     )
-    agent = build_agent(tmp_path, llm, [EchoTool()])
+    agent = build_agent(llm, [EchoTool()])
     logger = MagicMock()
     logger.get_log_file_path.return_value = Path("/tmp/agent-run.log")
 
@@ -467,11 +464,10 @@ def test_cli_event_sink_renders_step_and_turn_stop_facts(capsys):
 
 @pytest.mark.asyncio
 async def test_cli_event_sink_does_not_repeat_model_failure_details(
-    tmp_path,
     capsys,
 ):
     llm = ScriptedLLM([ScriptedCall(RuntimeError("model unavailable"))])
-    agent = build_agent(tmp_path, llm, [])
+    agent = build_agent(llm, [])
     logger = MagicMock()
     logger.get_log_file_path.return_value = Path("/tmp/agent-run.log")
 
@@ -543,7 +539,7 @@ async def test_first_violation_prevents_later_script_consumption():
 
 
 @pytest.mark.asyncio
-async def test_reported_usage_remains_on_model_response_events(tmp_path):
+async def test_reported_usage_remains_on_model_response_events():
     call = tool_call("reported-usage")
     llm = ScriptedLLM(
         [
@@ -558,7 +554,7 @@ async def test_reported_usage_remains_on_model_response_events(tmp_path):
             ScriptedCall(response("finished")),
         ]
     )
-    agent = build_agent(tmp_path, llm, [EchoTool()])
+    agent = build_agent(llm, [EchoTool()])
     events = []
 
     with llm:
@@ -583,7 +579,6 @@ async def test_reported_usage_remains_on_model_response_events(tmp_path):
     ],
 )
 async def test_tool_failures_are_returned_to_the_next_model_call(
-    tmp_path,
     mode,
     tool_name,
     expected_error,
@@ -598,7 +593,7 @@ async def test_tool_failures_are_returned_to_the_next_model_call(
         ]
     )
     tools = [] if mode == "unknown" else [ExplodingTool()]
-    agent = build_agent(tmp_path, llm, tools)
+    agent = build_agent(llm, tools)
 
     with llm:
         outcome = await run_turn(agent, "Exercise a failing tool.")
@@ -611,7 +606,7 @@ async def test_tool_failures_are_returned_to_the_next_model_call(
 
 
 @pytest.mark.asyncio
-async def test_max_steps_is_distinct_from_normal_completion(tmp_path):
+async def test_max_steps_is_distinct_from_normal_completion():
     call = tool_call("only-step")
     llm = ScriptedLLM(
         [
@@ -621,7 +616,7 @@ async def test_max_steps_is_distinct_from_normal_completion(tmp_path):
         ]
     )
     tool = EchoTool()
-    agent = build_agent(tmp_path, llm, [tool], max_steps=1)
+    agent = build_agent(llm, [tool], max_steps=1)
     events = []
 
     with llm:
@@ -648,7 +643,7 @@ async def test_max_steps_is_distinct_from_normal_completion(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_agent_cannot_hide_script_exhaustion(tmp_path):
+async def test_agent_cannot_hide_script_exhaustion():
     call = tool_call("needs-another-call")
     llm = ScriptedLLM(
         [
@@ -657,7 +652,7 @@ async def test_agent_cannot_hide_script_exhaustion(tmp_path):
             )
         ]
     )
-    agent = build_agent(tmp_path, llm, [EchoTool()])
+    agent = build_agent(llm, [EchoTool()])
     outcome = None
     verification_error = (
         "Scripted LLM verification failed:\n"
