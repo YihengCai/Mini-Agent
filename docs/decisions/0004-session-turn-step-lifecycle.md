@@ -1,10 +1,10 @@
 # ADR-0004：以 Session、Turn、Step 表达执行生命周期
 
 - 日期：2026-08-24
-- 状态：已采纳
+- 状态：部分推翻（observer 错误仲裁见 ADR-0032）
 - 关联：`mini_agent/core/agent.py`、`mini_agent/core/turn.py`、`mini_agent/core/events.py`、`tests/test_agent_session_offline.py`、提交 `fdcd945`
 
-> 后续修订：[ADR-0006](0006-remove-legacy-local-compaction.md) 删除了 token 限额快照、摘要维护调用及相应事件；Session、Turn、Step 的生命周期和所有权 contract 继续有效。以下正文保留当时决定，不作追写。
+> 后续修订：[ADR-0006](0006-remove-legacy-local-compaction.md) 删除了 token 限额快照、摘要维护调用及相应事件；[ADR-0032](0032-observers-do-not-control-turns.md) 删除了 observer 错误对 Turn 结果的控制。Session、Turn、Step 的生命周期和所有权 contract 继续有效。以下正文保留当时决定，不作追写。
 
 ## 背景
 
@@ -47,7 +47,7 @@ Session 身份、模型引用、工具映射、步数和 token 上限在接纳�
 
 - `tests/test_agent_session_offline.py:119-231` 验证跨 Turn 历史、唯一身份、原子拒绝、任务工厂重入和创建失败回滚。
 - `tests/test_agent_session_offline.py:234-350` 验证等待者取消不取消 runner、CLI 取消先收敛、接纳时配置快照和多 Step 工具循环。
-- `tests/test_agent_session_offline.py:353-607` 验证观察数据隔离、接收器失败后的消息配对、主次错误、内部失败和停止原因不包含任务成功。
+- 提交 `fdcd945` 的 `tests/test_agent_session_offline.py:353-607` 验证当时的观察数据隔离、接收器失败后的消息配对、主次错误、内部失败和停止原因不包含任务成功；其中主次错误语义后来由 ADR-0032 删除。
 - `tests/test_agent_session_offline.py:610-724` 验证完整 Step 中断、终止优先级，以及摘要调用不计为 Step。
 - `tests/test_agent_loop_offline.py:386-525` 验证 CLI 分别显示 Turn 和 Step、`end_turn` 不暗示任务成功、模型错误不重复，以及帮助文案使用相同语义。
 - README 所列离线命令在 2026-08-25 实测为 `144 passed`，只有一条既有的 `cache_dir` 配置警告；`git diff --check`、模块编译和公开导入检查均通过。
@@ -65,3 +65,5 @@ ADR-0006 删除摘要维护后，Step 现在覆盖全部模型调用，不再需
 [ADR-0008](0008-session-owned-tool-batch-executor.md) 随后把模型响应触发的工具执行移入 Session 持有的批次执行器，并增加注册冻结、完整预检、调用标识符账本和 `tool_protocol_error`。assistant 调用与全部结果仍由 Step 成组提交，中断仍在完整批次后生效，因此本 ADR 的生命周期边界没有改变；新 ADR 只细化了工具批次内部的状态所有权和结构失败分类。
 
 ADR-0031 后来删除其中的 Session 级调用标识符账本，但没有改变 Step 的批次执行与成组提交边界。
+
+ADR-0032 随后把同步接收器收窄为最佳努力 observer：首个普通异常后停用，不再生成 `observer_error` 或参与失败主次归因。事件快照与工具结果成组提交继续保留；可靠轨迹需要等真实消费者出现后另行设计持久化或确认语义。

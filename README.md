@@ -14,7 +14,7 @@
 
 - 3 项真实模型演示仍会吞异常或用返回值代替断言；它们和 5 项外部 MCP/网络测试已从默认集合排除，显式运行也不构成稳定回归；
 - `TurnOutcome` 只解释 core 为什么交还控制权，不判断用户任务是否完成；目前没有 TaskSupervisor、BenchmarkEvaluator 或 SWE-bench 接入；
-- core 事件目前只是带 Session、Turn、Step 身份的进程内同步通知，不是可持久化、可回放的轨迹格式，也还没有独立统计或基准评测消费者；
+- core 事件目前只是带 Session、Turn、Step 身份的进程内同步通知；接收器普通异常只会停用该接收器，宿主不会收到轨迹不完整的诊断。它不是可持久化、可回放的轨迹格式，也还没有独立统计或基准评测消费者；
 - Esc 没有真正取消正在运行的模型或工具任务；中断只在完整 Step 边界生效，延迟可能覆盖一次模型调用和整批工具执行；
 - 工具批次目前只做结构预检、串行执行和单条模型消息预算，没有 JSON Schema 参数校验、权限、自动重试或整批合计预算；调用标识符只关联一个未完成批次中的调用与结果，不能阻止跨批次重复副作用；
 - 后台 shell 会在 CLI 运行时退出时收敛监控任务，前台 shell 会在超时或取消时终止并等待直接子进程；两者仍没有进程组或后代进程清理，后台输出缓冲、原始事件与日志也无容量预算，不构成权限或沙箱边界；
@@ -38,7 +38,7 @@ Turn 日志也不再以秒级名称覆写已有证据：普通文件名保持不
 
 核心边界改造已经落地：消息、模型调用和终止判断位于 `mini_agent/core/agent.py`，模型响应触发的工具调用位于 `mini_agent/core/tool_execution.py`；`mini_agent/cli_events.py` 消费同一条事件序列完成终端渲染与原有文本日志。不给 `event_sink` 时，真实 agent loop 可以无终端输出、无日志副作用地运行。事件顺序、CLI 输出与日志调用都有离线回归；core 没有自动压缩状态，也不导入 UI、日志或传输模块。
 
-执行生命周期改造也已经落地：`AgentSession.start_turn()` 原子接纳输入并返回 `TurnHandle`，同一 Session 只允许一个活动 Turn；`TurnOutcome` 区分模型交回控制权、用户中断、Step 上限和失败，但没有 `success` 或 `completed`。工具调用继续同一 Turn；事件载荷使用独立快照，Turn 配置在接纳时固化，接收器失败也不会留下缺少工具结果的历史。配置与公开 Session 构造入口都要求 `max_steps > 0`，并在 runtime 资源或工作区副作用之前失败，因此不存在零模型请求的合法 Turn。Session 还会在调用者提示词后附加本次绝对工作区的完整事实块；普通标题或旧路径不能抑制它，已含准确块时不重复。CLI 分别显示 Turn 的控制权边界和内部 Step，把 `end_turn` 写成中性的“交还控制权”，不显示任务成功标记。生命周期取舍与中断延迟见 [ADR-0004](docs/decisions/0004-session-turn-step-lifecycle.md)，预算边界见 [ADR-0014](docs/decisions/0014-positive-step-budget-at-config-and-core.md)。
+执行生命周期改造也已经落地：`AgentSession.start_turn()` 原子接纳输入并返回 `TurnHandle`，同一 Session 只允许一个活动 Turn；`TurnOutcome` 区分模型交回控制权、用户中断、Step 上限和失败，但没有 `success` 或 `completed`。工具调用继续同一 Turn；事件载荷使用独立快照，Turn 配置在接纳时固化。同步 observer 是最佳努力通知：首个普通异常后停用，但不改变工具执行、历史或 Turn 结果。配置与公开 Session 构造入口都要求 `max_steps > 0`，并在 runtime 资源或工作区副作用之前失败，因此不存在零模型请求的合法 Turn。Session 还会在调用者提示词后附加本次绝对工作区的完整事实块；普通标题或旧路径不能抑制它，已含准确块时不重复。CLI 分别显示 Turn 的控制权边界和内部 Step，把 `end_turn` 写成中性的“交还控制权”，不显示任务成功标记。生命周期取舍见 [ADR-0004](docs/decisions/0004-session-turn-step-lifecycle.md)，observer 语义见 [ADR-0032](docs/decisions/0032-observers-do-not-control-turns.md)，预算边界见 [ADR-0014](docs/decisions/0014-positive-step-budget-at-config-and-core.md)。
 
 工具批次强制点已经落地：Session 创建时拒绝空名、重名和不合 contract 的工具元数据，并冻结模型定义与调度键；agent loop 在 `ModelClient` 返回处先深拷贝整个响应，再让事件、预检、执行器和历史消费。每个模型批次在首个副作用前校验调用类型、非空标识符和批内重复，再按模型顺序串行执行；已完成批次可以复用相同标识符，它只是调用与结果的相关键，不是幂等键。未知工具、普通异常和非法返回各自产生同序失败结果；合法 `ToolResult` 在接纳处立即深拷贝，工具保留的返回别名不能改写事件或历史。assistant 工具调用与全部结果仍一次性提交。模型客户端、工具参数、工具结果、事件和历史互不共享可变批次对象。这个入口只约束模型响应触发的调用；可信宿主仍持有原始 Tool 引用，因此它不是权限或沙箱。批次取舍见 [ADR-0008](docs/decisions/0008-session-owned-tool-batch-executor.md) 与 [ADR-0031](docs/decisions/0031-scope-tool-call-ids-to-pending-batches.md)，返回值所有权见 [ADR-0025](docs/decisions/0025-executor-owns-admitted-tool-results.md)。
 
@@ -159,7 +159,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `273 passed, 8 deselected in 13.76s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `270 passed, 8 deselected in 13.36s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 

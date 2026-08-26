@@ -63,14 +63,9 @@ class _TurnEmitter:
     ) -> None:
         self._context = context
         self._event_sink = event_sink
-        self._error: Exception | None = None
-
-    @property
-    def error(self) -> Exception | None:
-        return self._error
 
     def emit(self, event: AgentEvent, *, step: int | None = None) -> None:
-        if self._event_sink is None or self._error is not None:
+        if self._event_sink is None:
             return
         try:
             self._event_sink(
@@ -81,8 +76,8 @@ class _TurnEmitter:
                     event=event,
                 )
             )
-        except Exception as error:
-            self._error = error
+        except Exception:
+            self._event_sink = None
 
 
 class AgentSession:
@@ -249,15 +244,6 @@ class _AgentLoop:
         emitter.emit(TurnStarted(max_steps=context.max_steps))
 
         try:
-            if emitter.error is not None:
-                return self._finish_turn(
-                    emitter=emitter,
-                    context=context,
-                    stop_reason="failed",
-                    last_assistant_message=None,
-                    error=self._observer_error(emitter.error),
-                )
-
             for step_number in range(1, context.max_steps + 1):
                 if context.interrupt_event.is_set():
                     return self._finish_turn(
@@ -315,8 +301,6 @@ class _AgentLoop:
                 StepStarted(max_steps=context.max_steps),
                 step=step_number,
             )
-            if emitter.error is not None:
-                return self._observer_failed_step(emitter.error)
 
             model_tools = context.tool_executor.snapshot_definitions()
             event_tools = tuple(
@@ -340,8 +324,6 @@ class _AgentLoop:
                 ),
                 step=step_number,
             )
-            if emitter.error is not None:
-                return self._observer_failed_step(emitter.error)
 
             try:
                 response = (
@@ -382,8 +364,6 @@ class _AgentLoop:
                 ),
                 step=step_number,
             )
-            if emitter.error is not None:
-                return self._observer_failed_step(emitter.error)
 
             assistant_message = Message(
                 role="assistant",
@@ -430,11 +410,7 @@ class _AgentLoop:
             # together, so the next Turn never sees a half-written protocol pair.
             session._messages.extend([assistant_message, *tool_messages])
 
-            if emitter.error is not None:
-                status: StepStatus = "failed"
-                stop_reason: TurnStopReason | None = "failed"
-                step_error = self._observer_error(emitter.error)
-            elif context.interrupt_event.is_set():
+            if context.interrupt_event.is_set():
                 status = "interrupted"
                 stop_reason = "interrupted"
                 step_error = None
@@ -454,13 +430,6 @@ class _AgentLoop:
                 step_start_time=step_start_time,
                 turn_start_time=turn_start_time,
             )
-            if (
-                emitter.error is not None
-                and step_error is None
-                and stop_reason is None
-            ):
-                stop_reason = "failed"
-                step_error = self._observer_error(emitter.error)
             return _StepResult(
                 stop_reason=stop_reason,
                 last_assistant_message=response.content,
@@ -480,19 +449,6 @@ class _AgentLoop:
                 error=self._internal_error(error),
             )
 
-    @classmethod
-    def _observer_failed_step(
-        cls,
-        error: Exception,
-        *,
-        last_assistant_message: str | None = None,
-    ) -> _StepResult:
-        return _StepResult(
-            stop_reason="failed",
-            last_assistant_message=last_assistant_message,
-            error=cls._observer_error(error),
-        )
-
     @staticmethod
     def _emit_step_finished(
         *,
@@ -511,9 +467,8 @@ class _AgentLoop:
             step=step_number,
         )
 
-    @classmethod
+    @staticmethod
     def _finish_turn(
-        cls,
         *,
         emitter: _TurnEmitter,
         context: _TurnContext,
@@ -521,31 +476,15 @@ class _AgentLoop:
         last_assistant_message: str | None,
         error: TurnError | None = None,
     ) -> TurnOutcome:
-        observer_error = None
-        if emitter.error is not None and (
-            error is None or error.kind != "observer_error"
-        ):
-            observer_error = cls._observer_error(emitter.error)
-
         outcome = TurnOutcome(
             session_id=context.session_id,
             turn_id=context.turn_id,
             stop_reason=stop_reason,
             last_assistant_message=last_assistant_message,
             error=error,
-            observer_error=observer_error,
         )
         emitter.emit(TurnFinished(outcome=outcome))
-        # Once a terminal outcome has been published, a delivery exception cannot
-        # retroactively replace it without making event and waiter disagree.
         return outcome
-
-    @staticmethod
-    def _observer_error(error: Exception) -> TurnError:
-        return TurnError(
-            kind="observer_error",
-            message=f"Agent event sink failed: {type(error).__name__}: {error}",
-        )
 
     @staticmethod
     def _internal_error(error: Exception) -> TurnError:

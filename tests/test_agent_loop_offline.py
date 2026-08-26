@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from mini_agent.agent import AgentSession
-from mini_agent.cli import parse_args, print_help, report_observer_failure
+from mini_agent.cli import parse_args, print_help
 from mini_agent.cli_events import CliEventSink
 from mini_agent.core import TurnError, TurnOutcome
 from mini_agent.core.events import (
@@ -505,22 +505,6 @@ def test_cli_help_uses_session_turn_and_interruption_semantics(
     assert exit_info.value.code == 0
     argument_help = capsys.readouterr().out
     assert "Submit one Turn non-interactively" in argument_help
-
-
-def test_cli_reports_an_event_observer_failure_without_the_broken_sink(capsys):
-    outcome = TurnOutcome(
-        session_id="session",
-        turn_id="session:turn-1",
-        stop_reason="failed",
-        error=TurnError("model_error", "model unavailable"),
-        observer_error=TurnError("observer_error", "logger unavailable"),
-    )
-
-    report_observer_failure(outcome)
-
-    error_output = capsys.readouterr().err
-    assert "Turn event observer failed" in error_output
-    assert "logger unavailable" in error_output
 
 
 @pytest.mark.asyncio

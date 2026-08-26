@@ -123,7 +123,7 @@ async def test_runtime_uses_only_companions_from_selected_config_source(
             return []
 
     async def complete_turn(_turn):
-        return SimpleNamespace(observer_error=None, error=None)
+        return None
 
     def shadow_search(_cls, filename):
         return shadow_dir / Path(filename).name

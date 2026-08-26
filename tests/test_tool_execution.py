@@ -392,7 +392,7 @@ async def test_mixed_batch_normalizes_every_result_in_model_order(tmp_path) -> N
 
 
 @pytest.mark.asyncio
-async def test_observer_failure_mid_batch_does_not_leave_partial_history(
+async def test_observer_failure_isolated_from_tool_batch_and_history(
     tmp_path,
 ) -> None:
     llm = ScriptedLLM(
@@ -407,8 +407,10 @@ async def test_observer_failure_mid_batch_does_not_leave_partial_history(
     )
     tool = MutableEchoTool()
     session = build_session(tmp_path, llm, [tool])
+    observed = []
 
     def fail_after_first_result(envelope) -> None:
+        observed.append(envelope)
         if (
             isinstance(envelope.event, ToolFinished)
             and envelope.event.index == 1
@@ -421,9 +423,8 @@ async def test_observer_failure_mid_batch_does_not_leave_partial_history(
             event_sink=fail_after_first_result,
         ).wait()
 
-    assert outcome.stop_reason == "failed"
-    assert outcome.error is not None
-    assert outcome.error.kind == "observer_error"
+    assert outcome.stop_reason == "max_steps"
+    assert outcome.error is None
     assert tool.calls == ["first", "second"]
     assert [message.role for message in session.get_history()[-3:]] == [
         "assistant",
@@ -433,6 +434,11 @@ async def test_observer_failure_mid_batch_does_not_leave_partial_history(
     assert [
         message.tool_call_id for message in session.get_history()[-2:]
     ] == ["first", "second"]
+    assert [
+        (type(envelope.event), envelope.event.index)
+        for envelope in observed
+        if isinstance(envelope.event, (ToolStarted, ToolFinished))
+    ] == [(ToolStarted, 1), (ToolFinished, 1)]
 
 
 @pytest.mark.asyncio

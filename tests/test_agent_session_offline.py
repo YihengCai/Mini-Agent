@@ -442,48 +442,6 @@ async def test_event_observer_cannot_mutate_model_input_or_session_state(
 
 
 @pytest.mark.asyncio
-async def test_observer_failure_stops_at_a_valid_step_boundary(tmp_path):
-    call = tool_call("observed-call")
-    llm = ScriptedLLM(
-        [
-            ScriptedCall(
-                response("", tool_calls=[call], finish_reason="tool_use"),
-            ),
-            ScriptedCall(response("next turn still works")),
-        ]
-    )
-    tool = EchoTool()
-    session = build_session(tmp_path, llm, [tool])
-    observed = []
-
-    def failing_observer(envelope):
-        observed.append(envelope)
-        if isinstance(envelope.event, ToolFinished):
-            raise OSError("logger unavailable")
-
-    with llm:
-        first = await session.start_turn(
-            "run one tool",
-            event_sink=failing_observer,
-        ).wait()
-        second = await session.start_turn("continue safely").wait()
-
-    assert first.stop_reason == "failed"
-    assert first.error is not None
-    assert first.error.kind == "observer_error"
-    assert "logger unavailable" in first.error.message
-    assert tool.calls == ["observed-call"]
-    assert [message.role for message in session.get_history()[1:4]] == [
-        "user",
-        "assistant",
-        "tool",
-    ]
-    assert second.stop_reason == "end_turn"
-    assert session.active_turn is None
-    assert not any(isinstance(item.event, TurnFinished) for item in observed)
-
-
-@pytest.mark.asyncio
 async def test_terminal_delivery_failure_cannot_rewrite_the_published_outcome(
     tmp_path,
 ):
@@ -537,31 +495,6 @@ async def test_model_failure_preserves_original_exception(tmp_path):
     assert outcome.error is not None
     assert outcome.error.kind == "model_error"
     assert outcome.error.message == expected_message
-
-
-@pytest.mark.asyncio
-async def test_reporting_failure_does_not_hide_the_model_failure(
-    tmp_path,
-):
-    llm = ScriptedLLM([ScriptedCall(RuntimeError("model unavailable"))])
-    session = build_session(tmp_path, llm, [])
-
-    def fail_while_reporting(envelope):
-        if isinstance(envelope.event, ModelCallFailed):
-            raise OSError("renderer failed")
-
-    with llm:
-        outcome = await session.start_turn(
-            "call the model",
-            event_sink=fail_while_reporting,
-        ).wait()
-
-    assert outcome.stop_reason == "failed"
-    assert outcome.error is not None
-    assert outcome.error.kind == "model_error"
-    assert "model unavailable" in outcome.error.message
-    assert outcome.observer_error is not None
-    assert "renderer failed" in outcome.observer_error.message
 
 
 @pytest.mark.asyncio

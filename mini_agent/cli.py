@@ -255,24 +255,6 @@ def print_stats(agent_session: AgentSession, session_start: datetime):
     print(f"{Colors.DIM}{'─' * 40}{Colors.RESET}\n")
 
 
-def report_observer_failure(outcome: TurnOutcome) -> None:
-    """Fallback when the normal CLI event adapter is the failing component."""
-
-    observer_error = outcome.observer_error
-    if (
-        observer_error is None
-        and outcome.error is not None
-        and outcome.error.kind == "observer_error"
-    ):
-        observer_error = outcome.error
-    if observer_error is not None:
-        print(
-            f"{Colors.RED}❌ Turn event observer failed: "
-            f"{observer_error.message}{Colors.RESET}",
-            file=sys.stderr,
-        )
-
-
 async def wait_for_turn(
     turn: TurnHandle,
     *,
@@ -693,8 +675,7 @@ async def _run_configured_runtime(
     if task:
         try:
             turn = agent_session.start_turn(task, event_sink=event_sink)
-            outcome = await wait_for_turn(turn)
-            report_observer_failure(outcome)
+            await wait_for_turn(turn)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -890,11 +871,10 @@ async def _run_configured_runtime(
 
             # Wait for the active Turn with periodic interruption checks.
             try:
-                outcome = await wait_for_turn(
+                await wait_for_turn(
                     turn,
                     interrupt_requested=lambda: esc_cancelled[0],
                 )
-                report_observer_failure(outcome)
 
             except asyncio.CancelledError:
                 print(f"\n{Colors.BRIGHT_YELLOW}⚠️  Agent execution cancelled{Colors.RESET}")
@@ -910,8 +890,7 @@ async def _run_configured_runtime(
             active_turn = agent_session.active_turn
             if active_turn is not None:
                 active_turn.interrupt()
-                outcome = await active_turn.wait()
-                report_observer_failure(outcome)
+                await active_turn.wait()
             print(f"\n\n{Colors.BRIGHT_YELLOW}👋 Interrupt signal detected, exiting...{Colors.RESET}\n")
             print_stats(agent_session, session_start)
             break

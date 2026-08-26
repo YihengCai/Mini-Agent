@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-Session 级工具调用标识符账本已经删除并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
+observer 错误仲裁已经简化并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@ Session 级工具调用标识符账本已经删除并移入“最近完成”。
 
 ## 最近完成
 
+- **observer 不控制 Turn**：同步接收器首个普通异常后只停用自身，工具批次、历史和 Turn 结果继续由真实执行原因决定；删除 `observer_error` 主因/次因矩阵和 CLI 二次 fallback。生产代码净减 87 行，测试净减 77 行；定向集合实测 `66 passed in 0.74s`，恢复异常传播时关键回归实测转红；完整离线集合实测 `270 passed, 8 deselected in 13.36s`。取舍见 [`decisions/0032-observers-do-not-control-turns.md`](decisions/0032-observers-do-not-control-turns.md)。
 - **调用标识符只约束未完成批次**：删除执行器中永不清空、不可恢复的 Session 隐藏集合；同批空 ID、非法类型和重复 ID 继续在零副作用前失败，已完成批次则可跨 Step/Turn 复用 ID。生产代码净减 11 行，测试净减 108 行；一个正向回归同时检出生产账本和测试替身的全历史唯一规则。相关集合实测 `67 passed in 0.73s`，完整离线集合实测 `273 passed, 8 deselected in 13.76s`。取舍见 [`decisions/0031-scope-tool-call-ids-to-pending-batches.md`](decisions/0031-scope-tool-call-ids-to-pending-batches.md)。
 - **删除不可读取的 Note 半能力**：删除只在运行时注册写入端的 Note 模块、配置开关、CLI 接线、导出、专用离线测试与外部演示；真正的记忆能力留给“会话事实记录与模型请求视图”topic，不以补注册扩大当前范围。生产代码净减 222 行，测试净减 300 行；定向离线集合实测 `75 passed in 4.52s`，完整离线集合实测 `277 passed, 8 deselected in 14.11s`。取舍见 [`decisions/0030-remove-incomplete-note-memory.md`](decisions/0030-remove-incomplete-note-memory.md)。
 - **删除未探测的 `thinking` 半能力**：从共享消息/响应 schema、core、CLI 与日志删除始终为空且无法往返的字段；Anthropic-compatible 未知 thinking block 继续忽略，两种 adapter 的可见 assistant/tool 历史映射不变。定向集合实测 `111 passed in 0.82s`，完整离线集合实测 `285 passed, 9 deselected in 13.46s`。取舍见 [`decisions/0029-remove-unprobed-thinking-field.md`](decisions/0029-remove-unprobed-thinking-field.md)。
@@ -76,7 +77,7 @@ Session 级工具调用标识符账本已经删除并移入“最近完成”。
 - **默认测试入口安全、离线**：真实模型、用户 MCP 配置和网络测试统一使用 `external` marker；默认配置与根级收集门双层排除，只有显式 `--run-external` 才放行。MCP 混合模块的 24 项离线测试保留在默认集合，入口回归能检出漏标、普通 `-m` 绕过和 marker 拼错；完整默认入口实测 `183 passed, 9 deselected in 13.82s`。取舍见 [`decisions/0007-explicit-opt-in-for-external-tests.md`](decisions/0007-explicit-opt-in-for-external-tests.md)。
 - **删除旧本地压缩**：Session 暂以完整模型历史直传；本地 token 估算、摘要替换、四类压缩事件、配置字段、摘要用途标签和 `tiktoken`/`regex` 依赖已经删除，旧配置键明确失败。64 项定向回归与锁文件校验通过，标准离线集合共 `157 passed`。取舍见 [`decisions/0006-remove-legacy-local-compaction.md`](decisions/0006-remove-legacy-local-compaction.md)。
 - **模型 API adapter 边界**：core 通过 `ModelClient` 调用模型并使用中性 `ToolDefinition`；显式注册表选择具体 wire adapter，端点、模型和输出上限不再由域名或 vendor 默认值推断。adapter 离线测试覆盖配置迁移、逐字端点传递、SDK 请求、工具历史、基础响应、SDK retry 关闭与单次项目调用；未探测 `usage` 只供观察。取舍见 [`decisions/0005-explicit-model-api-adapters.md`](decisions/0005-explicit-model-api-adapters.md)。
-- **显式执行生命周期**：`AgentSession` 表示一段逻辑对话，`TurnHandle` 表示一次控制权交接，Step 表示一次 agent 模型请求及其完整工具批次；结构化停止原因不判断任务成功。44 项 agent loop 与生命周期定向离线测试覆盖原子接纳、状态快照、中断、错误、观察隔离及 CLI 层级；标准离线集合共 `144 passed`。取舍见 [`decisions/0004-session-turn-step-lifecycle.md`](decisions/0004-session-turn-step-lifecycle.md)。
+- **显式执行生命周期**：`AgentSession` 表示一段逻辑对话，`TurnHandle` 表示一次控制权交接，Step 表示一次 agent 模型请求及其完整工具批次；结构化停止原因不判断任务成功。原 observer 错误仲裁后来由 ADR-0032 删除，身份、接纳、快照、中断和成组提交边界不变；取舍见 [`decisions/0004-session-turn-step-lifecycle.md`](decisions/0004-session-turn-step-lifecycle.md)。
 - **core agent loop 边界**：模型—工具控制流与消息状态移入 `mini_agent/core/`，CLI 通过同步事件完成终端渲染和原有日志；没有真实客户端与端到端协议测试的 ACP 已删除。122 项离线测试覆盖事件顺序、无 UI 运行和 CLI 适配。取舍见 [`decisions/0003-remove-acp-and-extract-core-loop.md`](decisions/0003-remove-acp-and-extract-core-loop.md)。
 - **文件工具重写**：`read_file` 采用有界完整行窗口，`edit_file` 始终要求唯一精确匹配，写入以同目录原子替换提交；27 项定向离线测试覆盖预算、续读、歧义、CRLF、权限位和故障注入。取舍见 [`decisions/0002-bounded-and-atomic-file-tools.md`](decisions/0002-bounded-and-atomic-file-tools.md)。
 - **LLM 测试替身**：`tests/llm_test_double.py` 与 `tests/test_agent_loop_offline.py` 已提供确定、离线的真实 agent loop 测试入口；严格 FIFO 保留，用途标签已由 [`ADR-0006`](decisions/0006-remove-legacy-local-compaction.md) 随摘要调用删除。

@@ -95,9 +95,8 @@ class AgentEventEnvelope:
 class AgentEventSink(Protocol):
     """Consume one scoped event synchronously.
 
-    The loop captures the first callback exception and disables that sink. If it
-    prevents execution from continuing, the Turn fails at a safe boundary; if a
-    terminal cause already exists, the observer failure is secondary metadata.
+    The loop disables a sink after its first ordinary exception. Observation is
+    best-effort and does not change the eventual Turn outcome.
     """
 
     def __call__(self, event: AgentEventEnvelope) -> None: ...

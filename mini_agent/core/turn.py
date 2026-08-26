@@ -17,7 +17,6 @@ TurnErrorKind: TypeAlias = Literal[
     "model_error",
     "tool_protocol_error",
     "internal_error",
-    "observer_error",
 ]
 
 
@@ -38,15 +37,12 @@ class TurnOutcome:
     stop_reason: TurnStopReason
     last_assistant_message: str | None = None
     error: TurnError | None = None
-    observer_error: TurnError | None = None
 
     def __post_init__(self) -> None:
         if self.stop_reason == "failed" and self.error is None:
             raise ValueError("A failed turn must include structured error details")
         if self.stop_reason != "failed" and self.error is not None:
             raise ValueError("Only a failed turn may include error details")
-        if self.observer_error is not None and self.observer_error.kind != "observer_error":
-            raise ValueError("observer_error must use the observer_error kind")
 
 
 class TurnAlreadyActiveError(RuntimeError):
