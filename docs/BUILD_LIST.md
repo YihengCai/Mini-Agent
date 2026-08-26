@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-observer 错误仲裁已经简化并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
+误导性的 Session usage 镜像已经删除并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@ observer 错误仲裁已经简化并移入“最近完成”。下一项仍从�
 
 ## 最近完成
 
+- **usage 只保留在响应事件**：删除只保存“最近一次非空 `total_tokens`”却命名为 Session 总计的 `_api_total_tokens`、公开属性和 CLI `API Tokens Used` 显示；adapter 映射与每个 `ModelResponse.response.usage` 不变。定向集合实测 `36 passed in 0.62s`，临时恢复公开镜像时关键回归实测转红；完整离线集合实测 `270 passed, 8 deselected in 12.93s`。取舍见 [`decisions/0033-keep-usage-on-model-response-events.md`](decisions/0033-keep-usage-on-model-response-events.md)。
 - **observer 不控制 Turn**：同步接收器首个普通异常后只停用自身，工具批次、历史和 Turn 结果继续由真实执行原因决定；删除 `observer_error` 主因/次因矩阵和 CLI 二次 fallback。生产代码净减 87 行，测试净减 77 行；定向集合实测 `66 passed in 0.74s`，恢复异常传播时关键回归实测转红；完整离线集合实测 `270 passed, 8 deselected in 13.36s`。取舍见 [`decisions/0032-observers-do-not-control-turns.md`](decisions/0032-observers-do-not-control-turns.md)。
 - **调用标识符只约束未完成批次**：删除执行器中永不清空、不可恢复的 Session 隐藏集合；同批空 ID、非法类型和重复 ID 继续在零副作用前失败，已完成批次则可跨 Step/Turn 复用 ID。生产代码净减 11 行，测试净减 108 行；一个正向回归同时检出生产账本和测试替身的全历史唯一规则。相关集合实测 `67 passed in 0.73s`，完整离线集合实测 `273 passed, 8 deselected in 13.76s`。取舍见 [`decisions/0031-scope-tool-call-ids-to-pending-batches.md`](decisions/0031-scope-tool-call-ids-to-pending-batches.md)。
 - **删除不可读取的 Note 半能力**：删除只在运行时注册写入端的 Note 模块、配置开关、CLI 接线、导出、专用离线测试与外部演示；真正的记忆能力留给“会话事实记录与模型请求视图”topic，不以补注册扩大当前范围。生产代码净减 222 行，测试净减 300 行；定向离线集合实测 `75 passed in 4.52s`，完整离线集合实测 `277 passed, 8 deselected in 14.11s`。取舍见 [`decisions/0030-remove-incomplete-note-memory.md`](decisions/0030-remove-incomplete-note-memory.md)。

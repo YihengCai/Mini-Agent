@@ -52,3 +52,5 @@ rg -n 'tiktoken|^name = "regex"$|\{ name = "regex"' pyproject.toml uv.lock
 本次偏差是旧配置键不能随字段一起简单消失：`Config.from_yaml()` 会忽略未手工读取的根级键，所以最终增加了定向迁移错误，避免旧配置静默失效。通用未知字段治理仍留给后续配置单一真源工作。
 
 2026-08-26：[ADR-0028](0028-config-file-matches-runtime-model.md) 让 YAML 直接经过严格运行时模型后，旧 `local_compaction_token_limit` 改为普通未知字段错误，不再需要专用迁移分支。压缩实现、配置能力与依赖仍保持删除，本决策不变。
+
+同日，[ADR-0033](0033-keep-usage-on-model-response-events.md) 删除了 Session 中名为总计、实为最近一次非空响应值的 usage 镜像；adapter 映射仍随 `ModelResponse` 事件供观察，未经探测不进入控制策略的决定不变。

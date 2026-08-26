@@ -49,7 +49,7 @@ core 实际只需要 `generate(messages, tools) -> LLMResponse`，却由工具�
 
 没有运行真实端点，因此当前只宣称两种基础 wire adapter 通过离线 contract 测试，不宣称任何 vendor 服务兼容性。统一认证输入目前仍是 `api_key`；无认证、OAuth 或签名认证需要出现实际目标 API 后再扩展 factory contract。
 
-ADR-0006 删除压缩后，adapter contract、静态注册表、端点逐字传递和单一重试所有权均未变化；只移除了 core 对本地估算的可选控制路径。基础 `usage` 映射仍由 adapter 离线测试覆盖，Session 只把它保存为观察数据。
+ADR-0006 删除压缩后，adapter contract、静态注册表、端点逐字传递和单一重试所有权均未变化；只移除了 core 对本地估算的可选控制路径。基础 `usage` 映射仍由 adapter 离线测试覆盖；ADR-0033 后来删除 Session 镜像，只在每个模型响应事件中保留原值。
 
 2026-08-26：[ADR-0027](0027-no-project-retry-before-error-classification.md) 删除项目级 retry，推翻了本决策中“由项目重试层持有策略”的局部选择；SDK 仍显式 `max_retries=0`，adapter contract、静态注册表、逐字端点与 wire 编解码边界不变。
 

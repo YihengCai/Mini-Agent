@@ -247,11 +247,6 @@ def print_stats(agent_session: AgentSession, session_start: datetime):
     print(f"    - Assistant Replies: {Colors.BRIGHT_BLUE}{assistant_msgs}{Colors.RESET}")
     print(f"    - Tool Calls: {Colors.BRIGHT_YELLOW}{tool_msgs}{Colors.RESET}")
     print(f"  Available Tools: {len(agent_session.tools)}")
-    if agent_session.api_total_tokens > 0:
-        print(
-            f"  API Tokens Used: {Colors.BRIGHT_MAGENTA}"
-            f"{agent_session.api_total_tokens:,}{Colors.RESET}"
-        )
     print(f"{Colors.DIM}{'─' * 40}{Colors.RESET}\n")
 
 

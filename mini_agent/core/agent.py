@@ -122,10 +122,6 @@ class AgentSession:
         # Initialize message history
         self._messages: list[Message] = [Message(role="system", content=system_prompt)]
 
-        # Last adapter-reported usage is observation data only. It cannot drive
-        # context policy until the configured endpoint's semantics are probed.
-        self._api_total_tokens: int = 0
-
     @property
     def active_turn(self) -> TurnHandle | None:
         """Return the active Turn, if execution control is currently held."""
@@ -155,10 +151,6 @@ class AgentSession:
     @property
     def max_steps(self) -> int:
         return self._max_steps
-
-    @property
-    def api_total_tokens(self) -> int:
-        return self._api_total_tokens
 
     def start_turn(
         self,
@@ -354,10 +346,6 @@ class _AgentLoop:
                     error=TurnError(kind="model_error", message=error_message),
                 )
 
-            if response.usage:
-                # Telemetry only; no control policy depends on unprobed usage
-                # semantics from a compatible endpoint.
-                session._api_total_tokens = response.usage.total_tokens
             emitter.emit(
                 ModelResponse(
                     response=response.model_copy(deep=True),

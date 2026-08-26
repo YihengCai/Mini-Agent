@@ -543,7 +543,7 @@ async def test_first_violation_prevents_later_script_consumption():
 
 
 @pytest.mark.asyncio
-async def test_reported_usage_is_recorded_as_observation_data(tmp_path):
+async def test_reported_usage_remains_on_model_response_events(tmp_path):
     call = tool_call("reported-usage")
     llm = ScriptedLLM(
         [
@@ -559,13 +559,19 @@ async def test_reported_usage_is_recorded_as_observation_data(tmp_path):
         ]
     )
     agent = build_agent(tmp_path, llm, [EchoTool()])
+    events = []
 
     with llm:
-        outcome = await run_turn(agent, "Record reported usage.")
+        outcome = await run_turn(agent, "Record reported usage.", events.append)
 
     assert outcome.last_assistant_message == "finished"
     assert len(llm.requests) == 2
-    assert agent.api_total_tokens == 999_999
+    assert [
+        envelope.event.response.usage
+        for envelope in events
+        if isinstance(envelope.event, ModelResponse)
+    ] == [TokenUsage(total_tokens=999_999), None]
+    assert not hasattr(agent, "api_total_tokens")
 
 
 @pytest.mark.asyncio

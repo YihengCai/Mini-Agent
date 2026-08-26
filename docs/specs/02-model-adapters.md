@@ -40,7 +40,7 @@ git archive 157928f mini_agent | tar -x -C "$repro_dir"
 - 配置不再提供 vendor 端点、模型或输出上限默认值；YAML 直接使用 `llm` 运行时结构，旧 `provider` 字段与其他未知字段由严格模型拒绝（`mini_agent/config.py:26-108`；`tests/test_llm_adapters.py:32-185`）。
 - 两个 adapter 显式关闭 SDK 内建 retry，并各自只发起一次项目级调用；项目级 retry 后续由 [ADR-0027](../decisions/0027-no-project-retry-before-error-classification.md) 删除，产生 SDK 边界修正的实测见 [P-006](../PITFALLS.md#p-006--关闭项目重试不等于-sdk-不会重试)。
 - 两个 adapter 都忽略未探测的推理 block，共享 schema 不保留无法往返的 `thinking` 占位字段；取舍见 [ADR-0029](../decisions/0029-remove-unprobed-thinking-field.md)。
-- adapter 保留可空的原生 `finish_reason`，不在字段缺失时伪造 `stop`；基础 `usage` 只供观察，不在未经探测时控制任何上下文策略（`mini_agent/schema/schema.py:40-47`；`mini_agent/core/agent.py:125-127,380-383`）。core 当前没有自动上下文预算或压缩。
+- adapter 保留可空的原生 `finish_reason`，不在字段缺失时伪造 `stop`；基础 `usage` 只随 `ModelResponse.response` 供观察，不在 Session 累计，也不在未经探测时控制任何上下文策略（`mini_agent/schema/schema.py:31-47`；`mini_agent/core/events.py:48-50`）。core 当前没有自动上下文预算或压缩。
 
 ## 离线验证
 

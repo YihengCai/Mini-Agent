@@ -20,7 +20,7 @@
 - 后台 shell 会在 CLI 运行时退出时收敛监控任务，前台 shell 会在超时或取消时终止并等待直接子进程；两者仍没有进程组或后代进程清理，后台输出缓冲、原始事件与日志也无容量预算，不构成权限或沙箱边界；
 - MCP 超时与连接现在按 CLI runtime 隔离并串行关闭，但仍没有重连、并行连接、权限或真实网络能力验证；
 - 当前只实现 Anthropic-compatible messages 与 OpenAI-compatible chat completions 的非流式基础 adapter；名称只表示 wire 格式，没有运行真实端点验证，也没有统一错误分类，`finish_reason` 是可空的 adapter 原生元数据；
-- `usage` 只作为观察数据，不参与上下文控制；当前没有自动上下文预算或压缩，完整历史会持续增长并可能触及配置端点的上限；
+- adapter 报告的 `usage` 只保留在每个 `ModelResponse` 事件中，不在 Session 求和或镜像，也不参与上下文控制；当前没有自动上下文预算或压缩，完整历史会持续增长并可能触及配置端点的上限；
 - 文件工具仍接受绝对路径和解析到工作区外的路径，也没有读取版本回执或并发覆盖检测；
 - 没有权限引擎、工作区边界限制、操作系统沙箱、跨文件回滚或检查点。
 
@@ -159,7 +159,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `270 passed, 8 deselected in 13.36s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `270 passed, 8 deselected in 12.93s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 

@@ -67,5 +67,6 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0030](0030-remove-incomplete-note-memory.md) | 删除不可读取的 Note 半能力 | 已采纳 |
 | [0031](0031-scope-tool-call-ids-to-pending-batches.md) | 调用标识符只约束未完成工具批次 | 已采纳 |
 | [0032](0032-observers-do-not-control-turns.md) | observer 普通异常不控制 Turn | 已采纳 |
+| [0033](0033-keep-usage-on-model-response-events.md) | usage 只保留在模型响应事件 | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。
