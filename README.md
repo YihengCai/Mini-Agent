@@ -62,7 +62,7 @@ Skill 发现的状态边界也已经收紧：每次递归扫描先按路径排�
 
 旧 Note 工具已经删除：运行时此前只注册 `record_note`，`recall_notes` 只存在于导出和测试中，却以“跨 Session 记忆”名义引入文件持久化、配置和专用演示。真正的记忆能力需要先区分会话事实、模型请求视图、持久化与恢复，再以独立 topic 进入；本次不以补注册继续扩张半能力。取舍见 [ADR-0030](docs/decisions/0030-remove-incomplete-note-memory.md)。
 
-模型 API 边界改造已经落地：core 只通过 `ModelClient` 调用模型，并把中性 `ToolDefinition` 与现有内部消息结构交给 adapter；静态注册表依据 `llm.adapter` 选择具体 wire 编解码。配置必须提供 API key、原样端点、模型和输出上限，未知 adapter 或旧 `provider` 字段都会失败；项目不会根据域名拼接路径，也不默认启用未经探测的推理状态续传、缓存计量或服务端扩展。共享 schema 已删除永远为空且无法往返的 `thinking` 字段；两个 adapter 的 `generate()` 直接衔接消息转换、单次 SDK 请求和响应解析，不再构造一次性请求字典或 OpenAI 的恒定空占位值。SDK 自带 retry 已关闭，项目在统一错误分类前也不自动重试。取舍见 [ADR-0005](docs/decisions/0005-explicit-model-api-adapters.md)、[ADR-0027](docs/decisions/0027-no-project-retry-before-error-classification.md) 与 [ADR-0029](docs/decisions/0029-remove-unprobed-thinking-field.md)。
+模型 API 边界改造已经落地：core 只通过 `ModelClient` Protocol 调用模型，并把中性 `ToolDefinition` 与现有内部消息结构交给结构化满足该 contract 的具体 adapter；没有重复的 SDK 基类或继承要求。静态注册表依据 `llm.adapter` 选择 wire 编解码。配置必须提供 API key、原样端点、模型和输出上限，未知 adapter 或旧 `provider` 字段都会失败；项目不会根据域名拼接路径，也不默认启用未经探测的推理状态续传、缓存计量或服务端扩展。共享 schema 已删除永远为空且无法往返的 `thinking` 字段；两个 adapter 的 `generate()` 直接衔接消息转换、单次 SDK 请求和响应解析，不再构造一次性请求字典或 OpenAI 的恒定空占位值。SDK 自带 retry 已关闭，项目在统一错误分类前也不自动重试。取舍见 [ADR-0005](docs/decisions/0005-explicit-model-api-adapters.md)、[ADR-0027](docs/decisions/0027-no-project-retry-before-error-classification.md)、[ADR-0029](docs/decisions/0029-remove-unprobed-thinking-field.md) 与 [ADR-0037](docs/decisions/0037-one-core-facing-model-contract.md)。
 
 ACP 没有真实外部客户端，也没有覆盖 JSON-RPC、stdio 或连接生命周期的端到端测试；继续维护它只会让协议层提前塑造执行框架。因此当前版本主动删除 ACP，而不是把 CLI 改成 ACP 客户端。重新引入协议层的条件见 [ADR-0003](docs/decisions/0003-remove-acp-and-extract-core-loop.md)。下一项工作尚未选择；必须先按 [BUILD_LIST](docs/BUILD_LIST.md) 的条件找到当前失败证据和一分钟内的离线验证。
 
@@ -161,7 +161,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `252 passed, 5 deselected in 13.54s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `257 passed, 5 deselected in 13.34s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 

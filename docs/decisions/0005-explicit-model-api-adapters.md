@@ -4,7 +4,7 @@
 - 状态：已采纳
 - 关联：`mini_agent/llm/protocol.py`、`mini_agent/llm/factory.py`、`mini_agent/llm/anthropic_client.py`、`mini_agent/llm/openai_client.py`、`tests/test_llm_adapters.py`、提交 `e92b28c`、`204c022`、`23e0521`、`fe04ae8`、`39f7cab`、`ad2f12f`、[P-006](../PITFALLS.md#p-006--关闭项目重试不等于-sdk-不会重试)
 
-> 后续修订：[ADR-0006](0006-remove-legacy-local-compaction.md) 从“默认关闭”推进为完全删除 `local_compaction_token_limit` 与旧本地压缩；`usage` 仅供观察和 adapter 隔离决定继续有效。以下正文保留当时决定，不作追写。
+> 后续修订：[ADR-0006](0006-remove-legacy-local-compaction.md) 从“默认关闭”推进为完全删除 `local_compaction_token_limit` 与旧本地压缩；[ADR-0037](0037-one-core-facing-model-contract.md) 删除与 `ModelClient` Protocol 重复且无外部消费者证据的 `LLMAdapter` ABC。`usage` 仅供观察、静态注册表与具体 wire adapter 决定继续有效。以下正文保留当时决定，不作追写。
 
 ## 背景
 
@@ -69,3 +69,5 @@ ADR-0006 删除压缩后，adapter contract、静态注册表、端点逐字传�
 同日，[ADR-0028](0028-config-file-matches-runtime-model.md) 把模型字段移入 YAML 的 `llm` 分组，并删除 `provider` 的专用迁移文案；旧字段仍由严格模型拒绝。显式 adapter、必填端点与逐字传递 contract 不变。
 
 同日，[ADR-0029](0029-remove-unprobed-thinking-field.md) 删除两个 adapter 永远返回 `None`、又无法往返的共享 `thinking` 字段。未经探测的推理状态仍不进入默认请求，本决策的基础 wire 边界因此收窄但未被推翻。
+
+同日，[ADR-0037](0037-one-core-facing-model-contract.md) 删除重复声明 `generate()` 的 `LLMAdapter` ABC 与无消费者的 `api_key/api_base` 镜像。core 继续只依赖 `ModelClient` Protocol，两个具体 adapter、静态注册表和构造参数不变；本决策中的共享继承层被推翻，但协议隔离边界不变。

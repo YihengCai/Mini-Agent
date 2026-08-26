@@ -6,10 +6,10 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from ..schema import FunctionCall, LLMResponse, Message, TokenUsage, ToolCall
-from .base import LLMAdapter
 from .protocol import ToolDefinition
 
-class OpenAIAdapter(LLMAdapter):
+
+class OpenAIAdapter:
     """Adapter for the OpenAI-compatible chat completions protocol.
 
     The adapter uses the OpenAI SDK for transport, but does not enable
@@ -31,7 +31,10 @@ class OpenAIAdapter(LLMAdapter):
             model: Model name to use
             max_output_tokens: Maximum output tokens requested from the API
         """
-        super().__init__(api_key, api_base, model, max_output_tokens)
+        if max_output_tokens <= 0:
+            raise ValueError("max_output_tokens must be greater than zero")
+        self.model = model
+        self.max_output_tokens = max_output_tokens
 
         # Initialize OpenAI client
         self.client = AsyncOpenAI(

@@ -5,10 +5,10 @@ from typing import Any
 import anthropic
 
 from ..schema import FunctionCall, LLMResponse, Message, TokenUsage, ToolCall
-from .base import LLMAdapter
 from .protocol import ToolDefinition
 
-class AnthropicAdapter(LLMAdapter):
+
+class AnthropicAdapter:
     """Adapter for the Anthropic-compatible messages protocol.
 
     The adapter uses the Anthropic SDK for transport, but does not enable
@@ -30,7 +30,10 @@ class AnthropicAdapter(LLMAdapter):
             model: Model name to use
             max_output_tokens: Maximum output tokens requested from the API
         """
-        super().__init__(api_key, api_base, model, max_output_tokens)
+        if max_output_tokens <= 0:
+            raise ValueError("max_output_tokens must be greater than zero")
+        self.model = model
+        self.max_output_tokens = max_output_tokens
 
         self.client = anthropic.AsyncAnthropic(
             base_url=api_base,

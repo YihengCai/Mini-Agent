@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
+import mini_agent.llm as llm_package
 import mini_agent.llm.anthropic_client as anthropic_module
 import mini_agent.llm.factory as adapter_factory
 import mini_agent.llm.openai_client as openai_module
@@ -147,6 +148,25 @@ def test_config_rejects_nonpositive_output_limit(tmp_path):
 
     with pytest.raises(ValueError, match="max_output_tokens"):
         Config.from_yaml(path)
+
+
+@pytest.mark.parametrize("adapter_type", [AnthropicAdapter, OpenAIAdapter])
+@pytest.mark.parametrize("max_output_tokens", [0, -1])
+def test_concrete_adapters_reject_nonpositive_output_limit(
+    adapter_type,
+    max_output_tokens,
+):
+    with pytest.raises(ValueError, match="max_output_tokens.*greater than zero"):
+        adapter_type(
+            api_key="test-key",
+            api_base="https://model.example.test",
+            model="test-model",
+            max_output_tokens=max_output_tokens,
+        )
+
+
+def test_package_does_not_export_duplicate_adapter_contract():
+    assert not hasattr(llm_package, "LLMAdapter")
 
 
 @pytest.mark.parametrize("max_steps", [0, -1])

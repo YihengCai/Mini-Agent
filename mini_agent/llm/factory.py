@@ -3,8 +3,8 @@
 from enum import Enum
 
 from .anthropic_client import AnthropicAdapter
-from .base import LLMAdapter
 from .openai_client import OpenAIAdapter
+from .protocol import ModelClient
 
 
 class AdapterName(str, Enum):
@@ -14,7 +14,7 @@ class AdapterName(str, Enum):
     OPENAI = "openai"
 
 
-_ADAPTERS: dict[AdapterName, type[LLMAdapter]] = {
+_ADAPTERS: dict[AdapterName, type[AnthropicAdapter] | type[OpenAIAdapter]] = {
     AdapterName.ANTHROPIC: AnthropicAdapter,
     AdapterName.OPENAI: OpenAIAdapter,
 }
@@ -27,7 +27,7 @@ def create_model_client(
     api_base: str,
     model: str,
     max_output_tokens: int,
-) -> LLMAdapter:
+) -> ModelClient:
     """Build the configured adapter without inferring vendor behavior."""
 
     try:
