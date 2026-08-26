@@ -2,7 +2,6 @@
 
 from enum import Enum
 
-from ..retry import RetryConfig
 from .anthropic_client import AnthropicAdapter
 from .base import LLMAdapter
 from .openai_client import OpenAIAdapter
@@ -28,7 +27,6 @@ def create_model_client(
     api_base: str,
     model: str,
     max_output_tokens: int,
-    retry_config: RetryConfig | None = None,
 ) -> LLMAdapter:
     """Build the configured adapter without inferring vendor behavior."""
 
@@ -46,5 +44,4 @@ def create_model_client(
         api_base=api_base,
         model=model,
         max_output_tokens=max_output_tokens,
-        retry_config=retry_config,
     )

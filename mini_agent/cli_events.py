@@ -15,7 +15,6 @@ from .core.events import (
     TurnStarted,
 )
 from .logger import AgentLogger
-from .retry import RetryExhaustedError
 from .utils import Colors, calculate_display_width
 
 
@@ -59,16 +58,10 @@ class CliEventSink:
             return
 
         if isinstance(event, ModelCallFailed):
-            if isinstance(event.error, RetryExhaustedError):
-                print(
-                    f"\n{Colors.BRIGHT_RED}❌ Retry failed:{Colors.RESET} "
-                    f"{event.result}"
-                )
-            else:
-                print(
-                    f"\n{Colors.BRIGHT_RED}❌ Error:{Colors.RESET} "
-                    f"{event.result}"
-                )
+            print(
+                f"\n{Colors.BRIGHT_RED}❌ Error:{Colors.RESET} "
+                f"{event.result}"
+            )
             return
 
         if isinstance(event, ToolStarted):

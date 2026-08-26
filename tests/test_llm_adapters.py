@@ -14,14 +14,12 @@ from mini_agent.config import (
     Config,
     LLMConfig,
     MCPConfig,
-    RetryConfig as FileRetryConfig,
     ToolsConfig,
 )
 from mini_agent.llm import AdapterName, create_model_client
 from mini_agent.llm.anthropic_client import AnthropicAdapter
 from mini_agent.llm.openai_client import OpenAIAdapter
 from mini_agent.llm.protocol import ToolDefinition
-from mini_agent.retry import RetryConfig
 from mini_agent.schema import (
     FunctionCall,
     LLMResponse,
@@ -111,7 +109,7 @@ def test_llm_config_rejects_unknown_programmatic_fields():
 
 @pytest.mark.parametrize(
     "model",
-    [Config, AgentConfig, FileRetryConfig, MCPConfig, ToolsConfig],
+    [Config, AgentConfig, MCPConfig, ToolsConfig],
 )
 def test_config_models_reject_unknown_programmatic_fields(model):
     with pytest.raises(ValueError, match="unknown_field"):
@@ -122,7 +120,7 @@ def test_config_models_reject_unknown_programmatic_fields(model):
     ("unknown_data", "unknown_field"),
     [
         ({"max_step": 1}, "max_step"),
-        ({"retry": {"max_retry": 0}}, "max_retry"),
+        ({"retry": {"max_retries": 0}}, "retry"),
         ({"tools": {"enable_mpc": False}}, "enable_mpc"),
         ({"tools": {"mcp": {"connect_timout": 1.0}}}, "connect_timout"),
     ],
@@ -147,13 +145,6 @@ def test_config_models_supply_yaml_defaults(tmp_path):
 
     config = Config.from_yaml(path)
 
-    assert config.llm.retry.model_dump() == {
-        "enabled": True,
-        "max_retries": 3,
-        "initial_delay": 1.0,
-        "max_delay": 60.0,
-        "exponential_base": 2.0,
-    }
     assert config.agent.model_dump() == {
         "max_steps": 50,
         "system_prompt_path": "system_prompt.md",
@@ -177,13 +168,6 @@ def test_config_models_supply_yaml_defaults(tmp_path):
 def test_config_preserves_all_explicit_fields(tmp_path):
     data = config_data()
     data.update(
-        retry={
-            "enabled": False,
-            "max_retries": 7,
-            "initial_delay": 0.25,
-            "max_delay": 8.0,
-            "exponential_base": 3.0,
-        },
         max_steps=12,
         system_prompt_path="different-prompt.md",
         tools={
@@ -209,7 +193,6 @@ def test_config_preserves_all_explicit_fields(tmp_path):
     assert config.llm.model_dump() == {
         **config_data(),
         "adapter": AdapterName.ANTHROPIC,
-        "retry": data["retry"],
     }
     assert config.agent.model_dump() == {
         "max_steps": data["max_steps"],
@@ -264,70 +247,11 @@ def test_config_rejects_nonpositive_max_steps(tmp_path, max_steps):
         Config.from_yaml(path)
 
 
-def test_config_rejects_negative_max_retries(tmp_path):
-    data = config_data()
-    data["retry"] = {"max_retries": -1}
-    path = tmp_path / "config.yaml"
-    write_config(path, data)
-
-    with pytest.raises(ValueError, match="max_retries"):
-        Config.from_yaml(path)
-
-
-def test_config_accepts_zero_max_retries(tmp_path):
-    data = config_data()
-    data["retry"] = {"max_retries": 0}
-    path = tmp_path / "config.yaml"
-    write_config(path, data)
-
-    assert Config.from_yaml(path).llm.retry.max_retries == 0
-
-
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("initial_delay", -1),
-        ("max_delay", -1),
-        ("exponential_base", 0),
-        ("exponential_base", -1),
-        ("initial_delay", float("nan")),
-        ("initial_delay", float("inf")),
-        ("max_delay", float("nan")),
-        ("max_delay", float("inf")),
-        ("exponential_base", float("nan")),
-        ("exponential_base", float("inf")),
-    ],
-)
-def test_config_rejects_invalid_retry_backoff_values(tmp_path, field, value):
-    data = config_data()
-    data["retry"] = {field: value}
-    path = tmp_path / "config.yaml"
-    write_config(path, data)
-
-    with pytest.raises(ValueError, match=field):
-        Config.from_yaml(path)
-
-
-def test_config_accepts_finite_retry_backoff_boundaries(tmp_path):
-    data = config_data()
-    data["retry"] = {
-        "initial_delay": 0,
-        "max_delay": 0,
-        "exponential_base": 0.5,
-    }
-    path = tmp_path / "config.yaml"
-    write_config(path, data)
-
-    retry = Config.from_yaml(path).llm.retry
-    assert retry.initial_delay == 0
-    assert retry.max_delay == 0
-    assert retry.exponential_base == 0.5
-
-
 def test_config_example_tracks_explicit_adapter_schema(tmp_path):
     template_path = Path("mini_agent/config/config-example.yaml")
     data = yaml.safe_load(template_path.read_text(encoding="utf-8"))
     assert "provider" not in data
+    assert "retry" not in data
 
     data.update(
         api_key="test-key",
@@ -394,10 +318,35 @@ async def test_factory_passes_endpoint_to_registered_adapter_verbatim(
         "api_base": configured_endpoint,
         "model": "test-model",
         "max_output_tokens": 41,
-        "retry_config": None,
     }
     assert client.requests == [(messages, tools)]
     assert response.content == "recorded"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("adapter_type", [AnthropicAdapter, OpenAIAdapter])
+async def test_adapters_attempt_once_and_preserve_model_error(
+    monkeypatch,
+    adapter_type,
+):
+    adapter = object.__new__(adapter_type)
+    adapter.model = "test-model"
+    adapter.max_output_tokens = 41
+    model_error = OSError("endpoint unavailable")
+    attempts = 0
+
+    async def fail_once(*_args):
+        nonlocal attempts
+        attempts += 1
+        raise model_error
+
+    monkeypatch.setattr(adapter, "_make_api_request", fail_once)
+
+    with pytest.raises(OSError) as raised:
+        await adapter.generate([Message(role="user", content="hello")])
+
+    assert raised.value is model_error
+    assert attempts == 1
 
 
 def test_factory_rejects_unknown_adapter():
@@ -453,7 +402,6 @@ async def test_anthropic_adapter_uses_only_explicit_base_protocol_fields(monkeyp
         api_base="https://api.minimax.io.evil/v1proxy/",
         model="test-model",
         max_output_tokens=47,
-        retry_config=RetryConfig(enabled=False),
     )
     tools = [
         ToolDefinition(
@@ -560,7 +508,6 @@ async def test_openai_adapter_uses_only_explicit_base_protocol_fields(monkeypatc
         api_base="https://api.minimax.io.evil/v1proxy/",
         model="test-model",
         max_output_tokens=53,
-        retry_config=RetryConfig(enabled=False),
     )
     tools = [
         ToolDefinition(

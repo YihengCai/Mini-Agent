@@ -2,7 +2,6 @@
 
 from abc import ABC, abstractmethod
 
-from ..retry import RetryConfig
 from ..schema import LLMResponse, Message
 from .protocol import ToolDefinition
 
@@ -20,7 +19,6 @@ class LLMAdapter(ABC):
         api_base: str,
         model: str,
         max_output_tokens: int,
-        retry_config: RetryConfig | None = None,
     ):
         """Initialize the LLM client.
 
@@ -29,7 +27,6 @@ class LLMAdapter(ABC):
             api_base: Base URL for the API
             model: Model name to use
             max_output_tokens: Maximum output tokens requested from the API
-            retry_config: Optional retry configuration
         """
         if max_output_tokens <= 0:
             raise ValueError("max_output_tokens must be greater than zero")
@@ -37,10 +34,6 @@ class LLMAdapter(ABC):
         self.api_base = api_base
         self.model = model
         self.max_output_tokens = max_output_tokens
-        self.retry_config = retry_config or RetryConfig()
-
-        # Callback for tracking retry count
-        self.retry_callback = None
 
     @abstractmethod
     async def generate(

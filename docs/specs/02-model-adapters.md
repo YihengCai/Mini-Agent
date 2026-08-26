@@ -36,9 +36,9 @@ git archive 157928f mini_agent | tar -x -C "$repro_dir"
 - `ModelClient` 只定义 core 需要的 `generate(messages, tools)`；`ToolDefinition` 只含名称、说明和 JSON Schema 参数。现有 `Message` 与 `LLMResponse` 是共享内部结构，不宣称已经完全 vendor 中性（`mini_agent/llm/protocol.py:9-25`；`mini_agent/schema/schema.py:13-47`）。
 - core 为模型与事件接收器分别创建独立工具定义，观察隔离不变量不变（`mini_agent/core/agent.py:608-646`）。
 - `AdapterName` 与静态注册表只列出已实现的两种基础 wire adapter；工厂不检查域名，也不拼接路径（`mini_agent/llm/factory.py:11-50`）。
-- 共享 adapter 基类只保留当前两种实现共用的设置、重试回调与 `generate()`，不再规定 system message 或请求结构（`mini_agent/llm/base.py:10-60`）。
+- 共享 adapter 基类只保留当前两种实现共用的设置与 `generate()` contract，不规定 system message、请求结构或调用策略（`mini_agent/llm/base.py`）。
 - 配置不再提供 vendor 端点、模型或输出上限默认值；旧 `provider` 字段在 YAML 与直接构造 `LLMConfig` 时都会失败，示例配置也已移除它并由离线测试同步验证（`mini_agent/config.py:24-42,112-163`；`tests/test_llm_adapters.py:41-150`）。
-- 两个 adapter 显式关闭 SDK 内建重试，项目重试层是唯一策略所有者；产生这一修正的实测见 [P-006](../PITFALLS.md#p-006--关闭项目重试不等于-sdk-不会重试)。
+- 两个 adapter 显式关闭 SDK 内建 retry，并各自只发起一次项目级调用；项目级 retry 后续由 [ADR-0027](../decisions/0027-no-project-retry-before-error-classification.md) 删除，产生 SDK 边界修正的实测见 [P-006](../PITFALLS.md#p-006--关闭项目重试不等于-sdk-不会重试)。
 - adapter 保留可空的原生 `finish_reason`，不在字段缺失时伪造 `stop`；基础 `usage` 只供观察，不在未经探测时控制任何上下文策略（`mini_agent/schema/schema.py:40-47`；`mini_agent/core/agent.py:125-127,380-383`）。core 当前没有自动上下文预算或压缩。
 
 ## 离线验证
@@ -47,4 +47,4 @@ git archive 157928f mini_agent | tar -x -C "$repro_dir"
 .venv/bin/python -m pytest -q tests/test_llm_adapters.py
 ```
 
-2026-08-25 删除旧压缩后的实测为 `18 passed in 0.49s`。缺少字段、旧字段迁移、未知名称、端点逐字传递（可检出改写）、SDK 隐式重试、wire 工具包装、历史工具调用、未探测推理状态回传、可空终止原因和基础用量映射都由离线断言覆盖。标准离线集合实测为 `157 passed in 10.08s`，继续覆盖 `usage` 仅供观察、Session/Turn/Step 生命周期及消息隔离不变量。
+2026-08-26 删除项目级 retry 后，adapter 与 core 定向集合实测 `113 passed in 0.61s`，标准离线集合实测 `286 passed, 9 deselected in 13.68s`。缺少字段、旧字段迁移、未知名称、端点逐字传递、SDK retry 关闭、单次项目调用、wire 工具包装、历史工具调用、未探测推理状态回传、可空终止原因和基础用量映射都由离线断言覆盖。

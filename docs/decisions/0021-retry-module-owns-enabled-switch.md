@@ -1,7 +1,7 @@
 # ADR-0021：重试模块单一持有 enabled 开关
 
 - 日期：2026-08-26
-- 状态：已采纳
+- 状态：已推翻（见 ADR-0027）
 - 关联：`mini_agent/retry.py`、`mini_agent/llm/anthropic_client.py`、`mini_agent/llm/openai_client.py`、`tests/test_retry.py`、提交 `262761f`
 
 ## 背景
@@ -39,3 +39,5 @@
 ## 回头看
 
 实现用 3 行公共守卫净删两个 adapter 的重复控制流，并保持启用、禁用和启用但零次附加重试三者的既有模型路径语义。开关在每次 wrapper 调用时读取，没有把可变配置提前冻结在装饰时。
+
+2026-08-26：项目级 retry 整体由 [ADR-0027](0027-no-project-retry-before-error-classification.md) 删除，本决策随之被推翻。当时把相同开关收回公共入口是正确的局部收敛；删除整个尚无错误分类依据的入口后，开关所有权问题也一起消失。

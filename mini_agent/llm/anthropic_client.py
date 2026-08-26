@@ -1,17 +1,12 @@
 """Anthropic LLM client implementation."""
 
-import logging
 from typing import Any
 
 import anthropic
 
-from ..retry import RetryConfig, async_retry
 from ..schema import FunctionCall, LLMResponse, Message, TokenUsage, ToolCall
 from .base import LLMAdapter
 from .protocol import ToolDefinition
-
-logger = logging.getLogger(__name__)
-
 
 class AnthropicAdapter(LLMAdapter):
     """Adapter for the Anthropic-compatible messages protocol.
@@ -26,7 +21,6 @@ class AnthropicAdapter(LLMAdapter):
         api_base: str,
         model: str,
         max_output_tokens: int,
-        retry_config: RetryConfig | None = None,
     ):
         """Initialize Anthropic client.
 
@@ -35,9 +29,8 @@ class AnthropicAdapter(LLMAdapter):
             api_base: Exact base URL for the API
             model: Model name to use
             max_output_tokens: Maximum output tokens requested from the API
-            retry_config: Optional retry configuration
         """
-        super().__init__(api_key, api_base, model, max_output_tokens, retry_config)
+        super().__init__(api_key, api_base, model, max_output_tokens)
 
         self.client = anthropic.AsyncAnthropic(
             base_url=api_base,
@@ -51,7 +44,7 @@ class AnthropicAdapter(LLMAdapter):
         api_messages: list[dict[str, Any]],
         tools: list[ToolDefinition] | None = None,
     ) -> anthropic.types.Message:
-        """Execute API request (core method that can be retried).
+        """Execute one API request.
 
         Args:
             system_message: Optional system message
@@ -254,12 +247,7 @@ class AnthropicAdapter(LLMAdapter):
         # Prepare request
         request_params = self._prepare_request(messages, tools)
 
-        retry_decorator = async_retry(
-            config=self.retry_config,
-            on_retry=self.retry_callback,
-        )
-        api_call = retry_decorator(self._make_api_request)
-        response = await api_call(
+        response = await self._make_api_request(
             request_params["system_message"],
             request_params["api_messages"],
             request_params["tools"],

@@ -51,15 +51,16 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0014](0014-positive-step-budget-at-config-and-core.md) | 配置与 core 共同拒绝非正 Step 预算 | 已采纳 |
 | [0015](0015-bind-config-companions-to-selected-source.md) | 配置伴随文件绑定到已选主配置来源 | 已采纳 |
 | [0016](0016-reject-explicit-invalid-mcp-transports.md) | 显式非法 MCP transport 只隔离当前 server | 已采纳 |
-| [0017](0017-nonnegative-retry-count-at-config-and-runtime.md) | 配置与运行时共同拒绝负重试次数 | 已采纳 |
-| [0018](0018-finite-and-saturating-retry-backoff.md) | 退避数值有限且溢出时按上限饱和 | 已采纳 |
+| [0017](0017-nonnegative-retry-count-at-config-and-runtime.md) | 配置与运行时共同拒绝负重试次数 | 已推翻（见 ADR-0027） |
+| [0018](0018-finite-and-saturating-retry-backoff.md) | 退避数值有限且溢出时按上限饱和 | 已推翻（见 ADR-0027） |
 | [0019](0019-exclusive-turn-log-allocation.md) | 每个 Turn 通过排他创建独占日志文件 | 已采纳 |
 | [0020](0020-transactional-skill-discovery.md) | Skill 发现以完整快照发布并拒绝重名 | 已采纳 |
-| [0021](0021-retry-module-owns-enabled-switch.md) | 重试模块单一持有 enabled 开关 | 已采纳 |
+| [0021](0021-retry-module-owns-enabled-switch.md) | 重试模块单一持有 enabled 开关 | 已推翻（见 ADR-0027） |
 | [0022](0022-core-preserves-model-error-semantics.md) | core 保留模型异常自身语义 | 已采纳 |
 | [0023](0023-background-shell-completes-after-stdout-eof.md) | 后台 shell 在 stdout EOF 后才完成 | 已采纳 |
 | [0024](0024-cli-owns-runtime-workspace.md) | CLI 单一持有运行时工作区 | 已采纳 |
 | [0025](0025-executor-owns-admitted-tool-results.md) | 执行器取得工具返回值所有权 | 已采纳 |
 | [0026](0026-foreground-shell-reaps-on-interruption.md) | 前台 shell 中断前回收直接子进程 | 已采纳 |
+| [0027](0027-no-project-retry-before-error-classification.md) | 在模型错误分类前不做项目级重试 | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。

@@ -29,16 +29,6 @@ class _StrictConfigModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class RetryConfig(_StrictConfigModel):
-    """Retry configuration"""
-
-    enabled: bool = True
-    max_retries: int = Field(default=3, ge=0)
-    initial_delay: float = Field(default=1.0, ge=0, allow_inf_nan=False)
-    max_delay: float = Field(default=60.0, ge=0, allow_inf_nan=False)
-    exponential_base: float = Field(default=2.0, gt=0, allow_inf_nan=False)
-
-
 class LLMConfig(_StrictConfigModel):
     """LLM configuration"""
 
@@ -47,7 +37,6 @@ class LLMConfig(_StrictConfigModel):
     api_base: str
     model: str
     max_output_tokens: int = Field(gt=0)
-    retry: RetryConfig = Field(default_factory=RetryConfig)
 
 
 class AgentConfig(_StrictConfigModel):

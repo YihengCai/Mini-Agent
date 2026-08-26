@@ -38,3 +38,5 @@ core 不再导入或识别 `RetryExhaustedError`。CLI 仍可从事件的原异�
 ## 回头看
 
 实现净删 core 的具体重试依赖，同时让重试异常自己的调用次数语义贯穿事件和 Turn outcome。它没有把异常字符串提升为可机器判断的错误分类；策略消费者仍应依赖结构化事件字段和原异常对象。
+
+2026-08-26：[ADR-0027](0027-no-project-retry-before-error-classification.md) 删除具体耗尽异常后，回归改用普通 `OSError`，继续锁定同一个原对象与两处相同文本。由此确认 core 的错误 contract 不依赖项目级 retry，本决策仍然有效。

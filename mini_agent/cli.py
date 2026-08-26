@@ -590,38 +590,13 @@ async def run_agent(workspace_dir: Path, task: str | None = None) -> None:
         return
 
     # 2. Initialize LLM client
-    from mini_agent.retry import RetryConfig as RetryConfigBase
-
-    # Convert configuration format
-    retry_config = RetryConfigBase(
-        enabled=config.llm.retry.enabled,
-        max_retries=config.llm.retry.max_retries,
-        initial_delay=config.llm.retry.initial_delay,
-        max_delay=config.llm.retry.max_delay,
-        exponential_base=config.llm.retry.exponential_base,
-        retryable_exceptions=(Exception,),
-    )
-
-    # Create retry callback function to display retry information in terminal
-    def on_retry(exception: Exception, attempt: int):
-        """Retry callback function to display retry information"""
-        print(f"\n{Colors.BRIGHT_YELLOW}⚠️  LLM call failed (attempt {attempt}): {str(exception)}{Colors.RESET}")
-        next_delay = retry_config.calculate_delay(attempt - 1)
-        print(f"{Colors.DIM}   Retrying in {next_delay:.1f}s (attempt {attempt + 1})...{Colors.RESET}")
-
     llm_client = create_model_client(
         api_key=config.llm.api_key,
         adapter=config.llm.adapter,
         api_base=config.llm.api_base,
         model=config.llm.model,
         max_output_tokens=config.llm.max_output_tokens,
-        retry_config=retry_config,
     )
-
-    # Set retry callback
-    if config.llm.retry.enabled:
-        llm_client.retry_callback = on_retry
-        print(f"{Colors.GREEN}✅ LLM retry mechanism enabled (max {config.llm.retry.max_retries} retries){Colors.RESET}")
 
     shell_manager = BackgroundShellManager()
     mcp_config = config.tools.mcp

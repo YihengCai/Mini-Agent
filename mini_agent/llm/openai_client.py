@@ -1,18 +1,13 @@
 """OpenAI LLM client implementation."""
 
 import json
-import logging
 from typing import Any
 
 from openai import AsyncOpenAI
 
-from ..retry import RetryConfig, async_retry
 from ..schema import FunctionCall, LLMResponse, Message, TokenUsage, ToolCall
 from .base import LLMAdapter
 from .protocol import ToolDefinition
-
-logger = logging.getLogger(__name__)
-
 
 class OpenAIAdapter(LLMAdapter):
     """Adapter for the OpenAI-compatible chat completions protocol.
@@ -27,7 +22,6 @@ class OpenAIAdapter(LLMAdapter):
         api_base: str,
         model: str,
         max_output_tokens: int,
-        retry_config: RetryConfig | None = None,
     ):
         """Initialize OpenAI client.
 
@@ -36,9 +30,8 @@ class OpenAIAdapter(LLMAdapter):
             api_base: Exact base URL for the API
             model: Model name to use
             max_output_tokens: Maximum output tokens requested from the API
-            retry_config: Optional retry configuration
         """
-        super().__init__(api_key, api_base, model, max_output_tokens, retry_config)
+        super().__init__(api_key, api_base, model, max_output_tokens)
 
         # Initialize OpenAI client
         self.client = AsyncOpenAI(
@@ -52,7 +45,7 @@ class OpenAIAdapter(LLMAdapter):
         api_messages: list[dict[str, Any]],
         tools: list[ToolDefinition] | None = None,
     ) -> Any:
-        """Execute API request (core method that can be retried).
+        """Execute one API request.
 
         Args:
             api_messages: List of messages in OpenAI format
@@ -247,12 +240,7 @@ class OpenAIAdapter(LLMAdapter):
         # Prepare request
         request_params = self._prepare_request(messages, tools)
 
-        retry_decorator = async_retry(
-            config=self.retry_config,
-            on_retry=self.retry_callback,
-        )
-        api_call = retry_decorator(self._make_api_request)
-        response = await api_call(
+        response = await self._make_api_request(
             request_params["api_messages"],
             request_params["tools"],
         )

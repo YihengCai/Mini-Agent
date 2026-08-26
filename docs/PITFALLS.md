@@ -132,7 +132,8 @@
   ```
 
 - 教训：任何 agent 的外部调用只能有一个可观察的重试策略所有者；采用 SDK 时要显式关闭或纳入它的默认重试，并用客户端构造参数测试锁住这个边界。
-- 关联：`mini_agent/llm/anthropic_client.py:42-46`、`mini_agent/llm/openai_client.py:44-48`、`tests/test_llm_adapters.py:220-426`、[ADR-0005](decisions/0005-explicit-model-api-adapters.md)、提交 `204c022`。
+- 当前结果：两个 SDK 继续显式 `max_retries=0`；项目级 retry 因缺少模型错误分类依据而由 [ADR-0027](decisions/0027-no-project-retry-before-error-classification.md) 删除。
+- 关联：`mini_agent/llm/anthropic_client.py:35-39`、`mini_agent/llm/openai_client.py:37-41`、`tests/test_llm_adapters.py:210-349`、[ADR-0005](decisions/0005-explicit-model-api-adapters.md)、提交 `204c022`。
 
 ## P-007 · `uv lock --check` 不会清理不可达包块
 

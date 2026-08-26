@@ -128,13 +128,6 @@ async def begin_tracking(
 
 
 def make_cli_config():
-    retry = SimpleNamespace(
-        enabled=False,
-        max_retries=0,
-        initial_delay=0,
-        max_delay=0,
-        exponential_base=1,
-    )
     return SimpleNamespace(
         llm=SimpleNamespace(
             api_key="offline",
@@ -142,7 +135,6 @@ def make_cli_config():
             api_base="http://localhost.invalid",
             model="offline",
             max_output_tokens=1,
-            retry=retry,
         ),
         tools=SimpleNamespace(
             mcp=SimpleNamespace(
