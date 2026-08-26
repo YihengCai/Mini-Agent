@@ -18,7 +18,7 @@
 
 ## 决定
 
-采用选项 3。删除 `retry` 配置、运行时模块、CLI 专用回调与标签，以及 adapter 的 retry 参数；两个 adapter 的 `generate()` 各自直接等待一次 `_make_api_request()`，两个 SDK 客户端继续显式设置 `max_retries=0`。
+采用选项 3。删除 `retry` 配置、运行时模块、CLI 专用回调与标签，以及 adapter 的 retry 参数；两个 adapter 的 `generate()` 各自直接等待一次 SDK `create()`，两个 SDK 客户端继续显式设置 `max_retries=0`。
 
 不保留禁用壳或旧配置兼容分支。未知的 `retry` 字段由现有严格配置边界拒绝；模型异常继续遵守 ADR-0022 的中性文本和原对象 contract。本项不建立跨协议错误分类，也不改变 wire 编解码。
 
@@ -34,9 +34,11 @@
 
 - `.venv/bin/python -m pytest -q -m 'not external' tests/test_llm_adapters.py tests/test_agent_session_offline.py tests/test_agent_loop_offline.py tests/test_background_shell_lifecycle.py` 实测 `113 passed in 0.61s`。
 - `.venv/bin/python -m pytest -q` 实测 `286 passed, 9 deselected in 13.68s`；真实模型、用户 MCP 配置和网络测试未运行。
-- 参数化 adapter 回归让 `_make_api_request()` 抛出同一个 `OSError`，分别断言只调用一次且抛出的对象身份不变（`tests/test_llm_adapters.py:326-349`）。
+- 参数化 adapter 回归在两个 SDK `create()` 边界抛出同一个 `OSError`，分别断言只调用一次且抛出的对象身份不变（`tests/test_llm_adapters.py::test_adapters_attempt_once_and_preserve_model_error`）。
 - SDK 构造断言继续锁定 `max_retries=0`，示例配置回归锁定不再公开 `retry` 字段（`tests/test_llm_adapters.py:210-268`）。
 
 ## 回头看
 
 实现删除 308 行 retry 实现和专用测试，新增的关键回归只验证两个当前不变量：项目恰好调用一次，SDK 不在背后重试。失败语义仍由普通 `OSError` 证明，没有为已删除的异常类型保留兼容层。ADR-0017、ADR-0018 与 ADR-0021 因模块整体删除而被推翻；它们对当时既有模块的局部判断仍保留为历史证据。
+
+2026-08-26：后续把两个单消费者 `_make_api_request()` 内联进 `generate()`，失败替身同步下沉到 SDK `create()`，上述一次调用与异常对象身份不变量不变；临时重建异常时两种 adapter 回归均转红。该私有结构精简没有改变本 ADR 的重试所有权决定。

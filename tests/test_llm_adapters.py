@@ -248,12 +248,18 @@ async def test_adapters_attempt_once_and_preserve_model_error(
     model_error = OSError("endpoint unavailable")
     attempts = 0
 
-    async def fail_once(*_args):
+    async def fail_once(*_args, **_kwargs):
         nonlocal attempts
         attempts += 1
         raise model_error
 
-    monkeypatch.setattr(adapter, "_make_api_request", fail_once)
+    failing_endpoint = SimpleNamespace(create=fail_once)
+    if adapter_type is AnthropicAdapter:
+        adapter.client = SimpleNamespace(messages=failing_endpoint)
+    else:
+        adapter.client = SimpleNamespace(
+            chat=SimpleNamespace(completions=failing_endpoint),
+        )
 
     with pytest.raises(OSError) as raised:
         await adapter.generate([Message(role="user", content="hello")])

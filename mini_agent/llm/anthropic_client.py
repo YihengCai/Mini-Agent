@@ -38,41 +38,6 @@ class AnthropicAdapter(LLMAdapter):
             max_retries=0,
         )
 
-    async def _make_api_request(
-        self,
-        system_message: str | None,
-        api_messages: list[dict[str, Any]],
-        tools: list[ToolDefinition] | None = None,
-    ) -> anthropic.types.Message:
-        """Execute one API request.
-
-        Args:
-            system_message: Optional system message
-            api_messages: List of messages in Anthropic format
-            tools: Optional list of tools
-
-        Returns:
-            Anthropic Message response
-
-        Raises:
-            Exception: API call failed
-        """
-        params = {
-            "model": self.model,
-            "max_tokens": self.max_output_tokens,
-            "messages": api_messages,
-        }
-
-        if system_message:
-            params["system"] = system_message
-
-        if tools:
-            params["tools"] = self._convert_tools(tools)
-
-        # Use Anthropic SDK's async messages.create
-        response = await self.client.messages.create(**params)
-        return response
-
     def _convert_tools(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]:
         """Convert tools to Anthropic format.
 
@@ -222,9 +187,15 @@ class AnthropicAdapter(LLMAdapter):
             LLMResponse containing the generated content
         """
         system_message, api_messages = self._convert_messages(messages)
-        response = await self._make_api_request(
-            system_message,
-            api_messages,
-            tools,
-        )
+        params = {
+            "model": self.model,
+            "max_tokens": self.max_output_tokens,
+            "messages": api_messages,
+        }
+        if system_message:
+            params["system"] = system_message
+        if tools:
+            params["tools"] = self._convert_tools(tools)
+
+        response = await self.client.messages.create(**params)
         return self._parse_response(response)

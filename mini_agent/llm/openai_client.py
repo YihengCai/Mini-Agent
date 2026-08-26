@@ -40,37 +40,6 @@ class OpenAIAdapter(LLMAdapter):
             max_retries=0,
         )
 
-    async def _make_api_request(
-        self,
-        api_messages: list[dict[str, Any]],
-        tools: list[ToolDefinition] | None = None,
-    ) -> Any:
-        """Execute one API request.
-
-        Args:
-            api_messages: List of messages in OpenAI format
-            tools: Optional list of tools
-
-        Returns:
-            OpenAI ChatCompletion response (full response including usage)
-
-        Raises:
-            Exception: API call failed
-        """
-        params = {
-            "model": self.model,
-            "messages": api_messages,
-            "max_tokens": self.max_output_tokens,
-        }
-
-        if tools:
-            params["tools"] = self._convert_tools(tools)
-
-        # Use OpenAI SDK's chat.completions.create
-        response = await self.client.chat.completions.create(**params)
-        # Return full response to access usage info
-        return response
-
     def _convert_tools(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]:
         """Convert tools to OpenAI format.
 
@@ -215,8 +184,13 @@ class OpenAIAdapter(LLMAdapter):
             LLMResponse containing the generated content
         """
         api_messages = self._convert_messages(messages)
-        response = await self._make_api_request(
-            api_messages,
-            tools,
-        )
+        params = {
+            "model": self.model,
+            "messages": api_messages,
+            "max_tokens": self.max_output_tokens,
+        }
+        if tools:
+            params["tools"] = self._convert_tools(tools)
+
+        response = await self.client.chat.completions.create(**params)
         return self._parse_response(response)

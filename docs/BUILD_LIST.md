@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-adapter 的一次性请求字典与恒定空占位值已删除并移入“最近完成”。下一项继续从静态消费者、可复现行为和一分钟内离线回归中选择；CLI 的完整宿主能力与文件/bash/skill/MCP 工具仍不在精简范围。
+adapter 的单消费者发送 seam 已内联并移入“最近完成”。下一项继续从静态消费者、可复现行为和一分钟内离线回归中选择；CLI 的完整宿主能力与文件/bash/skill/MCP 工具仍不在精简范围。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@ adapter 的一次性请求字典与恒定空占位值已删除并移入“最近
 
 ## 最近完成
 
+- **内联 adapter 单次请求 seam**：两个 `generate()` 直接组装现有 SDK 参数、各调用一次 `create()` 并解析响应，删除只被这里消费的 `_make_api_request()`；一次调用与原异常对象回归改在 SDK 边界注入失败。生产代码净减 55 行，测试净增 6 行，公开 contract 与 wire 请求不变。定向集合实测 `77 passed in 0.75s`；临时重建 SDK 异常时两种 adapter 回归均转红；完整离线集合实测 `252 passed, 5 deselected in 13.54s`。CLI 与全部工具未改，ADR-0027 的回头看已更新。
 - **拉直 adapter 私有请求组装**：两个 `generate()` 直接把消息转换结果交给单次 SDK 请求并解析响应，删除两个单消费者 `_prepare_request()` 和 OpenAI `_convert_messages()` 恒定返回的 `None`；tools/messages/response 的协议转换边界保留。生产代码净减 62 行，公开 contract 与 wire 请求不变。定向集合实测 `77 passed in 0.64s`；临时绕过两种消息转换时两项完整 SDK 请求断言均转红；完整离线集合实测 `252 passed, 5 deselected in 13.01s`。CLI 与全部工具未改。
 - **删除无消费者的终端辅助 API**：CLI 只使用 `Colors` 与 `calculate_display_width()`；现删除只由专用测试消费的截断、填充函数，以及 10 个全仓零引用的颜色常量。生产代码净减 106 行，测试净减 110 行并删除 17 项死代码自测；CLI、宽度算法和全部工具未改。定向集合实测 `54 passed in 0.69s`，临时恢复公开名字时负向回归实测转红；完整离线集合实测 `252 passed, 5 deselected in 13.63s`。取舍见 [`decisions/0036-remove-unused-terminal-helpers.md`](decisions/0036-remove-unused-terminal-helpers.md)。
 - **合并 Session 重复测试**：删除用 MagicMock、文件工具和临时目录重复多轮历史的 `tests/test_session_integration.py`；两次默认构造身份不同和历史 Message 深层快照迁入脚本化 LLM 的 core 回归，其余行为已有更强生命周期断言。测试净减 111 行；定向集合实测 `42 passed in 0.79s`，把 `get_history()` 退化为浅列表复制时关键断言实测转红；完整离线集合实测 `269 passed, 5 deselected in 13.41s`。生产代码和工具测试未改。
