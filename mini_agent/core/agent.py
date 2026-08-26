@@ -374,15 +374,12 @@ class _AgentLoop:
             if context.interrupt_event.is_set():
                 status = "interrupted"
                 stop_reason = "interrupted"
-                step_error = None
             elif step_number == context.max_steps:
                 status = "max_steps"
                 stop_reason = "max_steps"
-                step_error = None
             else:
                 status = "continued"
                 stop_reason = None
-                step_error = None
 
             self._emit_step_finished(
                 emitter=emitter,
@@ -394,7 +391,6 @@ class _AgentLoop:
             return _StepResult(
                 stop_reason=stop_reason,
                 last_assistant_message=response.content,
-                error=step_error,
             )
         except Exception as error:
             self._emit_step_finished(
