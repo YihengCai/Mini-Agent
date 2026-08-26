@@ -72,5 +72,6 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0035](0035-remove-unused-session-config-aliases.md) | 删除无消费者的 Session 配置别名 | 已采纳 |
 | [0036](0036-remove-unused-terminal-helpers.md) | 删除无消费者的终端辅助 API | 已采纳 |
 | [0037](0037-one-core-facing-model-contract.md) | 删除重复模型基类，只保留 core-facing Protocol | 已采纳 |
+| [0038](0038-separate-runtime-and-dev-dependencies.md) | 分开直接运行依赖与开发依赖 | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。

@@ -121,6 +121,8 @@ uv sync
 cp mini_agent/config/config-example.yaml mini_agent/config/config.yaml
 ```
 
+生产安装只声明代码直接导入的 6 个库；`uv sync` 默认再安装 `dev` 开发组中的 pytest 与 pytest-asyncio。仓库不把 pip/pipx、requests 或未配置入口的覆盖率/并行测试插件作为运行能力，依赖与锁图取舍见 [ADR-0038](docs/decisions/0038-separate-runtime-and-dev-dependencies.md)。
+
 配置文件根级直接使用 `llm`、`agent`、`tools`。旧扁平配置需要把 `adapter`、`api_key`、`api_base`、`model`、`max_output_tokens` 移入 `llm`，把 `max_steps`、`system_prompt_path` 移入 `agent`，并删除 `provider`、`local_compaction_token_limit`、`workspace_dir`、`retry` 与 `tools.enable_note`；其他未知字段也会拒绝加载。工作区请使用 CLI 的 `--workspace`。`llm.adapter` 当前可选 `anthropic` 或 `openai`，只选择 wire 格式；`api_base` 会逐字交给对应 adapter。模板中的占位值故意不能直接运行。`config.yaml` 与 `mcp.json` 含密钥，已被 `.gitignore` 排除，不要提交。
 
 ### 交互式手动体验
@@ -161,7 +163,7 @@ uv run mini-agent log
 .venv/bin/python -m pytest -q
 ```
 
-显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `257 passed, 5 deselected in 13.34s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
+显式排除 `external` 的完整集合在 2026-08-26 最近一次实测为 `257 passed, 5 deselected in 13.62s`，没有产生警告。显式外部入口是 `.venv/bin/python -m pytest --run-external -m external -q`；它可能访问真实端点、启动已配置的 MCP server、修改外部状态并产生费用，本次没有执行。只写 `-m external` 不会绕过收集门。
 
 ## 文档入口
 
