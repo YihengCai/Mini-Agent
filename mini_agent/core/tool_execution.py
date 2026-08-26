@@ -64,14 +64,13 @@ class ToolBatchExecutor:
                 for name, registered_tool in registered.items()
             }
         )
-        self._claimed_call_ids: set[str] = set()
 
     @property
     def tools(self) -> Mapping[str, Tool]:
         """Return raw implementations for trusted host inspection only.
 
-        Model-response calls must use ``execute_batch`` so validation, call-ID
-        ownership, events, and result normalization stay on one path.
+        Model-response calls must use ``execute_batch`` so validation, events,
+        and result normalization stay on one path.
         """
 
         return self._tools
@@ -100,11 +99,6 @@ class ToolBatchExecutor:
 
         messages: list[Message] = []
         for index, tool_call in enumerate(tool_calls, start=1):
-            # Validation covers the complete batch before any side effect, while
-            # ownership is claimed only when this individual call is about to
-            # start. A cancelled earlier call therefore cannot consume IDs for
-            # later calls that never started.
-            self._claimed_call_ids.add(tool_call.id)
             emit(
                 ToolStarted(
                     index=index,
@@ -151,11 +145,6 @@ class ToolBatchExecutor:
                 raise InvalidToolBatchError(
                     "Invalid tool call batch: "
                     f"duplicate tool call ID {call_id!r} at index {index}"
-                )
-            if call_id in self._claimed_call_ids:
-                raise InvalidToolBatchError(
-                    "Invalid tool call batch: "
-                    f"tool call ID {call_id!r} was already claimed in this Session"
                 )
             batch_ids.add(call_id)
 

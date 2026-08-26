@@ -93,12 +93,6 @@ class BlockingEchoTool(MutableEchoTool):
         return ToolResult(success=True, content=f"echo:{text}")
 
 
-class CancellingTool(MutableEchoTool):
-    async def execute(self, text: str) -> ToolResult:
-        self.calls.append(text)
-        raise asyncio.CancelledError
-
-
 class MutatingArgumentsTool(Tool):
     def __init__(self) -> None:
         self.received_payload: dict | None = None
@@ -303,88 +297,39 @@ async def test_invalid_call_structure_rejects_before_execution(
 
 
 @pytest.mark.asyncio
-async def test_reused_id_in_a_later_step_does_not_repeat_the_side_effect(
+async def test_completed_call_id_can_be_reused_across_steps_and_turns(
     tmp_path,
 ) -> None:
     llm = ScriptedLLM(
         [
             ScriptedCall(response(tool_call("reused", "first"))),
             ScriptedCall(response(tool_call("reused", "second"))),
+            ScriptedCall(response(tool_call("reused", "third"))),
+            ScriptedCall(
+                LLMResponse(
+                    content="done",
+                    tool_calls=[],
+                    finish_reason="stop",
+                    usage=None,
+                )
+            ),
         ]
     )
     tool = MutableEchoTool()
     session = build_session(tmp_path, llm, [tool], max_steps=2)
 
     with llm:
-        outcome = await session.start_turn("reject reused ID").wait()
+        first_turn = await session.start_turn("reuse within this turn").wait()
+        second_turn = await session.start_turn("reuse in the next turn").wait()
 
-    assert outcome.stop_reason == "failed"
-    assert outcome.error is not None
-    assert outcome.error.kind == "tool_protocol_error"
-    assert "already claimed" in outcome.error.message
-    assert tool.calls == ["first"]
-    assert [message.role for message in session.get_history()] == [
-        "system",
-        "user",
-        "assistant",
-        "tool",
-    ]
-
-
-@pytest.mark.asyncio
-async def test_reused_id_in_a_later_turn_does_not_repeat_the_side_effect(
-    tmp_path,
-) -> None:
-    llm = ScriptedLLM(
-        [
-            ScriptedCall(response(tool_call("cross-turn", "first"))),
-            ScriptedCall(response(tool_call("cross-turn", "second"))),
-        ]
-    )
-    tool = MutableEchoTool()
-    session = build_session(tmp_path, llm, [tool])
-
-    with llm:
-        first = await session.start_turn("first turn").wait()
-        second = await session.start_turn("second turn").wait()
-
-    assert first.stop_reason == "max_steps"
-    assert second.stop_reason == "failed"
-    assert second.error is not None
-    assert second.error.kind == "tool_protocol_error"
-    assert tool.calls == ["first"]
-    assert [message.role for message in session.get_history()] == [
-        "system",
-        "user",
-        "assistant",
-        "tool",
-        "user",
-    ]
-
-
-@pytest.mark.asyncio
-async def test_rejected_batch_does_not_claim_any_call_id(tmp_path) -> None:
-    llm = ScriptedLLM(
-        [
-            ScriptedCall(
-                response(
-                    tool_call("retryable", "invalid-first"),
-                    tool_call("retryable", "invalid-second"),
-                )
-            ),
-            ScriptedCall(response(tool_call("retryable", "retried"))),
-        ]
-    )
-    tool = MutableEchoTool()
-    session = build_session(tmp_path, llm, [tool])
-
-    with llm:
-        rejected = await session.start_turn("reject the malformed batch").wait()
-        retried = await session.start_turn("retry its unclaimed ID").wait()
-
-    assert rejected.stop_reason == "failed"
-    assert retried.stop_reason == "max_steps"
-    assert tool.calls == ["retried"]
+    assert first_turn.stop_reason == "max_steps"
+    assert second_turn.stop_reason == "end_turn"
+    assert tool.calls == ["first", "second", "third"]
+    assert [
+        message.tool_call_id
+        for message in session.get_history()
+        if message.role == "tool"
+    ] == ["reused", "reused", "reused"]
 
 
 @pytest.mark.asyncio
@@ -581,52 +526,6 @@ async def test_batch_is_serial_and_interrupts_only_after_all_calls_finish(
         "second",
         "third",
     ]
-
-
-@pytest.mark.asyncio
-async def test_cancellation_claims_started_id_but_not_unstarted_batch_ids(
-    tmp_path,
-) -> None:
-    llm = ScriptedLLM(
-        [
-            ScriptedCall(
-                response(
-                    tool_call("started", "cancel-now", name="cancel"),
-                    tool_call("not-started", "queued"),
-                )
-            ),
-            ScriptedCall(response(tool_call("not-started", "retried"))),
-            ScriptedCall(
-                response(tool_call("started", "must-not-repeat", name="cancel"))
-            ),
-        ]
-    )
-    cancelling = CancellingTool("cancel")
-    echo = MutableEchoTool()
-    session = build_session(tmp_path, llm, [cancelling, echo])
-    cancellation_events = []
-
-    with pytest.raises(asyncio.CancelledError):
-        await session.start_turn(
-            "cancel during the first call",
-            event_sink=cancellation_events.append,
-        ).wait()
-    retried = await session.start_turn("retry the call that never started").wait()
-    rejected = await session.start_turn("do not repeat the started call").wait()
-    llm.assert_complete()
-
-    assert retried.stop_reason == "max_steps"
-    assert rejected.stop_reason == "failed"
-    assert rejected.error is not None
-    assert rejected.error.kind == "tool_protocol_error"
-    assert "already claimed" in rejected.error.message
-    assert cancelling.calls == ["cancel-now"]
-    assert echo.calls == ["retried"]
-    assert [
-        (type(envelope.event), envelope.event.index)
-        for envelope in cancellation_events
-        if isinstance(envelope.event, (ToolStarted, ToolFinished))
-    ] == [(ToolStarted, 1)]
 
 
 @pytest.mark.asyncio

@@ -248,15 +248,6 @@ def test_tool_call_pair_check_allows_multiple_results_in_any_order():
             "Invalid LLM request #1: duplicate tool result for 'same' at message 2",
         ),
         (
-            [
-                Message(role="assistant", content="", tool_calls=[tool_call("reused")]),
-                Message(role="tool", content="first", tool_call_id="reused"),
-                Message(role="assistant", content="", tool_calls=[tool_call("reused")]),
-            ],
-            "Invalid LLM request #1: duplicate tool call ID 'reused' at message 2; "
-            "first declared at message 0",
-        ),
-        (
             [Message(role="assistant", content="", tool_calls=[tool_call("pending")])],
             "Invalid LLM request #1: tool call(s) missing results: "
             "'pending' (message 0)",

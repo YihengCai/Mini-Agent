@@ -63,3 +63,5 @@ Session 身份、模型引用、工具映射、步数和 token 上限在接纳�
 ADR-0006 删除摘要维护后，Step 现在覆盖全部模型调用，不再需要 `step=None` 的模型事件；Turn 事件仍使用可选 Step 身份。跨 Turn 完整历史、配置快照、工具批次提交和中断边界回归保持绿色，因此生命周期主 contract 没有随压缩删除而变化。
 
 [ADR-0008](0008-session-owned-tool-batch-executor.md) 随后把模型响应触发的工具执行移入 Session 持有的批次执行器，并增加注册冻结、完整预检、调用标识符账本和 `tool_protocol_error`。assistant 调用与全部结果仍由 Step 成组提交，中断仍在完整批次后生效，因此本 ADR 的生命周期边界没有改变；新 ADR 只细化了工具批次内部的状态所有权和结构失败分类。
+
+ADR-0031 后来删除其中的 Session 级调用标识符账本，但没有改变 Step 的批次执行与成组提交边界。

@@ -29,22 +29,22 @@ class ScriptedCall:
 
 def validate_tool_call_pairs(messages: tuple[Message, ...] | list[Message]) -> None:
     """Check that every tool call has exactly one later result with the same ID."""
-    seen_calls: dict[str, int] = {}
     pending_calls: dict[str, int] = {}
+    completed_calls: set[str] = set()
 
     for message_index, message in enumerate(messages):
         for tool_call in message.tool_calls or []:
             call_id = tool_call.id
             if not call_id:
                 raise AssertionError(f"tool call at message {message_index} has an empty ID")
-            if call_id in seen_calls:
-                first_index = seen_calls[call_id]
+            if call_id in pending_calls:
+                first_index = pending_calls[call_id]
                 raise AssertionError(
                     f"duplicate tool call ID {call_id!r} at message {message_index}; "
                     f"first declared at message {first_index}"
                 )
-            seen_calls[call_id] = message_index
             pending_calls[call_id] = message_index
+            completed_calls.discard(call_id)
 
         if message.role != "tool":
             continue
@@ -52,15 +52,17 @@ def validate_tool_call_pairs(messages: tuple[Message, ...] | list[Message]) -> N
         call_id = message.tool_call_id
         if not call_id:
             raise AssertionError(f"tool result at message {message_index} has no tool_call_id")
-        if call_id not in seen_calls:
-            raise AssertionError(
-                f"tool result at message {message_index} references unknown tool call {call_id!r}"
-            )
         if call_id not in pending_calls:
+            if call_id not in completed_calls:
+                raise AssertionError(
+                    f"tool result at message {message_index} references unknown "
+                    f"tool call {call_id!r}"
+                )
             raise AssertionError(
                 f"duplicate tool result for {call_id!r} at message {message_index}"
             )
         del pending_calls[call_id]
+        completed_calls.add(call_id)
 
     if pending_calls:
         missing = ", ".join(

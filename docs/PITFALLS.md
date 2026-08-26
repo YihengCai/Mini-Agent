@@ -180,16 +180,27 @@
 - 原以为：工具批次完整预检通过后，在首个副作用前一次性认领全部调用标识符，最能保证取消期间不会重复副作用。
 - 实际是：首个工具抛出 `CancelledError` 时，后项没有产生 `ToolStarted`、也从未执行，但初版账本已经永久占用后项标识符；下一 Turn 单独重试它会得到 `tool_protocol_error`。与此同时，已启动首项确实需要保持认领，不能简单把认领推迟到成功返回后。
 - 根因：批次结构合法、调用被接纳和副作用开始是三个不同状态；`BaseException` 可以在合法批次中途逃逸。完整预检必须先于全部副作用，但调用标识符只能在该项即将发出 `ToolStarted` 并执行时认领。
-- 复现：把 `mini_agent/core/tool_execution.py:98-106` 改回“预检后、循环前把整批标识符写入账本”，再运行：
+- 复现：在仓库根创建提交 `528da1f` 的临时 worktree，再把其中 `mini_agent/core/tool_execution.py:98-106` 改回“预检后、循环前把整批标识符写入账本”并运行原回归：
 
   ```bash
-  .venv/bin/python -m pytest -q \
-    tests/test_tool_execution.py::test_cancellation_claims_started_id_but_not_unstarted_batch_ids
+  p009_repo="$(pwd)"
+  p009_tmp="$(mktemp -d)"
+  p009_tree="$p009_tmp/checkout"
+  git worktree add --detach "$p009_tree" 528da1f
+  (
+    cd "$p009_tree"
+    "$p009_repo/.venv/bin/python" -m pytest -q \
+      tests/test_tool_execution.py::test_cancellation_claims_started_id_but_not_unstarted_batch_ids
+  )
+  git worktree remove --force "$p009_tree"
+  rmdir "$p009_tmp"
   ```
 
   初版语义会让 `not-started` 的下一 Turn 重试失败；修复后实测输出为 `1 passed in 0.44s`，并同时断言取消路径只有 `ToolStarted(1)`、没有 `ToolFinished` 或后项工具事件。
-- 教训：任何 agent 工具执行器都要把“整批验证”和“逐项副作用所有权”分开；最多执行一次账本应在每项真正开始前认领，不能把尚未启动的合法后项当成已执行事实。
-- 关联：`mini_agent/core/tool_execution.py:90-158`、`tests/test_tool_execution.py:566-612`、[ADR-0008](decisions/0008-session-owned-tool-batch-executor.md)、提交 `528da1f`。
+- 教训：任何 agent 工具执行器都要把“整批验证”和“逐项副作用所有权”分开；若选择最多执行一次账本，应在每项真正开始前认领，不能把尚未启动的合法后项当成已执行事实。
+- 关联：提交 `528da1f` 中的 `mini_agent/core/tool_execution.py:90-158` 与 `tests/test_tool_execution.py:569-612`、[ADR-0008](decisions/0008-session-owned-tool-batch-executor.md)。
+
+2026-08-26 回看：后续证据证明调用标识符不是幂等键，换一个 ID 就能重复同一副作用；不可持久恢复的 Session 隐藏集合因此由 [ADR-0031](decisions/0031-scope-tool-call-ids-to-pending-batches.md) 删除。本条仍保留“若存在副作用账本，批次合法不等于各项已开始”的历史教训；复现需在提交 `528da1f` 的临时 worktree 中按上文恢复整批认领后运行原测试。
 
 ## P-010 · 统一 finally 不等于资源边界和主异常都正确
 

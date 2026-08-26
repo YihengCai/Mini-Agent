@@ -42,7 +42,7 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0005](0005-explicit-model-api-adapters.md) | 以中性 contract、静态注册表和具体 adapter 隔离模型 API 差异 | 已采纳 |
 | [0006](0006-remove-legacy-local-compaction.md) | 删除旧本地压缩，暂以完整历史直传 | 已采纳 |
 | [0007](0007-explicit-opt-in-for-external-tests.md) | 外部测试必须通过 marker 与收集门显式允许 | 已采纳 |
-| [0008](0008-session-owned-tool-batch-executor.md) | Session 以冻结注册与批次执行器统一模型工具调用 | 已采纳 |
+| [0008](0008-session-owned-tool-batch-executor.md) | Session 以冻结注册与批次执行器统一模型工具调用 | 部分推翻（账本见 ADR-0031） |
 | [0009](0009-runtime-owned-background-shells.md) | 后台 shell 由一次 CLI runtime 显式持有并统一关闭 | 已采纳 |
 | [0010](0010-model-facing-tool-output-budget.md) | 工具原始事实保持完整，模型消息投影按 UTF-8 字节约束 | 已采纳 |
 | [0011](0011-runtime-owned-mcp-connections.md) | MCP 超时与连接由一次 CLI runtime 显式持有并统一关闭 | 已采纳 |
@@ -65,5 +65,6 @@ ADR 记录实现过程中真实发生的选择与取舍，不替未来模块预�
 | [0028](0028-config-file-matches-runtime-model.md) | 配置文件直接匹配运行时模型 | 已采纳 |
 | [0029](0029-remove-unprobed-thinking-field.md) | 未探测推理状态不进入共享 schema | 已采纳 |
 | [0030](0030-remove-incomplete-note-memory.md) | 删除不可读取的 Note 半能力 | 已采纳 |
+| [0031](0031-scope-tool-call-ids-to-pending-batches.md) | 调用标识符只约束未完成工具批次 | 已采纳 |
 
 此前批量生成的实现前提案已从活跃文档删除；需要时可以从 Git 历史查阅，但不占用正式编号。

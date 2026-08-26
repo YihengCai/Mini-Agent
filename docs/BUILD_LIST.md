@@ -8,7 +8,7 @@
 
 ## 当前工作：待选择
 
-不可读取的 Note 半能力已经删除并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
+Session 级工具调用标识符账本已经删除并移入“最近完成”。下一项仍从当前代码的可复现失败进入；这里不为候选主题提前展开规格或承诺实现顺序。
 
 ## 可选研究主题
 
@@ -52,6 +52,7 @@
 
 ## 最近完成
 
+- **调用标识符只约束未完成批次**：删除执行器中永不清空、不可恢复的 Session 隐藏集合；同批空 ID、非法类型和重复 ID 继续在零副作用前失败，已完成批次则可跨 Step/Turn 复用 ID。生产代码净减 11 行，测试净减 108 行；一个正向回归同时检出生产账本和测试替身的全历史唯一规则。相关集合实测 `67 passed in 0.73s`，完整离线集合实测 `273 passed, 8 deselected in 13.76s`。取舍见 [`decisions/0031-scope-tool-call-ids-to-pending-batches.md`](decisions/0031-scope-tool-call-ids-to-pending-batches.md)。
 - **删除不可读取的 Note 半能力**：删除只在运行时注册写入端的 Note 模块、配置开关、CLI 接线、导出、专用离线测试与外部演示；真正的记忆能力留给“会话事实记录与模型请求视图”topic，不以补注册扩大当前范围。生产代码净减 222 行，测试净减 300 行；定向离线集合实测 `75 passed in 4.52s`，完整离线集合实测 `277 passed, 8 deselected in 14.11s`。取舍见 [`decisions/0030-remove-incomplete-note-memory.md`](decisions/0030-remove-incomplete-note-memory.md)。
 - **删除未探测的 `thinking` 半能力**：从共享消息/响应 schema、core、CLI 与日志删除始终为空且无法往返的字段；Anthropic-compatible 未知 thinking block 继续忽略，两种 adapter 的可见 assistant/tool 历史映射不变。定向集合实测 `111 passed in 0.82s`，完整离线集合实测 `285 passed, 9 deselected in 13.46s`。取舍见 [`decisions/0029-remove-unprobed-thinking-field.md`](decisions/0029-remove-unprobed-thinking-field.md)。
 - **配置文件与运行时模型同构**：YAML 根级直接使用 `llm`、`agent`、`tools`；删除无调用的 `Config.load()`、扁平字段分片、必填项扫描和四类定向迁移分支，加载后只做一次严格模型校验。配置、来源与 CLI 接线集合实测 `43 passed in 0.70s`，完整离线集合实测 `285 passed, 9 deselected in 13.90s`。取舍见 [`decisions/0028-config-file-matches-runtime-model.md`](decisions/0028-config-file-matches-runtime-model.md)。
@@ -71,7 +72,7 @@
 - **MCP 状态与连接运行时所有权**：不可变超时快照、连接接纳与关闭现在由一次 CLI runtime 的 `MCPManager` 持有；server 覆盖仍优先，连接在 `await connect()` 前登记，关闭串行化并只移除成功项，取消后的 transport 句柄可重试。6 项新增所有权回归与 MCP/CLI 定向集合实测 `55 passed, 5 deselected in 0.71s`；显式排除 `external` 的完整集合实测 `237 passed, 9 deselected in 13.10s`。取舍见 [`decisions/0011-runtime-owned-mcp-connections.md`](decisions/0011-runtime-owned-mcp-connections.md)。
 - **模型可见工具输出预算**：原始 `ToolResult` 与 `ToolFinished` 保持完整，批次执行器只把模型消息投影限制为每条 64 KiB UTF-8 字节；精确边界不变，超限保留首尾并报告原始、保留、省略和上限字节数，失败前缀计入预算。3 项新增回归覆盖 UTF-8、事件所有权、观察者变异、历史、下一次请求与批次顺序；删除挂钩时集成回归实测转红。显式排除 `external` 的完整集合实测 `230 passed, 9 deselected in 13.57s`，取舍见 [`decisions/0010-model-facing-tool-output-budget.md`](decisions/0010-model-facing-tool-output-budget.md)。
 - **后台 shell 状态与资源所有权**：配置和模型客户端成功后，一次 CLI runtime 持有显式注入三个 shell 工具的 manager；`/clear` 保留它，退出才按 shell、MCP 顺序关闭。manager 隔离状态，拒绝重复与关闭后登记，串行化并发 `close()`，等待 monitor 和强杀后 subprocess，并保留失败项供重试。25 项定向回归与显式排除 `external` 的完整集合实测为 `227 passed, 9 deselected in 14.00s`，取舍见 [`decisions/0009-runtime-owned-background-shells.md`](decisions/0009-runtime-owned-background-shells.md)。
-- **模型工具批次强制点**：Session 持有冻结注册与调用标识符账本；agent loop 在接纳边界深拷贝整个模型响应，批次随后在首个副作用前完整预检，再逐项认领并串行执行。结构错误使用 `tool_protocol_error`，工具自身失败保留为同序结果，模型客户端、参数、事件和历史使用独立快照，assistant 调用与全部结果成组提交。20 项定向回归覆盖重名、跨 Step/Turn 重放、非法批次零副作用、取消、串行中断、参数变异和校验后响应变异；显式排除 `external` 的完整集合实测 `231 passed, 9 deselected in 13.51s`。取舍见 [`decisions/0008-session-owned-tool-batch-executor.md`](decisions/0008-session-owned-tool-batch-executor.md)。
+- **模型工具批次强制点**：Session 持有冻结注册与批次执行器；agent loop 在接纳边界深拷贝整个模型响应，批次在首个副作用前完整预检，再串行执行。结构错误使用 `tool_protocol_error`，工具自身失败保留为同序结果，模型客户端、参数、事件和历史使用独立快照，assistant 调用与全部结果成组提交。原 Session 级调用标识符账本后来由 ADR-0031 删除，其余强制点不变；取舍见 [`decisions/0008-session-owned-tool-batch-executor.md`](decisions/0008-session-owned-tool-batch-executor.md)。
 - **默认测试入口安全、离线**：真实模型、用户 MCP 配置和网络测试统一使用 `external` marker；默认配置与根级收集门双层排除，只有显式 `--run-external` 才放行。MCP 混合模块的 24 项离线测试保留在默认集合，入口回归能检出漏标、普通 `-m` 绕过和 marker 拼错；完整默认入口实测 `183 passed, 9 deselected in 13.82s`。取舍见 [`decisions/0007-explicit-opt-in-for-external-tests.md`](decisions/0007-explicit-opt-in-for-external-tests.md)。
 - **删除旧本地压缩**：Session 暂以完整模型历史直传；本地 token 估算、摘要替换、四类压缩事件、配置字段、摘要用途标签和 `tiktoken`/`regex` 依赖已经删除，旧配置键明确失败。64 项定向回归与锁文件校验通过，标准离线集合共 `157 passed`。取舍见 [`decisions/0006-remove-legacy-local-compaction.md`](decisions/0006-remove-legacy-local-compaction.md)。
 - **模型 API adapter 边界**：core 通过 `ModelClient` 调用模型并使用中性 `ToolDefinition`；显式注册表选择具体 wire adapter，端点、模型和输出上限不再由域名或 vendor 默认值推断。adapter 离线测试覆盖配置迁移、逐字端点传递、SDK 请求、工具历史、基础响应、SDK retry 关闭与单次项目调用；未探测 `usage` 只供观察。取舍见 [`decisions/0005-explicit-model-api-adapters.md`](decisions/0005-explicit-model-api-adapters.md)。
